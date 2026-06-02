@@ -13,12 +13,13 @@ pub fn u256_to_scalar(value: U256) -> Result<Scalar> {
 }
 
 #[cfg(test)]
+pub fn parse_scalar(s: &'static str) -> Scalar {
+    s.parse().unwrap()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    fn parse_scalar(s: &'static str) -> Scalar {
-        s.parse().unwrap()
-    }
 
     #[test]
     fn test_scalar_to_u256() {
