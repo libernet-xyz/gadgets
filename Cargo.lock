@@ -570,11 +570,12 @@ dependencies = [
 
 [[package]]
 name = "starkom-gadgets"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "ff",
  "primitive-types",
+ "sha3",
  "starkom-bluesky",
  "starkom-pcs",
  "starkom-plonk",
