@@ -13,6 +13,7 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 anyhow = "1.0.102"
 ff = "0.13.1"
+primitive-types = "0.14.0"
 starkom-bluesky = "2.2.0"
 starkom-plonk = "1.1.0"
 starkom-poseidon2 = "2.0.0"
