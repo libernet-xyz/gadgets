@@ -41,7 +41,7 @@ pub fn identity_commitment(secret_key: Scalar) -> Scalar {
 /// be equal to `N+3`. `M` is used as the size of the internal HMAC hash and is equal to the size of
 /// the signed message plus 3 scalars for: the DST, the secret key, and the message length.
 #[derive(Debug, Default, Clone)]
-struct Chip<const N: usize, const M: usize> {
+pub struct Chip<const N: usize, const M: usize> {
     secret_key: Scalar,
     identity_hasher: poseidon2::Chip<3, 2>,
     authentication_hasher: poseidon2::Chip<3, M>,
@@ -113,7 +113,7 @@ impl<const N: usize, const M: usize> PlonkChip<N, 2> for Chip<N, M> {
 
 /// A PLONK circuit to sign messages with a secret key using zkMAC.
 #[derive(Debug, Clone)]
-struct SignerCircuit<const N: usize, const M: usize> {
+pub struct SignerCircuit<const N: usize, const M: usize> {
     chip: Chip<N, M>,
     inner: Circuit,
     identity_commitment_wire: Wire,
@@ -146,11 +146,11 @@ impl<const N: usize, const M: usize> SignerCircuit<N, M> {
         }
     }
 
-    fn new(secret_key: Scalar) -> Self {
+    pub fn new(secret_key: Scalar) -> Self {
         Self::make(Some(secret_key))
     }
 
-    fn to_verifier<H: Hash<Scalar>>(self, blowup_log2: usize) -> VerifierCircuit<H, N> {
+    pub fn to_verifier<H: Hash<Scalar>>(self, blowup_log2: usize) -> VerifierCircuit<H, N> {
         VerifierCircuit {
             inner: self.inner.to_compressed::<H>(blowup_log2),
             identity_commitment_wire: self.identity_commitment_wire,
@@ -193,7 +193,7 @@ impl<H: Hash<Scalar>, const N: usize, const M: usize> AbstractSignerCircuit<H>
 }
 
 #[derive(Debug, Clone)]
-struct VerifierCircuit<H: Hash<Scalar>, const N: usize> {
+pub struct VerifierCircuit<H: Hash<Scalar>, const N: usize> {
     inner: CompressedCircuit,
     identity_commitment_wire: Wire,
     message_wires: [Wire; N],
