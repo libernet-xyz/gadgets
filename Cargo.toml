@@ -1,0 +1,21 @@
+[package]
+name = "starkom-gadgets"
+version = "1.0.0"
+description = "Reusable Starkom chips."
+license = "Apache-2.0"
+repository = "https://github.com/libernet-xyz/gadgets.git"
+readme = "README.md"
+edition = "2024"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+anyhow = "1.0.102"
+ff = "0.13.1"
+starkom-bluesky = "2.2.0"
+starkom-plonk = "1.1.0"
+starkom-poseidon2 = "2.0.0"
+
+[dev-dependencies]
+starkom-pcs = "1.1.0"
