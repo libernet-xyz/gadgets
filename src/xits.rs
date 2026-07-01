@@ -1,8 +1,7 @@
-use crate::utils;
 use anyhow::Result;
-use ff::{Field, PrimeField};
 use primitive_types::U256;
 use starkom_bluesky::Scalar;
+use starkom_ff::{Field, Field256, PrimeField};
 use starkom_plonk::{Chip as PlonkChip, CircuitBuilder, Wire, WireOrUnconstrained, Witness};
 
 /// Returns the smallest power of three that is >= n (returns 1 for n=0).
@@ -82,12 +81,12 @@ impl PlonkChip<1, 1> for LogicalNotChip {
 }
 
 pub fn and1(value: Scalar) -> Scalar {
-    let lsb = value.to_little_endian()[0];
+    let lsb = value.to_le_bytes()[0];
     Scalar::from((lsb & 1) as u64)
 }
 
 pub fn shr(value: Scalar, count: usize) -> Scalar {
-    utils::u256_to_scalar(utils::scalar_to_u256(value) >> U256::from(count)).unwrap()
+    (value.to_u256() >> U256::from(count)).try_into().unwrap()
 }
 
 pub fn shr1(value: Scalar) -> Scalar {
@@ -105,7 +104,7 @@ pub fn decompose_bits<const N: usize>(mut value: U256) -> [Scalar; N] {
 }
 
 pub fn decompose_scalar_bits<const N: usize>(value: Scalar) -> [Scalar; N] {
-    decompose_bits::<N>(utils::scalar_to_u256(value))
+    decompose_bits::<N>(value.to_u256())
 }
 
 /// Decomposes the input signal into N bits.
@@ -126,7 +125,8 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
         let mut sum = builder.add_const_gate(Scalar::ZERO);
         let mut power = Scalar::from_const(1);
         let bits = std::array::from_fn(|_| {
-            sum = builder.add_linear_combination_gate(1.into(), sum.into(), power, None);
+            sum =
+                builder.add_linear_combination_gate(Scalar::from_const(1), sum.into(), power, None);
             power = power.double();
             let bit = Some(Wire::RightIn(sum.gate()));
             builder.add_bit_assertion_gate(bit);
@@ -152,7 +152,7 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
         let bits = std::array::from_fn(|_| {
             let bit = and1(input);
             input = shr1(input);
-            sum = witness.combine(1.into(), sum.into(), power, bit.into());
+            sum = witness.combine(Scalar::from_const(1), sum.into(), power, bit.into());
             power = power.double();
             let bit = Wire::RightIn(sum.gate()).into();
             witness.assert_bit(bit);
@@ -186,7 +186,7 @@ impl<const N: usize> BitComparatorChip<N> {
 
 impl<const N: usize> BitComparatorChip<N> {
     fn get_rhs_bit(&self, i: usize) -> Scalar {
-        utils::u256_to_scalar((self.rhs >> i) & 1.into()).unwrap()
+        ((self.rhs >> i) & 1.into()).try_into().unwrap()
     }
 }
 
@@ -266,19 +266,19 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
 }
 
 pub fn div_pow3(value: Scalar, exp: usize) -> Scalar {
-    let dividend = utils::scalar_to_u256(value);
+    let dividend = value.to_u256();
     let divisor = U256::from(3).pow(exp.into());
-    utils::u256_to_scalar(dividend / divisor).unwrap()
+    (dividend / divisor).try_into().unwrap()
 }
 
 pub fn div3(value: Scalar) -> Scalar {
-    let dividend = utils::scalar_to_u256(value);
-    utils::u256_to_scalar(dividend / 3).unwrap()
+    let dividend = value.to_u256();
+    (dividend / 3).try_into().unwrap()
 }
 
 pub fn mod3(value: Scalar) -> Scalar {
-    let value = utils::scalar_to_u256(value);
-    utils::u256_to_scalar(value % 3).unwrap()
+    let value = value.to_u256();
+    (value % 3).try_into().unwrap()
 }
 
 pub fn decompose_trits<const N: usize>(mut value: U256) -> [Scalar; N] {
@@ -292,7 +292,7 @@ pub fn decompose_trits<const N: usize>(mut value: U256) -> [Scalar; N] {
 }
 
 pub fn decompose_scalar_trits<const N: usize>(value: Scalar) -> [Scalar; N] {
-    decompose_trits::<N>(utils::scalar_to_u256(value))
+    decompose_trits::<N>(value.to_u256())
 }
 
 /// Decomposes the input signal into N trits.
@@ -311,7 +311,8 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
         let mut sum = builder.add_const_gate(Scalar::ZERO);
         let mut power = Scalar::from_const(1);
         let trits = std::array::from_fn(|_| {
-            sum = builder.add_linear_combination_gate(1.into(), sum.into(), power, None);
+            sum =
+                builder.add_linear_combination_gate(Scalar::from_const(1), sum.into(), power, None);
             power = power.double() + power;
             let trit = Some(Wire::RightIn(sum.gate()));
             builder.add_trit_assertion_gate(trit);
@@ -337,7 +338,7 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
         let trits = std::array::from_fn(|_| {
             let trit = mod3(input);
             input = div3(input);
-            sum = witness.combine(1.into(), sum.into(), power, trit.into());
+            sum = witness.combine(Scalar::from_const(1), sum.into(), power, trit.into());
             power = power.double() + power;
             let trit = Wire::RightIn(sum.gate()).into();
             witness.assert_trit(trit);
@@ -370,7 +371,9 @@ impl<const N: usize> TritComparatorChip<N> {
 
     fn get_rhs_trit(&self, i: usize) -> Scalar {
         let three = U256::from(3);
-        utils::u256_to_scalar((self.rhs / three.pow(i.into())) % three).unwrap()
+        ((self.rhs / three.pow(i.into())) % three)
+            .try_into()
+            .unwrap()
     }
 
     fn build_compare_trits(builder: &mut CircuitBuilder, lhs: Option<Wire>, rhs: Scalar) -> Wire {
@@ -480,7 +483,7 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::parse_scalar;
+    use starkom_bluesky::{from_const, parse_scalar};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::NUM_BLINDING_ROWS;
     use std::cmp::Ordering;
@@ -537,10 +540,10 @@ mod tests {
 
     #[test]
     fn test_and1() {
-        assert_eq!(and1(42.into()), 0.into());
-        assert_eq!(and1(43.into()), 1.into());
-        assert_eq!(and1(44.into()), 0.into());
-        assert_eq!(and1(45.into()), 1.into());
+        assert_eq!(and1(from_const(42)), from_const(0));
+        assert_eq!(and1(from_const(43)), from_const(1));
+        assert_eq!(and1(from_const(44)), from_const(0));
+        assert_eq!(and1(from_const(45)), from_const(1));
     }
 
     #[test]
@@ -549,25 +552,25 @@ mod tests {
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
             )),
-            0.into()
+            from_const(0)
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
             )),
-            1.into()
+            from_const(1)
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f22"
             )),
-            0.into()
+            from_const(0)
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f23"
             )),
-            1.into()
+            from_const(1)
         );
     }
 
@@ -594,51 +597,63 @@ mod tests {
 
     #[test]
     fn test_decompose_bits_one() {
-        assert_eq!(decompose_bits::<1>(0.into()), [0.into()]);
-        assert_eq!(decompose_bits::<1>(1.into()), [1.into()]);
+        assert_eq!(decompose_bits::<1>(0.into()), [from_const(0)]);
+        assert_eq!(decompose_bits::<1>(1.into()), [from_const(1)]);
     }
 
     #[test]
     fn test_decompose_bits_two() {
-        assert_eq!(decompose_bits::<2>(0.into()), [0.into(), 0.into()]);
-        assert_eq!(decompose_bits::<2>(1.into()), [1.into(), 0.into()]);
-        assert_eq!(decompose_bits::<2>(2.into()), [0.into(), 1.into()]);
-        assert_eq!(decompose_bits::<2>(3.into()), [1.into(), 1.into()]);
+        assert_eq!(
+            decompose_bits::<2>(0.into()),
+            [from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_bits::<2>(1.into()),
+            [from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_bits::<2>(2.into()),
+            [from_const(0), from_const(1)]
+        );
+        assert_eq!(
+            decompose_bits::<2>(3.into()),
+            [from_const(1), from_const(1)]
+        );
     }
 
     #[test]
     fn test_decompose_bits_three() {
         assert_eq!(
             decompose_bits::<3>(0.into()),
-            [0.into(), 0.into(), 0.into()]
+            [from_const(0), from_const(0), from_const(0)]
         );
         assert_eq!(
             decompose_bits::<3>(1.into()),
-            [1.into(), 0.into(), 0.into()]
+            [from_const(1), from_const(0), from_const(0)]
         );
         assert_eq!(
             decompose_bits::<3>(2.into()),
-            [0.into(), 1.into(), 0.into()]
+            [from_const(0), from_const(1), from_const(0)]
         );
         assert_eq!(
             decompose_bits::<3>(3.into()),
-            [1.into(), 1.into(), 0.into()]
+            [from_const(1), from_const(1), from_const(0)]
         );
         assert_eq!(
             decompose_bits::<3>(4.into()),
-            [0.into(), 0.into(), 1.into()]
+            [from_const(0), from_const(0), from_const(1)]
         );
         assert_eq!(
             decompose_bits::<3>(5.into()),
-            [1.into(), 0.into(), 1.into()]
+            [from_const(1), from_const(0), from_const(1)]
         );
         assert_eq!(
             decompose_bits::<3>(6.into()),
-            [0.into(), 1.into(), 1.into()]
+            [from_const(0), from_const(1), from_const(1)]
         );
         assert_eq!(
             decompose_bits::<3>(7.into()),
-            [1.into(), 1.into(), 1.into()]
+            [from_const(1), from_const(1), from_const(1)]
         );
     }
 
@@ -646,43 +661,43 @@ mod tests {
     fn test_decompose_bits_large() {
         assert_eq!(
             decompose_bits::<64>(0xFFFFFFFFFFFFFFFFu64.into()),
-            [1.into(); 64]
+            [from_const(1); 64]
         );
     }
 
     #[test]
     fn test_decompose_scalar_bits() {
         assert_eq!(
-            decompose_scalar_bits::<3>(0.into()),
-            [0.into(), 0.into(), 0.into()]
+            decompose_scalar_bits::<3>(from_const(0)),
+            [from_const(0), from_const(0), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(1.into()),
-            [1.into(), 0.into(), 0.into()]
+            decompose_scalar_bits::<3>(from_const(1)),
+            [from_const(1), from_const(0), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(2.into()),
-            [0.into(), 1.into(), 0.into()]
+            decompose_scalar_bits::<3>(from_const(2)),
+            [from_const(0), from_const(1), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(3.into()),
-            [1.into(), 1.into(), 0.into()]
+            decompose_scalar_bits::<3>(from_const(3)),
+            [from_const(1), from_const(1), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(4.into()),
-            [0.into(), 0.into(), 1.into()]
+            decompose_scalar_bits::<3>(from_const(4)),
+            [from_const(0), from_const(0), from_const(1)]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(5.into()),
-            [1.into(), 0.into(), 1.into()]
+            decompose_scalar_bits::<3>(from_const(5)),
+            [from_const(1), from_const(0), from_const(1)]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(6.into()),
-            [0.into(), 1.into(), 1.into()]
+            decompose_scalar_bits::<3>(from_const(6)),
+            [from_const(0), from_const(1), from_const(1)]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(7.into()),
-            [1.into(), 1.into(), 1.into()]
+            decompose_scalar_bits::<3>(from_const(7)),
+            [from_const(1), from_const(1), from_const(1)]
         );
     }
 
@@ -865,12 +880,12 @@ mod tests {
 
     #[test]
     fn test_mod3() {
-        assert_eq!(mod3(42.into()), 0.into());
-        assert_eq!(mod3(43.into()), 1.into());
-        assert_eq!(mod3(44.into()), 2.into());
-        assert_eq!(mod3(45.into()), 0.into());
-        assert_eq!(mod3(46.into()), 1.into());
-        assert_eq!(mod3(47.into()), 2.into());
+        assert_eq!(mod3(from_const(42)), from_const(0));
+        assert_eq!(mod3(from_const(43)), from_const(1));
+        assert_eq!(mod3(from_const(44)), from_const(2));
+        assert_eq!(mod3(from_const(45)), from_const(0));
+        assert_eq!(mod3(from_const(46)), from_const(1));
+        assert_eq!(mod3(from_const(47)), from_const(2));
     }
 
     #[test]
@@ -879,137 +894,164 @@ mod tests {
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
             )),
-            0.into()
+            from_const(0)
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
             )),
-            1.into()
+            from_const(1)
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f22"
             )),
-            2.into()
+            from_const(2)
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f23"
             )),
-            0.into()
+            from_const(0)
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f24"
             )),
-            1.into()
+            from_const(1)
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f25"
             )),
-            2.into()
+            from_const(2)
         );
     }
 
     #[test]
     fn test_decompose_trits_one() {
-        assert_eq!(decompose_trits::<1>(0.into()), [0.into()]);
-        assert_eq!(decompose_trits::<1>(1.into()), [1.into()]);
-        assert_eq!(decompose_trits::<1>(2.into()), [2.into()]);
+        assert_eq!(decompose_trits::<1>(0.into()), [from_const(0)]);
+        assert_eq!(decompose_trits::<1>(1.into()), [from_const(1)]);
+        assert_eq!(decompose_trits::<1>(2.into()), [from_const(2)]);
     }
 
     #[test]
     fn test_decompose_trits_two() {
-        assert_eq!(decompose_trits::<2>(0.into()), [0.into(), 0.into()]);
-        assert_eq!(decompose_trits::<2>(1.into()), [1.into(), 0.into()]);
-        assert_eq!(decompose_trits::<2>(2.into()), [2.into(), 0.into()]);
-        assert_eq!(decompose_trits::<2>(3.into()), [0.into(), 1.into()]);
-        assert_eq!(decompose_trits::<2>(4.into()), [1.into(), 1.into()]);
-        assert_eq!(decompose_trits::<2>(5.into()), [2.into(), 1.into()]);
-        assert_eq!(decompose_trits::<2>(6.into()), [0.into(), 2.into()]);
-        assert_eq!(decompose_trits::<2>(7.into()), [1.into(), 2.into()]);
-        assert_eq!(decompose_trits::<2>(8.into()), [2.into(), 2.into()]);
+        assert_eq!(
+            decompose_trits::<2>(0.into()),
+            [from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(1.into()),
+            [from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(2.into()),
+            [from_const(2), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(3.into()),
+            [from_const(0), from_const(1)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(4.into()),
+            [from_const(1), from_const(1)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(5.into()),
+            [from_const(2), from_const(1)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(6.into()),
+            [from_const(0), from_const(2)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(7.into()),
+            [from_const(1), from_const(2)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(8.into()),
+            [from_const(2), from_const(2)]
+        );
     }
 
     #[test]
     fn test_decompose_trits_three() {
         assert_eq!(
             decompose_trits::<3>(0.into()),
-            [0.into(), 0.into(), 0.into()]
+            [from_const(0), from_const(0), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(1.into()),
-            [1.into(), 0.into(), 0.into()]
+            [from_const(1), from_const(0), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(2.into()),
-            [2.into(), 0.into(), 0.into()]
+            [from_const(2), from_const(0), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(3.into()),
-            [0.into(), 1.into(), 0.into()]
+            [from_const(0), from_const(1), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(4.into()),
-            [1.into(), 1.into(), 0.into()]
+            [from_const(1), from_const(1), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(5.into()),
-            [2.into(), 1.into(), 0.into()]
+            [from_const(2), from_const(1), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(6.into()),
-            [0.into(), 2.into(), 0.into()]
+            [from_const(0), from_const(2), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(7.into()),
-            [1.into(), 2.into(), 0.into()]
+            [from_const(1), from_const(2), from_const(0)]
         );
         assert_eq!(
             decompose_trits::<3>(8.into()),
-            [2.into(), 2.into(), 0.into()]
+            [from_const(2), from_const(2), from_const(0)]
         );
     }
 
     #[test]
     fn test_decompose_scalar_trits() {
         assert_eq!(
-            decompose_scalar_trits::<3>(0.into()),
-            [0.into(), 0.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(0)),
+            [from_const(0), from_const(0), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(1.into()),
-            [1.into(), 0.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(1)),
+            [from_const(1), from_const(0), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(2.into()),
-            [2.into(), 0.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(2)),
+            [from_const(2), from_const(0), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(3.into()),
-            [0.into(), 1.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(3)),
+            [from_const(0), from_const(1), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(4.into()),
-            [1.into(), 1.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(4)),
+            [from_const(1), from_const(1), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(5.into()),
-            [2.into(), 1.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(5)),
+            [from_const(2), from_const(1), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(6.into()),
-            [0.into(), 2.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(6)),
+            [from_const(0), from_const(2), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(7.into()),
-            [1.into(), 2.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(7)),
+            [from_const(1), from_const(2), from_const(0)]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(8.into()),
-            [2.into(), 2.into(), 0.into()]
+            decompose_scalar_trits::<3>(from_const(8)),
+            [from_const(2), from_const(2), from_const(0)]
         );
     }
 
