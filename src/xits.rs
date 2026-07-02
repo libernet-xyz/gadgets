@@ -44,7 +44,7 @@ pub fn ilog3(mut n: usize) -> usize {
 ///
 /// Not an actual "logical NOT", it can only NOT the (-1,0,1) signals we use in the comparator
 /// chips. `LogicalNotChip` is for internal use by those chips.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct LogicalNotChip {}
 
 impl PlonkChip<1, 1> for LogicalNotChip {
@@ -113,7 +113,7 @@ pub fn decompose_scalar_bits<const N: usize>(value: Scalar) -> [Scalar; N] {
 /// aliasing. Use the `FullBitDecomposerChip` for a full decomposition into 256 bits (note that the
 /// MSB will always be zero because BLS12-381 scalars don't cover the upper half of the 256 bit
 /// range).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BitDecomposerChip<const N: usize> {}
 
 impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
@@ -169,7 +169,7 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
 ///  * -1 if the input value is strictly less than the constant,
 ///  * 0 if the input value is equal to the constant,
 ///  * 1 if the input value is strictly greater than the constant.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BitComparatorChip<const N: usize> {
     rhs: U256,
     logical_not: LogicalNotChip,
@@ -225,7 +225,7 @@ impl<const N: usize> PlonkChip<N, 1> for BitComparatorChip<N> {
 }
 
 /// Decomposes an input signal into 256 bits.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FullBitDecomposerChip {
     decomposer: BitDecomposerChip<256>,
     comparator: BitComparatorChip<256>,
@@ -299,7 +299,7 @@ pub fn decompose_scalar_trits<const N: usize>(value: Scalar) -> [Scalar; N] {
 ///
 /// WARNING: this chip is unsafe to use with 160 or 161 trits because it doesn't guard against
 /// aliasing. Use the `FullTritDecomposerChip` for a full decomposition into 161 trits.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TritDecomposerChip<const N: usize> {}
 
 impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
@@ -355,7 +355,7 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
 ///  * -1 if the input value is strictly less than the constant,
 ///  * 0 if the input value is equal to the constant,
 ///  * 1 if the input value is strictly greater than the constant.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TritComparatorChip<const N: usize> {
     rhs: U256,
     logical_not: LogicalNotChip,
@@ -440,7 +440,7 @@ impl<const N: usize> PlonkChip<N, 1> for TritComparatorChip<N> {
 }
 
 /// Decomposes an input signal into 161 trits.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FullTritDecomposerChip {
     decomposer: TritDecomposerChip<161>,
     comparator: TritComparatorChip<161>,

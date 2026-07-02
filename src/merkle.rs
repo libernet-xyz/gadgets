@@ -2,8 +2,155 @@ use crate::poseidon2;
 use crate::xits;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
-use starkom_ff::Field;
+use starkom_ff::{Field, PrimeField};
 use starkom_plonk::{Chip as PlonkChip, CircuitBuilder, Wire, WireOrUnconstrained, Witness};
+
+/// Returns a boolean signal indicating whether an input trit is equal to 0.
+///
+/// For internal use by ternary SMTs.
+///
+/// The implementation uses the formula:
+///
+///   x^2 / 2 + 1 - 3x
+///
+/// derived from the Lagrange basis that activates on 0 and remains 0 on 1 and 2.
+#[derive(Debug, Default, Clone)]
+struct TernarySelector0 {}
+
+impl PlonkChip<1, 1> for TernarySelector0 {
+    fn build(
+        &self,
+        builder: &mut CircuitBuilder,
+        inputs: [Option<Wire>; 1],
+    ) -> Result<[Option<Wire>; 1]> {
+        let [x] = inputs;
+        let y = builder.add_unary_gate(
+            -Scalar::from_const(3) * Scalar::TWO_INV,
+            Scalar::from_const(0),
+            -Scalar::from_const(1),
+            Scalar::TWO_INV,
+            Scalar::from_const(1),
+            x,
+        );
+        Ok([y.into()])
+    }
+
+    fn witness(
+        &self,
+        witness: &mut Witness,
+        inputs: [WireOrUnconstrained; 1],
+    ) -> Result<[WireOrUnconstrained; 1]> {
+        let [x] = inputs;
+        let gate = witness.pop_gate();
+        let lhs = Wire::LeftIn(gate);
+        let rhs = Wire::RightIn(gate);
+        let out = Wire::Out(gate);
+        witness.copy(x, lhs);
+        witness.copy(x, rhs);
+        let trit = witness.get(lhs).try_to_u8().unwrap() as usize;
+        let value: u64 = [1, 0, 0][trit];
+        witness.set(out, value.into());
+        Ok([out.into()])
+    }
+}
+
+/// Returns a boolean signal indicating whether an input trit is equal to 1.
+///
+/// For internal use by ternary SMTs.
+///
+/// The implementation uses the formula:
+///
+///   2x - x^2
+///
+/// derived from the Lagrange basis that activates on 1 and remains 0 on 0 and 2.
+#[derive(Debug, Default, Clone)]
+struct TernarySelector1 {}
+
+impl PlonkChip<1, 1> for TernarySelector1 {
+    fn build(
+        &self,
+        builder: &mut CircuitBuilder,
+        inputs: [Option<Wire>; 1],
+    ) -> Result<[Option<Wire>; 1]> {
+        let [x] = inputs;
+        let y = builder.add_unary_gate(
+            Scalar::from_const(2),
+            Scalar::from_const(0),
+            -Scalar::from_const(1),
+            -Scalar::from_const(1),
+            Scalar::from_const(0),
+            x,
+        );
+        Ok([y.into()])
+    }
+
+    fn witness(
+        &self,
+        witness: &mut Witness,
+        inputs: [WireOrUnconstrained; 1],
+    ) -> Result<[WireOrUnconstrained; 1]> {
+        let [x] = inputs;
+        let gate = witness.pop_gate();
+        let lhs = Wire::LeftIn(gate);
+        let rhs = Wire::RightIn(gate);
+        let out = Wire::Out(gate);
+        witness.copy(x, lhs);
+        witness.copy(x, rhs);
+        let trit = witness.get(lhs).try_to_u8().unwrap() as usize;
+        let value: u64 = [0, 1, 0][trit];
+        witness.set(out, value.into());
+        Ok([out.into()])
+    }
+}
+
+/// Returns a boolean signal indicating whether an input trit is equal to 2.
+///
+/// For internal use by ternary SMTs.
+///
+/// The implementation uses the formula:
+///
+///   (x^2 - x) / 2
+///
+/// derived from the Lagrange basis that activates on 2 and remains 0 on 0 and 1.
+#[derive(Debug, Default, Clone)]
+struct TernarySelector2 {}
+
+impl PlonkChip<1, 1> for TernarySelector2 {
+    fn build(
+        &self,
+        builder: &mut CircuitBuilder,
+        inputs: [Option<Wire>; 1],
+    ) -> Result<[Option<Wire>; 1]> {
+        let [x] = inputs;
+        let y = builder.add_unary_gate(
+            -Scalar::TWO_INV,
+            Scalar::from_const(0),
+            -Scalar::from_const(1),
+            Scalar::TWO_INV,
+            Scalar::from_const(0),
+            x,
+        );
+        Ok([y.into()])
+    }
+
+    fn witness(
+        &self,
+        witness: &mut Witness,
+        inputs: [WireOrUnconstrained; 1],
+    ) -> Result<[WireOrUnconstrained; 1]> {
+        let [x] = inputs;
+        let gate = witness.pop_gate();
+        let lhs = Wire::LeftIn(gate);
+        let rhs = Wire::RightIn(gate);
+        let out = Wire::Out(gate);
+        witness.copy(x, lhs);
+        witness.copy(x, rhs);
+        let trit = witness.get(lhs).try_to_u8().unwrap() as usize;
+        let value: u64 = [0, 0, 1][trit];
+        witness.set(out, value.into());
+        Ok([out.into()])
+    }
+}
 
 /// Runs a Merkle lookup over a Sparse Merkle Tree of height `H`.
 ///
@@ -11,7 +158,7 @@ use starkom_plonk::{Chip as PlonkChip, CircuitBuilder, Wire, WireOrUnconstrained
 ///
 /// WARNING: do NOT use this chip if `H` spans the full BlueSky range, as in that case the bit or
 /// trit decomposition of the key would be UNSAFE! Use the [`FullChip`] below instead.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Chip<const W: usize, const H: usize> {
     decomposer: xits::BitDecomposerChip<H>,
     hasher: poseidon2::Chip<3, 2>,
@@ -184,6 +331,48 @@ mod tests {
             parse_scalar("0x2945d8bf64346bb2085bb6ec93520cd641a3c77f1501dba2cbcb8982eb8dbaa1");
         assert!(test_binary_smt::<2>(2, 56, path, root_hash).is_ok());
         assert!(test_binary_smt::<2>(3, 78, path, root_hash).is_ok());
+    }
+
+    fn test_ternary_selector_impl<C: Default + PlonkChip<1, 1>>(
+        input: u8,
+        output: u8,
+    ) -> Result<()> {
+        let mut builder = CircuitBuilder::default();
+        let chip = C::default();
+        let trit = builder.add_const_gate(input.into());
+        let out = chip.build(&mut builder, [trit.into()])?[0].unwrap();
+        let out = builder.add_nop_gate(None, None, out.into());
+        builder.declare_public_gates([out]);
+        let circuit = builder.build();
+        let mut witness = circuit.make_witness();
+        let trit = witness.assert_constant(input.into());
+        let out = chip.witness(&mut witness, [trit.into()])?[0];
+        let out = witness.nop(Scalar::ZERO.into(), Scalar::ZERO.into(), out);
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 1)?;
+        let public_inputs = circuit.verify(&proof)?;
+        assert_eq!(public_inputs[&Wire::Out(out)], output.into());
+        Ok(())
+    }
+
+    #[test]
+    fn test_ternary_selector_0() {
+        assert!(test_ternary_selector_impl::<TernarySelector0>(0, 1).is_ok());
+        assert!(test_ternary_selector_impl::<TernarySelector0>(1, 0).is_ok());
+        assert!(test_ternary_selector_impl::<TernarySelector0>(2, 0).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_selector_1() {
+        assert!(test_ternary_selector_impl::<TernarySelector1>(0, 0).is_ok());
+        assert!(test_ternary_selector_impl::<TernarySelector1>(1, 1).is_ok());
+        assert!(test_ternary_selector_impl::<TernarySelector1>(2, 0).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_selector_2() {
+        assert!(test_ternary_selector_impl::<TernarySelector2>(0, 0).is_ok());
+        assert!(test_ternary_selector_impl::<TernarySelector2>(1, 0).is_ok());
+        assert!(test_ternary_selector_impl::<TernarySelector2>(2, 1).is_ok());
     }
 
     // TODO
