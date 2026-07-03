@@ -596,5 +596,54 @@ mod tests {
         assert!(test_ternary_smt::<1>(2, 90, path, root_hash).is_ok());
     }
 
-    // TODO
+    #[test]
+    fn test_ternary_smt_height_two_1() {
+        let path = [
+            [from_const(12), from_const(34), from_const(56)],
+            [
+                parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd"),
+                parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581"),
+                parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x27228a5e7d694f88f1b5643dd325ddcc6497f4afaa807ddb64e197742fee8cb4");
+        assert!(test_ternary_smt::<2>(0, 12, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<2>(1, 34, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<2>(2, 56, path, root_hash).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_2() {
+        let path = [
+            [from_const(34), from_const(56), from_const(12)],
+            [
+                parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd"),
+                parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581"),
+                parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x27228a5e7d694f88f1b5643dd325ddcc6497f4afaa807ddb64e197742fee8cb4");
+        assert!(test_ternary_smt::<2>(3, 34, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<2>(4, 56, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<2>(5, 12, path, root_hash).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_3() {
+        let path = [
+            [from_const(56), from_const(78), from_const(90)],
+            [
+                parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd"),
+                parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581"),
+                parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x27228a5e7d694f88f1b5643dd325ddcc6497f4afaa807ddb64e197742fee8cb4");
+        assert!(test_ternary_smt::<2>(6, 56, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<2>(7, 78, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<2>(8, 90, path, root_hash).is_ok());
+    }
 }
