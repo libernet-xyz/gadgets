@@ -469,6 +469,7 @@ mod tests {
     use starkom_bluesky::{from_const, parse_scalar};
     use starkom_ff::Field256;
     use starkom_pcs::hash::Sha2Hash;
+    use starkom_plonk::{Circuit, CompressedCircuit};
     use std::fmt::Debug;
     use std::sync::{Arc, LazyLock};
 
@@ -834,6 +835,30 @@ mod tests {
         TREE.clone()
     }
 
+    fn get_full_binary_prover() -> &'static Circuit {
+        static PROVER: LazyLock<Circuit> = LazyLock::new(|| {
+            let chip = FullBinaryChip::default();
+            let mut builder = CircuitBuilder::default();
+            let inputs = builder.add_nop_gate(None, None, None);
+            let key_wire = Wire::LeftIn(inputs);
+            let value_wire = Wire::RightIn(inputs);
+            let expected_root_hash_wire = Wire::Out(inputs);
+            let [root_hash_wire] = chip
+                .build(&mut builder, [key_wire.into(), value_wire.into()])
+                .unwrap();
+            builder.connect(root_hash_wire.unwrap(), expected_root_hash_wire);
+            builder.declare_public_gates([inputs]);
+            builder.build()
+        });
+        &*PROVER
+    }
+
+    fn get_full_binary_verifier() -> &'static CompressedCircuit {
+        static VERIFIER: LazyLock<CompressedCircuit> =
+            LazyLock::new(|| get_full_binary_prover().compress::<Sha2Hash<Scalar>>(2));
+        &*VERIFIER
+    }
+
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
         key: u64,
@@ -856,20 +881,15 @@ mod tests {
             .unwrap();
         let root_hash = tree.hash();
         let chip = FullBinaryChip::new(path);
-        let mut builder = CircuitBuilder::default();
-        let inputs = builder.add_nop_gate(None, None, None);
+        let prover = get_full_binary_prover();
+        let mut witness = prover.make_witness();
+        let inputs = witness.nop(key.into(), value.into(), root_hash.into());
         let key_wire = Wire::LeftIn(inputs);
         let value_wire = Wire::RightIn(inputs);
         let expected_root_hash_wire = Wire::Out(inputs);
-        let [root_hash_wire] = chip.build(&mut builder, [key_wire.into(), value_wire.into()])?;
-        builder.connect(root_hash_wire.unwrap(), expected_root_hash_wire);
-        builder.declare_public_gates([inputs]);
-        let circuit = builder.build();
-        let mut witness = circuit.make_witness();
-        witness.nop(key.into(), value.into(), root_hash.into());
         chip.witness(&mut witness, [key.into(), value.into()])?;
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
-        let public_inputs = circuit.verify(&proof)?;
+        let proof = prover.prove::<Sha2Hash<Scalar>>(witness, 2)?;
+        let public_inputs = get_full_binary_verifier().verify(&proof)?;
         assert_eq!(public_inputs[&key_wire], key);
         assert_eq!(public_inputs[&value_wire], value);
         assert_eq!(public_inputs[&expected_root_hash_wire], root_hash);
