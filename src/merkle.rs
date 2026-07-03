@@ -906,5 +906,28 @@ mod tests {
         assert!(test_full_binary_smt_impl([], 5).is_ok());
     }
 
-    // TODO
+    #[test]
+    fn test_full_binary_smt_one_entry() {
+        let entries = [(12, 34)];
+        assert!(test_full_binary_smt_impl(entries, 0).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 1).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 2).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 11).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 12).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 13).is_ok());
+    }
+
+    #[test]
+    fn test_full_binary_smt_two_entries() {
+        let entries = [(34, 56), (78, 12)];
+        assert!(test_full_binary_smt_impl(entries, 0).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 1).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 2).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 33).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 34).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 35).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 77).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 78).is_ok());
+        assert!(test_full_binary_smt_impl(entries, 79).is_ok());
+    }
 }
