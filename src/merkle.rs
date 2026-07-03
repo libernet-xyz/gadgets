@@ -152,22 +152,20 @@ impl PlonkChip<1, 1> for TernarySelector2 {
     }
 }
 
-/// Runs a Merkle lookup over a Sparse Merkle Tree of height `H`.
+/// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
-/// `W` is the arity of the tree and must be either 2 or 3.
-///
-/// WARNING: do NOT use this chip if `H` spans the full BlueSky range, as in that case the bit or
-/// trit decomposition of the key would be UNSAFE! Use the [`FullChip`] below instead.
+/// WARNING: `H` must be strictly less than 255. Do NOT use this chip if `H` spans the full BlueSky
+/// range, as in that case the bit decomposition of the key would be UNSAFE! Use the
+/// [`FullBinaryChip`] below instead.
 #[derive(Debug, Clone)]
-pub struct Chip<const W: usize, const H: usize> {
+pub struct BinaryChip<const H: usize> {
     decomposer: xits::BitDecomposerChip<H>,
     hasher: poseidon2::Chip<3, 2>,
-    path: [[Scalar; W]; H],
+    path: [[Scalar; 2]; H],
 }
 
-impl<const W: usize, const H: usize> Chip<W, H> {
-    /// Constructs a Merkle chip from the given Merkle path.
-    pub fn new(path: [[Scalar; W]; H]) -> Self {
+impl<const H: usize> BinaryChip<H> {
+    pub fn new(path: [[Scalar; 2]; H]) -> Self {
         Self {
             decomposer: xits::BitDecomposerChip::default(),
             hasher: poseidon2::Chip::default(),
@@ -176,17 +174,17 @@ impl<const W: usize, const H: usize> Chip<W, H> {
     }
 }
 
-impl<const W: usize, const H: usize> Default for Chip<W, H> {
+impl<const H: usize> Default for BinaryChip<H> {
     fn default() -> Self {
         Self {
             decomposer: xits::BitDecomposerChip::default(),
             hasher: poseidon2::Chip::default(),
-            path: [[Scalar::ZERO; W]; H],
+            path: [[Scalar::ZERO; 2]; H],
         }
     }
 }
 
-impl<const H: usize> PlonkChip<2, 1> for Chip<2, H> {
+impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
     fn build(
         &self,
         builder: &mut CircuitBuilder,
@@ -240,6 +238,67 @@ impl<const H: usize> PlonkChip<2, 1> for Chip<2, H> {
     }
 }
 
+/// Runs a Merkle lookup over a ternary Sparse Merkle Tree of height `H`.
+///
+/// WARNING: `H` must be strictly less than 161. Do NOT use this chip if `H` spans the full BlueSky
+/// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
+/// [`FullTernaryChip`] below instead.
+#[derive(Debug, Clone)]
+pub struct TernaryChip<const H: usize> {
+    decomposer: xits::TritDecomposerChip<H>,
+    selectors: (TernarySelector0, TernarySelector1, TernarySelector2),
+    hasher: poseidon2::Chip<4, 3>,
+    path: [[Scalar; 3]; H],
+}
+
+impl<const H: usize> TernaryChip<H> {
+    pub fn new(path: [[Scalar; 3]; H]) -> Self {
+        Self {
+            decomposer: xits::TritDecomposerChip::default(),
+            selectors: (
+                TernarySelector0::default(),
+                TernarySelector1::default(),
+                TernarySelector2::default(),
+            ),
+            hasher: poseidon2::Chip::default(),
+            path,
+        }
+    }
+}
+
+impl<const H: usize> Default for TernaryChip<H> {
+    fn default() -> Self {
+        Self {
+            decomposer: xits::TritDecomposerChip::default(),
+            selectors: (
+                TernarySelector0::default(),
+                TernarySelector1::default(),
+                TernarySelector2::default(),
+            ),
+            hasher: poseidon2::Chip::default(),
+            path: [[Scalar::ZERO; 3]; H],
+        }
+    }
+}
+
+impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
+    fn build(
+        &self,
+        builder: &mut CircuitBuilder,
+        inputs: [Option<Wire>; 2],
+    ) -> Result<[Option<Wire>; 1]> {
+        todo!()
+    }
+
+    fn witness(
+        &self,
+        witness: &mut Witness,
+        inputs: [WireOrUnconstrained; 2],
+    ) -> Result<[WireOrUnconstrained; 1]> {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,7 +318,7 @@ mod tests {
         let key_wire = Wire::LeftIn(inputs);
         let value_wire = Wire::RightIn(inputs);
         let expected_root_hash_wire = Wire::Out(inputs);
-        let chip = Chip::<2, H>::new(path);
+        let chip = BinaryChip::<H>::new(path);
         let root_hash_wire =
             chip.build(&mut builder, [key_wire.into(), value_wire.into()])?[0].unwrap();
         builder.connect(root_hash_wire, expected_root_hash_wire);
@@ -373,6 +432,36 @@ mod tests {
         assert!(test_ternary_selector_impl::<TernarySelector2>(0, 0).is_ok());
         assert!(test_ternary_selector_impl::<TernarySelector2>(1, 0).is_ok());
         assert!(test_ternary_selector_impl::<TernarySelector2>(2, 1).is_ok());
+    }
+
+    fn test_ternary_smt<const H: usize>(
+        key: u64,
+        value: u64,
+        path: [[Scalar; 3]; H],
+        expected_root_hash: Scalar,
+    ) -> Result<()> {
+        let key = Scalar::from(key);
+        let value = Scalar::from(value);
+        let mut builder = CircuitBuilder::default();
+        let inputs = builder.add_nop_gate(None, None, None);
+        let key_wire = Wire::LeftIn(inputs);
+        let value_wire = Wire::RightIn(inputs);
+        let expected_root_hash_wire = Wire::Out(inputs);
+        let chip = TernaryChip::<H>::new(path);
+        let root_hash_wire =
+            chip.build(&mut builder, [key_wire.into(), value_wire.into()])?[0].unwrap();
+        builder.connect(root_hash_wire, expected_root_hash_wire);
+        builder.declare_public_gates([inputs]);
+        let circuit = builder.build();
+        let mut witness = circuit.make_witness();
+        witness.nop(key.into(), value.into(), expected_root_hash.into());
+        chip.witness(&mut witness, [key.into(), value.into()])?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 1)?;
+        let public_inputs = circuit.verify(&proof)?;
+        assert_eq!(public_inputs[&key_wire], key);
+        assert_eq!(public_inputs[&value_wire], value);
+        assert_eq!(public_inputs[&expected_root_hash_wire], expected_root_hash);
+        Ok(())
     }
 
     // TODO
