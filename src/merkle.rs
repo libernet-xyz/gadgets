@@ -374,11 +374,103 @@ impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
     }
 }
 
+/// Runs a Merkle lookup over a binary Sparse Merkle Tree of height 256.
+///
+/// The keys of such a tree span the full BlueSky range. Internally this chip uses a
+/// [`xits::FullBitDecomposerChip`], making the 256-bit decomposition safe at the cost of some extra
+/// constraints.
+///
+/// If you don't need 256- or 255-bit keys use [`BinaryChip`].
+#[derive(Debug, Clone)]
+pub struct FullBinaryChip {
+    decomposer: xits::FullBitDecomposerChip,
+    hasher: poseidon2::Chip<3, 2>,
+    path: [[Scalar; 2]; 256],
+}
+
+impl FullBinaryChip {
+    pub fn new(path: [[Scalar; 2]; 256]) -> Self {
+        Self {
+            decomposer: xits::FullBitDecomposerChip::default(),
+            hasher: poseidon2::Chip::default(),
+            path,
+        }
+    }
+}
+
+impl Default for FullBinaryChip {
+    fn default() -> Self {
+        Self {
+            decomposer: xits::FullBitDecomposerChip::default(),
+            hasher: poseidon2::Chip::default(),
+            path: [[Scalar::ZERO; 2]; 256],
+        }
+    }
+}
+
+impl PlonkChip<2, 1> for FullBinaryChip {
+    fn build(
+        &self,
+        builder: &mut CircuitBuilder,
+        inputs: [Option<Wire>; 2],
+    ) -> Result<[Option<Wire>; 1]> {
+        let [key, value] = inputs;
+        let bits = self.decomposer.build(builder, [key])?;
+        let mut hash = value;
+        for i in 0..256 {
+            let bit = bits[i];
+            let not = builder.add_not_gate(bit).into();
+            let lhs = {
+                let lhs = builder.add_mul_gate(bit, None);
+                let rhs = builder.add_mul_gate(not, hash.into());
+                builder.add_sum_gate(lhs.into(), rhs.into())
+            };
+            let rhs = {
+                let lhs = builder.add_mul_gate(bit, hash.into());
+                let rhs = builder.add_mul_gate(not, None);
+                builder.add_sum_gate(lhs.into(), rhs.into())
+            };
+            [hash, _, _] = self.hasher.build(builder, [lhs.into(), rhs.into()])?;
+        }
+        Ok([hash])
+    }
+
+    fn witness(
+        &self,
+        witness: &mut Witness,
+        inputs: [WireOrUnconstrained; 2],
+    ) -> Result<[WireOrUnconstrained; 1]> {
+        let [key, value] = inputs;
+        let bits = self.decomposer.witness(witness, [key])?;
+        let mut hash = value;
+        for i in 0..256 {
+            let bit = bits[i];
+            let not = witness.not(bit).into();
+            let lhs = {
+                let lhs = witness.mul(bit, self.path[i][0].into());
+                let rhs = witness.mul(not, hash);
+                witness.add(lhs.into(), rhs.into())
+            };
+            let rhs = {
+                let lhs = witness.mul(bit, hash);
+                let rhs = witness.mul(not, self.path[i][1].into());
+                witness.add(lhs.into(), rhs.into())
+            };
+            [hash, _, _] = self.hasher.witness(witness, [lhs.into(), rhs.into()])?;
+        }
+        Ok([hash])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use primitive_types::U256;
     use starkom_bluesky::{from_const, parse_scalar};
+    use starkom_ff::Field256;
     use starkom_pcs::hash::Sha2Hash;
+    use std::fmt::Debug;
+    use std::sync::{Arc, LazyLock};
 
     fn test_binary_smt<const H: usize>(
         key: u64,
@@ -646,4 +738,153 @@ mod tests {
         assert!(test_ternary_smt::<2>(7, 78, path, root_hash).is_ok());
         assert!(test_ternary_smt::<2>(8, 90, path, root_hash).is_ok());
     }
+
+    trait Node: 'static + Debug + Send + Sync {
+        fn hash(&self) -> Scalar;
+        fn get(&self, key: Scalar) -> Scalar;
+        fn get_merkle_path(&self, key: Scalar) -> Vec<Vec<Scalar>>;
+        fn put(self: Arc<Self>, key: Scalar, value: Scalar) -> Arc<dyn Node>;
+    }
+
+    #[derive(Debug, Default, Copy, Clone)]
+    struct Leaf(Scalar);
+
+    impl Node for Leaf {
+        fn hash(&self) -> Scalar {
+            self.0
+        }
+
+        fn get(&self, key: Scalar) -> Scalar {
+            assert_eq!(key, Scalar::ZERO);
+            self.0
+        }
+
+        fn get_merkle_path(&self, key: Scalar) -> Vec<Vec<Scalar>> {
+            assert_eq!(key, Scalar::ZERO);
+            vec![]
+        }
+
+        fn put(self: Arc<Self>, key: Scalar, value: Scalar) -> Arc<dyn Node> {
+            assert_eq!(key, Scalar::ZERO);
+            Arc::new(Leaf(value))
+        }
+    }
+
+    #[derive(Debug)]
+    struct BinaryNode {
+        hash: Scalar,
+        left: Arc<dyn Node>,
+        right: Arc<dyn Node>,
+    }
+
+    impl BinaryNode {
+        fn new(left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
+            use starkom_poseidon2::{bluesky::BlueSkyConfig3, hash0};
+            let hash = hash0::<BlueSkyConfig3, Scalar, 3>(&[left.hash(), right.hash()]);
+            Arc::new(BinaryNode { hash, left, right })
+        }
+    }
+
+    impl Node for BinaryNode {
+        fn hash(&self) -> Scalar {
+            self.hash
+        }
+
+        fn get(&self, key: Scalar) -> Scalar {
+            let key = key.to_u256();
+            let next_key = Scalar::try_from(key >> 1).unwrap();
+            if key & 1.into() != U256::zero() {
+                self.right.get(next_key)
+            } else {
+                self.left.get(next_key)
+            }
+        }
+
+        fn get_merkle_path(&self, key: Scalar) -> Vec<Vec<Scalar>> {
+            let key = key.to_u256();
+            let next_key = Scalar::try_from(key >> 1).unwrap();
+            let mut path = if key & 1.into() != U256::zero() {
+                self.right.get_merkle_path(next_key)
+            } else {
+                self.left.get_merkle_path(next_key)
+            };
+            path.push(vec![self.left.hash(), self.right.hash()]);
+            path
+        }
+
+        fn put(self: Arc<Self>, key: Scalar, value: Scalar) -> Arc<dyn Node> {
+            let key = key.to_u256();
+            let next_key = Scalar::try_from(key >> 1).unwrap();
+            if key & 1.into() != U256::zero() {
+                Self::new(self.left.clone(), self.right.clone().put(next_key, value))
+            } else {
+                Self::new(self.left.clone().put(next_key, value), self.right.clone())
+            }
+        }
+    }
+
+    fn get_empty_tree() -> Arc<dyn Node> {
+        static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
+            let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
+            for _ in 0..256 {
+                node = BinaryNode::new(node.clone(), node.clone());
+            }
+            node
+        });
+        TREE.clone()
+    }
+
+    fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
+        entries: I,
+        key: u64,
+    ) -> Result<()> {
+        let tree = {
+            let mut tree = get_empty_tree();
+            for (key, value) in entries {
+                tree = tree.put(key.into(), value.into());
+            }
+            tree
+        };
+        let key = key.into();
+        let value = tree.get(key);
+        let path: [[Scalar; 2]; 256] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let root_hash = tree.hash();
+        let chip = FullBinaryChip::new(path);
+        let mut builder = CircuitBuilder::default();
+        let inputs = builder.add_nop_gate(None, None, None);
+        let key_wire = Wire::LeftIn(inputs);
+        let value_wire = Wire::RightIn(inputs);
+        let expected_root_hash_wire = Wire::Out(inputs);
+        let [root_hash_wire] = chip.build(&mut builder, [key_wire.into(), value_wire.into()])?;
+        builder.connect(root_hash_wire.unwrap(), expected_root_hash_wire);
+        builder.declare_public_gates([inputs]);
+        let circuit = builder.build();
+        let mut witness = circuit.make_witness();
+        witness.nop(key.into(), value.into(), root_hash.into());
+        chip.witness(&mut witness, [key.into(), value.into()])?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
+        let public_inputs = circuit.verify(&proof)?;
+        assert_eq!(public_inputs[&key_wire], key);
+        assert_eq!(public_inputs[&value_wire], value);
+        assert_eq!(public_inputs[&expected_root_hash_wire], root_hash);
+        Ok(())
+    }
+
+    #[test]
+    fn test_full_binary_smt_empty() {
+        assert!(test_full_binary_smt_impl([], 0).is_ok());
+        assert!(test_full_binary_smt_impl([], 1).is_ok());
+        assert!(test_full_binary_smt_impl([], 2).is_ok());
+        assert!(test_full_binary_smt_impl([], 3).is_ok());
+        assert!(test_full_binary_smt_impl([], 4).is_ok());
+        assert!(test_full_binary_smt_impl([], 5).is_ok());
+    }
+
+    // TODO
 }
