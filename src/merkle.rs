@@ -152,6 +152,37 @@ impl PlonkChip<1, 1> for TernarySelector2 {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+struct ThreeWayDemux {
+    selector0: TernarySelector0,
+    selector1: TernarySelector1,
+    selector2: TernarySelector2,
+}
+
+impl PlonkChip<1, 3> for ThreeWayDemux {
+    fn build(
+        &self,
+        builder: &mut CircuitBuilder,
+        inputs: [Option<Wire>; 1],
+    ) -> Result<[Option<Wire>; 3]> {
+        let [out0] = self.selector0.build(builder, inputs)?;
+        let [out1] = self.selector1.build(builder, inputs)?;
+        let [out2] = self.selector2.build(builder, inputs)?;
+        Ok([out0, out1, out2])
+    }
+
+    fn witness(
+        &self,
+        witness: &mut Witness,
+        inputs: [WireOrUnconstrained; 1],
+    ) -> Result<[WireOrUnconstrained; 3]> {
+        let [out0] = self.selector0.witness(witness, inputs)?;
+        let [out1] = self.selector1.witness(witness, inputs)?;
+        let [out2] = self.selector2.witness(witness, inputs)?;
+        Ok([out0, out1, out2])
+    }
+}
+
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
 /// WARNING: `H` must be strictly less than 255. Do NOT use this chip if `H` spans the full BlueSky
@@ -206,7 +237,7 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
                 let rhs = builder.add_mul_gate(not, None);
                 builder.add_sum_gate(lhs.into(), rhs.into())
             };
-            hash = self.hasher.build(builder, [lhs.into(), rhs.into()])?[0];
+            [hash, _, _] = self.hasher.build(builder, [lhs.into(), rhs.into()])?;
         }
         Ok([hash])
     }
@@ -232,7 +263,7 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
                 let rhs = witness.mul(not, self.path[i][1].into());
                 witness.add(lhs.into(), rhs.into())
             };
-            hash = self.hasher.witness(witness, [lhs.into(), rhs.into()])?[0];
+            [hash, _, _] = self.hasher.witness(witness, [lhs.into(), rhs.into()])?;
         }
         Ok([hash])
     }
@@ -246,7 +277,7 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
 #[derive(Debug, Clone)]
 pub struct TernaryChip<const H: usize> {
     decomposer: xits::TritDecomposerChip<H>,
-    selectors: (TernarySelector0, TernarySelector1, TernarySelector2),
+    demux: ThreeWayDemux,
     hasher: poseidon2::Chip<4, 3>,
     path: [[Scalar; 3]; H],
 }
@@ -255,11 +286,7 @@ impl<const H: usize> TernaryChip<H> {
     pub fn new(path: [[Scalar; 3]; H]) -> Self {
         Self {
             decomposer: xits::TritDecomposerChip::default(),
-            selectors: (
-                TernarySelector0::default(),
-                TernarySelector1::default(),
-                TernarySelector2::default(),
-            ),
+            demux: ThreeWayDemux::default(),
             hasher: poseidon2::Chip::default(),
             path,
         }
@@ -270,11 +297,7 @@ impl<const H: usize> Default for TernaryChip<H> {
     fn default() -> Self {
         Self {
             decomposer: xits::TritDecomposerChip::default(),
-            selectors: (
-                TernarySelector0::default(),
-                TernarySelector1::default(),
-                TernarySelector2::default(),
-            ),
+            demux: ThreeWayDemux::default(),
             hasher: poseidon2::Chip::default(),
             path: [[Scalar::ZERO; 3]; H],
         }
@@ -287,7 +310,33 @@ impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
         builder: &mut CircuitBuilder,
         inputs: [Option<Wire>; 2],
     ) -> Result<[Option<Wire>; 1]> {
-        todo!()
+        let [key, value] = inputs;
+        let trits = self.decomposer.build(builder, [key])?;
+        let mut hash = value;
+        for i in 0..H {
+            let trit = trits[i];
+            let [selector0, selector1, selector2] = self.demux.build(builder, [trit])?;
+            let inverted0 = builder.add_not_gate(selector0).into();
+            let inverted1 = builder.add_not_gate(selector1).into();
+            let inverted2 = builder.add_not_gate(selector2).into();
+            let input0 = {
+                let lhs = builder.add_mul_gate(selector0, hash.into());
+                let rhs = builder.add_mul_gate(inverted0, None);
+                builder.add_sum_gate(lhs.into(), rhs.into()).into()
+            };
+            let input1 = {
+                let lhs = builder.add_mul_gate(selector1, hash.into());
+                let rhs = builder.add_mul_gate(inverted1, None);
+                builder.add_sum_gate(lhs.into(), rhs.into()).into()
+            };
+            let input2 = {
+                let lhs = builder.add_mul_gate(selector2, hash.into());
+                let rhs = builder.add_mul_gate(inverted2, None);
+                builder.add_sum_gate(lhs.into(), rhs.into()).into()
+            };
+            [hash, _, _, _] = self.hasher.build(builder, [input0, input1, input2])?;
+        }
+        Ok([hash])
     }
 
     fn witness(
@@ -295,7 +344,33 @@ impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
         witness: &mut Witness,
         inputs: [WireOrUnconstrained; 2],
     ) -> Result<[WireOrUnconstrained; 1]> {
-        todo!()
+        let [key, value] = inputs;
+        let trits = self.decomposer.witness(witness, [key])?;
+        let mut hash = value;
+        for i in 0..H {
+            let trit = trits[i];
+            let [selector0, selector1, selector2] = self.demux.witness(witness, [trit])?;
+            let inverted0 = witness.not(selector0).into();
+            let inverted1 = witness.not(selector1).into();
+            let inverted2 = witness.not(selector2).into();
+            let input0 = {
+                let lhs = witness.mul(selector0, hash);
+                let rhs = witness.mul(inverted0, self.path[i][0].into());
+                witness.add(lhs.into(), rhs.into()).into()
+            };
+            let input1 = {
+                let lhs = witness.mul(selector1, hash);
+                let rhs = witness.mul(inverted1, self.path[i][1].into());
+                witness.add(lhs.into(), rhs.into()).into()
+            };
+            let input2 = {
+                let lhs = witness.mul(selector2, hash);
+                let rhs = witness.mul(inverted2, self.path[i][2].into());
+                witness.add(lhs.into(), rhs.into()).into()
+            };
+            [hash, _, _, _] = self.hasher.witness(witness, [input0, input1, input2])?;
+        }
+        Ok([hash])
     }
 }
 
@@ -327,7 +402,7 @@ mod tests {
         let mut witness = circuit.make_witness();
         witness.nop(key.into(), value.into(), expected_root_hash.into());
         chip.witness(&mut witness, [key.into(), value.into()])?;
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 1)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
         let public_inputs = circuit.verify(&proof)?;
         assert_eq!(public_inputs[&key_wire], key);
         assert_eq!(public_inputs[&value_wire], value);
@@ -407,7 +482,7 @@ mod tests {
         let trit = witness.assert_constant(input.into());
         let out = chip.witness(&mut witness, [trit.into()])?[0];
         let out = witness.nop(Scalar::ZERO.into(), Scalar::ZERO.into(), out);
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 1)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
         let public_inputs = circuit.verify(&proof)?;
         assert_eq!(public_inputs[&Wire::Out(out)], output.into());
         Ok(())
@@ -434,6 +509,33 @@ mod tests {
         assert!(test_ternary_selector_impl::<TernarySelector2>(2, 1).is_ok());
     }
 
+    fn test_three_way_demux_impl(input: u8, expected: [u8; 3]) -> Result<()> {
+        let mut builder = CircuitBuilder::default();
+        let chip = ThreeWayDemux::default();
+        let trit = builder.add_const_gate(input.into());
+        let [out0, out1, out2] = chip.build(&mut builder, [trit.into()])?;
+        let out = builder.add_nop_gate(out0, out1, out2);
+        builder.declare_public_gates([out]);
+        let circuit = builder.build();
+        let mut witness = circuit.make_witness();
+        let trit = witness.assert_constant(input.into());
+        let [out0, out1, out2] = chip.witness(&mut witness, [trit.into()])?;
+        let out = witness.nop(out0, out1, out2);
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
+        let public_inputs = circuit.verify(&proof)?;
+        assert_eq!(public_inputs[&Wire::LeftIn(out)], expected[0].into());
+        assert_eq!(public_inputs[&Wire::RightIn(out)], expected[1].into());
+        assert_eq!(public_inputs[&Wire::Out(out)], expected[2].into());
+        Ok(())
+    }
+
+    #[test]
+    fn test_three_way_demux() {
+        assert!(test_three_way_demux_impl(0, [1, 0, 0]).is_ok());
+        assert!(test_three_way_demux_impl(1, [0, 1, 0]).is_ok());
+        assert!(test_three_way_demux_impl(2, [0, 0, 1]).is_ok());
+    }
+
     fn test_ternary_smt<const H: usize>(
         key: u64,
         value: u64,
@@ -456,12 +558,42 @@ mod tests {
         let mut witness = circuit.make_witness();
         witness.nop(key.into(), value.into(), expected_root_hash.into());
         chip.witness(&mut witness, [key.into(), value.into()])?;
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 1)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
         let public_inputs = circuit.verify(&proof)?;
         assert_eq!(public_inputs[&key_wire], key);
         assert_eq!(public_inputs[&value_wire], value);
         assert_eq!(public_inputs[&expected_root_hash_wire], expected_root_hash);
         Ok(())
+    }
+
+    #[test]
+    fn test_ternary_smt_height_one_1() {
+        let path = [[from_const(12), from_const(34), from_const(56)]];
+        let root_hash =
+            parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd");
+        assert!(test_ternary_smt::<1>(0, 12, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<1>(1, 34, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<1>(2, 56, path, root_hash).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_one_2() {
+        let path = [[from_const(34), from_const(56), from_const(12)]];
+        let root_hash =
+            parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581");
+        assert!(test_ternary_smt::<1>(0, 34, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<1>(1, 56, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<1>(2, 12, path, root_hash).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_one_3() {
+        let path = [[from_const(56), from_const(78), from_const(90)]];
+        let root_hash =
+            parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0");
+        assert!(test_ternary_smt::<1>(0, 56, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<1>(1, 78, path, root_hash).is_ok());
+        assert!(test_ternary_smt::<1>(2, 90, path, root_hash).is_ok());
     }
 
     // TODO
