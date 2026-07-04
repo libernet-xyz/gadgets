@@ -462,6 +462,113 @@ impl PlonkChip<2, 1> for FullBinaryChip {
     }
 }
 
+/// Runs a Merkle lookup over a ternary Sparse Merkle Tree of height 161.
+///
+/// The keys of such a tree span the full BlueSky range. Internally this chip uses a
+/// [`xits::FullTritDecomposerChip`], making the 161-trit decomposition safe at the cost of some
+/// extra constraints.
+///
+/// If you don't need full keys use [`TernaryChip`].
+#[derive(Debug, Clone)]
+pub struct FullTernaryChip {
+    decomposer: xits::FullTritDecomposerChip,
+    demux: ThreeWayDemux,
+    hasher: poseidon2::Chip<4, 3>,
+    path: [[Scalar; 3]; 161],
+}
+
+impl FullTernaryChip {
+    pub fn new(path: [[Scalar; 3]; 161]) -> Self {
+        Self {
+            decomposer: xits::FullTritDecomposerChip::default(),
+            demux: ThreeWayDemux::default(),
+            hasher: poseidon2::Chip::default(),
+            path,
+        }
+    }
+}
+
+impl Default for FullTernaryChip {
+    fn default() -> Self {
+        Self {
+            decomposer: xits::FullTritDecomposerChip::default(),
+            demux: ThreeWayDemux::default(),
+            hasher: poseidon2::Chip::default(),
+            path: [[Scalar::ZERO; 3]; 161],
+        }
+    }
+}
+
+impl PlonkChip<2, 1> for FullTernaryChip {
+    fn build(
+        &self,
+        builder: &mut CircuitBuilder,
+        inputs: [Option<Wire>; 2],
+    ) -> Result<[Option<Wire>; 1]> {
+        let [key, value] = inputs;
+        let trits = self.decomposer.build(builder, [key])?;
+        let mut hash = value;
+        for i in 0..161 {
+            let trit = trits[i];
+            let [selector0, selector1, selector2] = self.demux.build(builder, [trit])?;
+            let inverted0 = builder.add_not_gate(selector0).into();
+            let inverted1 = builder.add_not_gate(selector1).into();
+            let inverted2 = builder.add_not_gate(selector2).into();
+            let input0 = {
+                let lhs = builder.add_mul_gate(selector0, hash.into());
+                let rhs = builder.add_mul_gate(inverted0, None);
+                builder.add_sum_gate(lhs.into(), rhs.into()).into()
+            };
+            let input1 = {
+                let lhs = builder.add_mul_gate(selector1, hash.into());
+                let rhs = builder.add_mul_gate(inverted1, None);
+                builder.add_sum_gate(lhs.into(), rhs.into()).into()
+            };
+            let input2 = {
+                let lhs = builder.add_mul_gate(selector2, hash.into());
+                let rhs = builder.add_mul_gate(inverted2, None);
+                builder.add_sum_gate(lhs.into(), rhs.into()).into()
+            };
+            [hash, _, _, _] = self.hasher.build(builder, [input0, input1, input2])?;
+        }
+        Ok([hash])
+    }
+
+    fn witness(
+        &self,
+        witness: &mut Witness,
+        inputs: [WireOrUnconstrained; 2],
+    ) -> Result<[WireOrUnconstrained; 1]> {
+        let [key, value] = inputs;
+        let trits = self.decomposer.witness(witness, [key])?;
+        let mut hash = value;
+        for i in 0..161 {
+            let trit = trits[i];
+            let [selector0, selector1, selector2] = self.demux.witness(witness, [trit])?;
+            let inverted0 = witness.not(selector0).into();
+            let inverted1 = witness.not(selector1).into();
+            let inverted2 = witness.not(selector2).into();
+            let input0 = {
+                let lhs = witness.mul(selector0, hash);
+                let rhs = witness.mul(inverted0, self.path[i][0].into());
+                witness.add(lhs.into(), rhs.into()).into()
+            };
+            let input1 = {
+                let lhs = witness.mul(selector1, hash);
+                let rhs = witness.mul(inverted1, self.path[i][1].into());
+                witness.add(lhs.into(), rhs.into()).into()
+            };
+            let input2 = {
+                let lhs = witness.mul(selector2, hash);
+                let rhs = witness.mul(inverted2, self.path[i][2].into());
+                witness.add(lhs.into(), rhs.into()).into()
+            };
+            [hash, _, _, _] = self.hasher.witness(witness, [input0, input1, input2])?;
+        }
+        Ok([hash])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,11 +955,86 @@ mod tests {
         }
     }
 
-    fn get_empty_tree() -> Arc<dyn Node> {
+    #[derive(Debug)]
+    struct TernaryNode {
+        level: usize,
+        hash: Scalar,
+        children: [Arc<dyn Node>; 3],
+    }
+
+    impl TernaryNode {
+        fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<Self> {
+            use starkom_poseidon2::{bluesky::BlueSkyConfig4, hash0};
+            let hash = hash0::<BlueSkyConfig4, Scalar, 4>(&[
+                children[0].hash(),
+                children[1].hash(),
+                children[2].hash(),
+            ]);
+            Arc::new(TernaryNode {
+                level,
+                hash,
+                children,
+            })
+        }
+
+        fn trit_at(&self, key: &U256) -> usize {
+            let divisor = U256::from(3).pow(self.level.into());
+            ((key / divisor) % 3).try_into().unwrap()
+        }
+    }
+
+    impl Node for TernaryNode {
+        fn hash(&self) -> Scalar {
+            self.hash
+        }
+
+        fn get_impl(&self, key: &U256) -> Scalar {
+            self.children[self.trit_at(key)].get_impl(key)
+        }
+
+        fn get_merkle_path_impl(&self, key: &U256) -> Vec<Vec<Scalar>> {
+            let mut path = self.children[self.trit_at(key)].get_merkle_path_impl(key);
+            path.push(self.children.iter().map(|child| child.hash()).collect());
+            path
+        }
+
+        fn put_impl(self: Arc<Self>, key: &U256, value: Scalar) -> Arc<dyn Node> {
+            let trit = self.trit_at(key);
+            let child = self.children[trit].clone().put_impl(key, value);
+            match trit {
+                0 => Self::new(
+                    self.level,
+                    [child, self.children[1].clone(), self.children[2].clone()],
+                ),
+                1 => Self::new(
+                    self.level,
+                    [self.children[0].clone(), child, self.children[2].clone()],
+                ),
+                2 => Self::new(
+                    self.level,
+                    [self.children[0].clone(), self.children[1].clone(), child],
+                ),
+                _ => panic!(),
+            }
+        }
+    }
+
+    fn get_empty_binary_tree() -> Arc<dyn Node> {
         static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
             let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
             for i in 0..256 {
                 node = BinaryNode::new(i, node.clone(), node.clone());
+            }
+            node
+        });
+        TREE.clone()
+    }
+
+    fn get_empty_ternary_tree() -> Arc<dyn Node> {
+        static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
+            let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
+            for i in 0..161 {
+                node = TernaryNode::new(i, [node.clone(), node.clone(), node.clone()]);
             }
             node
         });
@@ -888,7 +1070,7 @@ mod tests {
         key: u64,
     ) -> Result<()> {
         let tree = {
-            let mut tree = get_empty_tree();
+            let mut tree = get_empty_binary_tree();
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -953,5 +1135,106 @@ mod tests {
         assert!(test_full_binary_smt_impl(entries, 77).is_ok());
         assert!(test_full_binary_smt_impl(entries, 78).is_ok());
         assert!(test_full_binary_smt_impl(entries, 79).is_ok());
+    }
+
+    fn get_full_ternary_prover() -> &'static Circuit {
+        static PROVER: LazyLock<Circuit> = LazyLock::new(|| {
+            let chip = FullTernaryChip::default();
+            let mut builder = CircuitBuilder::default();
+            let inputs = builder.add_nop_gate(None, None, None);
+            let key_wire = Wire::LeftIn(inputs);
+            let value_wire = Wire::RightIn(inputs);
+            let expected_root_hash_wire = Wire::Out(inputs);
+            let [root_hash_wire] = chip
+                .build(&mut builder, [key_wire.into(), value_wire.into()])
+                .unwrap();
+            builder.connect(root_hash_wire.unwrap(), expected_root_hash_wire);
+            builder.declare_public_gates([inputs]);
+            builder.build()
+        });
+        &*PROVER
+    }
+
+    fn get_full_ternary_verifier() -> &'static CompressedCircuit {
+        static VERIFIER: LazyLock<CompressedCircuit> =
+            LazyLock::new(|| get_full_ternary_prover().compress::<Sha2Hash<Scalar>>(2));
+        &*VERIFIER
+    }
+
+    fn test_full_ternary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
+        entries: I,
+        key: u64,
+    ) -> Result<()> {
+        let tree = {
+            let mut tree = get_empty_ternary_tree();
+            for (key, value) in entries {
+                tree = tree.put(key.into(), value.into());
+            }
+            tree
+        };
+        let key = key.into();
+        let value = tree.get(key);
+        let path: [[Scalar; 3]; 161] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let root_hash = tree.hash();
+        let chip = FullTernaryChip::new(path);
+        let prover = get_full_ternary_prover();
+        let mut witness = prover.make_witness();
+        let inputs = witness.nop(key.into(), value.into(), root_hash.into());
+        let key_wire = Wire::LeftIn(inputs);
+        let value_wire = Wire::RightIn(inputs);
+        let expected_root_hash_wire = Wire::Out(inputs);
+        chip.witness(&mut witness, [key.into(), value.into()])?;
+        let proof = prover.prove::<Sha2Hash<Scalar>>(witness, 2)?;
+        let public_inputs = get_full_ternary_verifier().verify(&proof)?;
+        assert_eq!(public_inputs[&key_wire], key);
+        assert_eq!(public_inputs[&value_wire], value);
+        assert_eq!(public_inputs[&expected_root_hash_wire], root_hash);
+        Ok(())
+    }
+
+    #[test]
+    fn test_full_ternary_smt_empty() {
+        assert!(test_full_ternary_smt_impl([], 0).is_ok());
+        assert!(test_full_ternary_smt_impl([], 1).is_ok());
+        assert!(test_full_ternary_smt_impl([], 2).is_ok());
+        assert!(test_full_ternary_smt_impl([], 3).is_ok());
+        assert!(test_full_ternary_smt_impl([], 4).is_ok());
+        assert!(test_full_ternary_smt_impl([], 5).is_ok());
+        assert!(test_full_ternary_smt_impl([], 6).is_ok());
+        assert!(test_full_ternary_smt_impl([], 7).is_ok());
+        assert!(test_full_ternary_smt_impl([], 8).is_ok());
+        assert!(test_full_ternary_smt_impl([], 9).is_ok());
+        assert!(test_full_ternary_smt_impl([], 10).is_ok());
+    }
+
+    #[test]
+    fn test_full_ternary_smt_one_entry() {
+        let entries = [(12, 34)];
+        assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 1).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 2).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 11).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 12).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 13).is_ok());
+    }
+
+    #[test]
+    fn test_full_ternary_smt_two_entries() {
+        let entries = [(34, 56), (78, 12)];
+        assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 1).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 2).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 33).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 34).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 35).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 77).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 78).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 79).is_ok());
     }
 }
