@@ -742,9 +742,24 @@ mod tests {
 
     trait Node: 'static + Debug + Send + Sync {
         fn hash(&self) -> Scalar;
-        fn get(&self, key: Scalar) -> Scalar;
-        fn get_merkle_path(&self, key: Scalar) -> Vec<Vec<Scalar>>;
-        fn put(self: Arc<Self>, key: Scalar, value: Scalar) -> Arc<dyn Node>;
+
+        fn get_impl(&self, key: &U256) -> Scalar;
+
+        fn get(&self, key: Scalar) -> Scalar {
+            self.get_impl(&key.to_u256())
+        }
+
+        fn get_merkle_path_impl(&self, key: &U256) -> Vec<Vec<Scalar>>;
+
+        fn get_merkle_path(&self, key: Scalar) -> Vec<Vec<Scalar>> {
+            self.get_merkle_path_impl(&key.to_u256())
+        }
+
+        fn put_impl(self: Arc<Self>, key: &U256, value: Scalar) -> Arc<dyn Node>;
+
+        fn put(self: Arc<Self>, key: Scalar, value: Scalar) -> Arc<dyn Node> {
+            self.put_impl(&key.to_u256(), value)
+        }
     }
 
     #[derive(Debug, Default, Copy, Clone)]
@@ -755,34 +770,41 @@ mod tests {
             self.0
         }
 
-        fn get(&self, key: Scalar) -> Scalar {
-            assert_eq!(key, Scalar::ZERO);
+        fn get_impl(&self, _key: &U256) -> Scalar {
             self.0
         }
 
-        fn get_merkle_path(&self, key: Scalar) -> Vec<Vec<Scalar>> {
-            assert_eq!(key, Scalar::ZERO);
+        fn get_merkle_path_impl(&self, _key: &U256) -> Vec<Vec<Scalar>> {
             vec![]
         }
 
-        fn put(self: Arc<Self>, key: Scalar, value: Scalar) -> Arc<dyn Node> {
-            assert_eq!(key, Scalar::ZERO);
+        fn put_impl(self: Arc<Self>, _key: &U256, value: Scalar) -> Arc<dyn Node> {
             Arc::new(Leaf(value))
         }
     }
 
     #[derive(Debug)]
     struct BinaryNode {
+        level: usize,
         hash: Scalar,
         left: Arc<dyn Node>,
         right: Arc<dyn Node>,
     }
 
     impl BinaryNode {
-        fn new(left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
+        fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
             use starkom_poseidon2::{bluesky::BlueSkyConfig3, hash0};
             let hash = hash0::<BlueSkyConfig3, Scalar, 3>(&[left.hash(), right.hash()]);
-            Arc::new(BinaryNode { hash, left, right })
+            Arc::new(BinaryNode {
+                level,
+                hash,
+                left,
+                right,
+            })
+        }
+
+        fn bit_at(&self, key: &U256) -> bool {
+            (key >> self.level) & U256::one() != U256::zero()
         }
     }
 
@@ -791,35 +813,37 @@ mod tests {
             self.hash
         }
 
-        fn get(&self, key: Scalar) -> Scalar {
-            let key = key.to_u256();
-            let next_key = Scalar::try_from(key >> 1).unwrap();
-            if key & 1.into() != U256::zero() {
-                self.right.get(next_key)
+        fn get_impl(&self, key: &U256) -> Scalar {
+            if self.bit_at(key) {
+                self.right.get_impl(key)
             } else {
-                self.left.get(next_key)
+                self.left.get_impl(key)
             }
         }
 
-        fn get_merkle_path(&self, key: Scalar) -> Vec<Vec<Scalar>> {
-            let key = key.to_u256();
-            let next_key = Scalar::try_from(key >> 1).unwrap();
-            let mut path = if key & 1.into() != U256::zero() {
-                self.right.get_merkle_path(next_key)
+        fn get_merkle_path_impl(&self, key: &U256) -> Vec<Vec<Scalar>> {
+            let mut path = if self.bit_at(key) {
+                self.right.get_merkle_path_impl(key)
             } else {
-                self.left.get_merkle_path(next_key)
+                self.left.get_merkle_path_impl(key)
             };
             path.push(vec![self.left.hash(), self.right.hash()]);
             path
         }
 
-        fn put(self: Arc<Self>, key: Scalar, value: Scalar) -> Arc<dyn Node> {
-            let key = key.to_u256();
-            let next_key = Scalar::try_from(key >> 1).unwrap();
-            if key & 1.into() != U256::zero() {
-                Self::new(self.left.clone(), self.right.clone().put(next_key, value))
+        fn put_impl(self: Arc<Self>, key: &U256, value: Scalar) -> Arc<dyn Node> {
+            if self.bit_at(key) {
+                Self::new(
+                    self.level,
+                    self.left.clone(),
+                    self.right.clone().put_impl(key, value),
+                )
             } else {
-                Self::new(self.left.clone().put(next_key, value), self.right.clone())
+                Self::new(
+                    self.level,
+                    self.left.clone().put_impl(key, value),
+                    self.right.clone(),
+                )
             }
         }
     }
@@ -827,8 +851,8 @@ mod tests {
     fn get_empty_tree() -> Arc<dyn Node> {
         static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
             let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
-            for _ in 0..256 {
-                node = BinaryNode::new(node.clone(), node.clone());
+            for i in 0..256 {
+                node = BinaryNode::new(i, node.clone(), node.clone());
             }
             node
         });
