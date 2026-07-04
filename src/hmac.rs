@@ -1,8 +1,8 @@
 use crate::poseidon2;
 use crate::utils;
 use anyhow::{Result, anyhow};
-use ff::Field;
 use starkom_bluesky::Scalar;
+use starkom_ff::Field;
 use starkom_pcs::hash::{Hash, Poseidon2Hash, Sha2Hash};
 use starkom_plonk::{
     Chip as PlonkChip, Circuit, CircuitBuilder, CompressedCircuit, Proof as PlonkProof, Wire,
@@ -503,7 +503,7 @@ pub fn verify<H: Hash<Scalar> + CachedVerifier, const N: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::parse_scalar;
+    use starkom_bluesky::{from_const, parse_scalar};
 
     const BLOWUP_LOG2: usize = 1;
 
@@ -527,7 +527,8 @@ mod tests {
     fn test_signature_one_scalar_sha2() {
         let secret_key =
             parse_scalar("0x57833b8d7c2e4b4fa73b9b701496c153628a211d802f02e3f948437627123680");
-        let (signature, proof) = sign::<Sha2Hash<Scalar>, 1>(secret_key, &[42.into()], BLOWUP_LOG2);
+        let (signature, proof) =
+            sign::<Sha2Hash<Scalar>, 1>(secret_key, &[from_const(42)], BLOWUP_LOG2);
         assert_eq!(
             signature,
             parse_scalar("0x232869fb537eb95b880e872fe7683145c887b26fedd0427791d6480048d57b67")
@@ -535,7 +536,7 @@ mod tests {
         assert!(
             verify::<Sha2Hash<Scalar>, 1>(
                 identity_commitment(secret_key),
-                &[42.into()],
+                &[from_const(42)],
                 signature,
                 &proof
             )
@@ -548,7 +549,7 @@ mod tests {
         let secret_key =
             parse_scalar("0x57833b8d7c2e4b4fa73b9b701496c153628a211d802f02e3f948437627123680");
         let (signature, proof) =
-            sign::<Poseidon2Hash<Scalar>, 1>(secret_key, &[42.into()], BLOWUP_LOG2);
+            sign::<Poseidon2Hash<Scalar>, 1>(secret_key, &[from_const(42)], BLOWUP_LOG2);
         assert_eq!(
             signature,
             parse_scalar("0x232869fb537eb95b880e872fe7683145c887b26fedd0427791d6480048d57b67")
@@ -556,7 +557,7 @@ mod tests {
         assert!(
             verify::<Poseidon2Hash<Scalar>, 1>(
                 identity_commitment(secret_key),
-                &[42.into()],
+                &[from_const(42)],
                 signature,
                 &proof
             )
@@ -568,7 +569,8 @@ mod tests {
     fn test_signature_one_scalar_different_key_sha2() {
         let secret_key =
             parse_scalar("0x75b9be52955cd0933248b6324139bb988e9442fcf657c391b227de67f7d84561");
-        let (signature, proof) = sign::<Sha2Hash<Scalar>, 1>(secret_key, &[42.into()], BLOWUP_LOG2);
+        let (signature, proof) =
+            sign::<Sha2Hash<Scalar>, 1>(secret_key, &[from_const(42)], BLOWUP_LOG2);
         assert_eq!(
             signature,
             parse_scalar("0x20d84c0bb6bb0ee23f73141017a95539a4a6e68fdf5b79ff8d993e1adaa148fb")
@@ -576,7 +578,7 @@ mod tests {
         assert!(
             verify::<Sha2Hash<Scalar>, 1>(
                 identity_commitment(secret_key),
-                &[42.into()],
+                &[from_const(42)],
                 signature,
                 &proof
             )
@@ -589,7 +591,7 @@ mod tests {
         let secret_key =
             parse_scalar("0x75b9be52955cd0933248b6324139bb988e9442fcf657c391b227de67f7d84561");
         let (signature, proof) =
-            sign::<Poseidon2Hash<Scalar>, 1>(secret_key, &[42.into()], BLOWUP_LOG2);
+            sign::<Poseidon2Hash<Scalar>, 1>(secret_key, &[from_const(42)], BLOWUP_LOG2);
         assert_eq!(
             signature,
             parse_scalar("0x20d84c0bb6bb0ee23f73141017a95539a4a6e68fdf5b79ff8d993e1adaa148fb")
@@ -597,7 +599,7 @@ mod tests {
         assert!(
             verify::<Poseidon2Hash<Scalar>, 1>(
                 identity_commitment(secret_key),
-                &[42.into()],
+                &[from_const(42)],
                 signature,
                 &proof
             )
@@ -610,7 +612,7 @@ mod tests {
         let secret_key =
             parse_scalar("0x57833b8d7c2e4b4fa73b9b701496c153628a211d802f02e3f948437627123680");
         let (signature, proof) =
-            sign::<Sha2Hash<Scalar>, 1>(secret_key, &[123.into()], BLOWUP_LOG2);
+            sign::<Sha2Hash<Scalar>, 1>(secret_key, &[from_const(123)], BLOWUP_LOG2);
         assert_eq!(
             signature,
             parse_scalar("0x7395bb057b232be412d3db8aa35e54f4fa44b140d7cfe05d01853fe81b7401ef")
@@ -618,7 +620,7 @@ mod tests {
         assert!(
             verify::<Sha2Hash<Scalar>, 1>(
                 identity_commitment(secret_key),
-                &[123.into()],
+                &[from_const(123)],
                 signature,
                 &proof
             )
@@ -631,7 +633,7 @@ mod tests {
         let secret_key =
             parse_scalar("0x57833b8d7c2e4b4fa73b9b701496c153628a211d802f02e3f948437627123680");
         let (signature, proof) =
-            sign::<Poseidon2Hash<Scalar>, 1>(secret_key, &[123.into()], BLOWUP_LOG2);
+            sign::<Poseidon2Hash<Scalar>, 1>(secret_key, &[from_const(123)], BLOWUP_LOG2);
         assert_eq!(
             signature,
             parse_scalar("0x7395bb057b232be412d3db8aa35e54f4fa44b140d7cfe05d01853fe81b7401ef")
@@ -639,7 +641,7 @@ mod tests {
         assert!(
             verify::<Poseidon2Hash<Scalar>, 1>(
                 identity_commitment(secret_key),
-                &[123.into()],
+                &[from_const(123)],
                 signature,
                 &proof
             )
@@ -651,8 +653,11 @@ mod tests {
     fn test_signature_two_scalars_sha2() {
         let secret_key =
             parse_scalar("0x57833b8d7c2e4b4fa73b9b701496c153628a211d802f02e3f948437627123680");
-        let (signature, proof) =
-            sign::<Sha2Hash<Scalar>, 2>(secret_key, &[123.into(), 456.into()], BLOWUP_LOG2);
+        let (signature, proof) = sign::<Sha2Hash<Scalar>, 2>(
+            secret_key,
+            &[from_const(123), from_const(456)],
+            BLOWUP_LOG2,
+        );
         assert_eq!(
             signature,
             parse_scalar("0x48983c3c58b69a1354453ccc59a6f828c397627513937db41d2f32c4401723b6")
@@ -660,7 +665,7 @@ mod tests {
         assert!(
             verify::<Sha2Hash<Scalar>, 2>(
                 identity_commitment(secret_key),
-                &[123.into(), 456.into()],
+                &[from_const(123), from_const(456)],
                 signature,
                 &proof
             )
@@ -672,8 +677,11 @@ mod tests {
     fn test_signature_two_scalars_poseidon2() {
         let secret_key =
             parse_scalar("0x57833b8d7c2e4b4fa73b9b701496c153628a211d802f02e3f948437627123680");
-        let (signature, proof) =
-            sign::<Poseidon2Hash<Scalar>, 2>(secret_key, &[123.into(), 456.into()], BLOWUP_LOG2);
+        let (signature, proof) = sign::<Poseidon2Hash<Scalar>, 2>(
+            secret_key,
+            &[from_const(123), from_const(456)],
+            BLOWUP_LOG2,
+        );
         assert_eq!(
             signature,
             parse_scalar("0x48983c3c58b69a1354453ccc59a6f828c397627513937db41d2f32c4401723b6")
@@ -681,7 +689,7 @@ mod tests {
         assert!(
             verify::<Poseidon2Hash<Scalar>, 2>(
                 identity_commitment(secret_key),
-                &[123.into(), 456.into()],
+                &[from_const(123), from_const(456)],
                 signature,
                 &proof
             )

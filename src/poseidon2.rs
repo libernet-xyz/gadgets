@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
-use ff::Field;
 use starkom_bluesky::Scalar;
+use starkom_ff::Field;
 use starkom_plonk::{Chip as PlonkChip, CircuitBuilder, Wire, WireOrUnconstrained, Witness};
 use starkom_poseidon2::{Config, bluesky::BlueSkyConfig, bluesky::BlueSkyConfig4};
 
@@ -389,6 +389,10 @@ mod tests {
     use starkom_plonk::NUM_BLINDING_ROWS;
     use starkom_poseidon2::hash;
 
+    const fn from_const(value: u64) -> Scalar {
+        Scalar::from_const(value)
+    }
+
     fn test_hash_chip_impl<H: Hash<Scalar>, const T: usize, const I: usize>(
         blowup_log2: usize,
         inputs: [Scalar; I],
@@ -449,56 +453,74 @@ mod tests {
 
     #[test]
     fn test_hash_chip_t3_1() {
-        test_hash_chip::<3, 1>([42.into()], 651);
+        test_hash_chip::<3, 1>([from_const(42)], 651);
     }
 
     #[test]
     fn test_hash_chip_t3_2() {
-        test_hash_chip::<3, 2>([1.into(), 2.into()], 651);
+        test_hash_chip::<3, 2>([from_const(1), from_const(2)], 651);
     }
 
     #[test]
     fn test_hash_chip_t3_3() {
-        test_hash_chip::<3, 3>([3.into(), 4.into(), 5.into()], 1298);
+        test_hash_chip::<3, 3>([from_const(3), from_const(4), from_const(5)], 1298);
     }
 
     #[test]
     fn test_hash_chip_t3_4() {
-        test_hash_chip::<3, 4>([6.into(), 7.into(), 8.into(), 9.into()], 1300);
+        test_hash_chip::<3, 4>(
+            [from_const(6), from_const(7), from_const(8), from_const(9)],
+            1300,
+        );
     }
 
     #[test]
     fn test_hash_chip_t3_5() {
         test_hash_chip::<3, 5>(
-            [10.into(), 11.into(), 12.into(), 13.into(), 14.into()],
+            [
+                from_const(10),
+                from_const(11),
+                from_const(12),
+                from_const(13),
+                from_const(14),
+            ],
             1947,
         );
     }
 
     #[test]
     fn test_hash_chip_t4_1() {
-        test_hash_chip::<4, 1>([42.into()], 859);
+        test_hash_chip::<4, 1>([from_const(42)], 859);
     }
 
     #[test]
     fn test_hash_chip_t4_2() {
-        test_hash_chip::<4, 2>([1.into(), 2.into()], 859);
+        test_hash_chip::<4, 2>([from_const(1), from_const(2)], 859);
     }
 
     #[test]
     fn test_hash_chip_t4_3() {
-        test_hash_chip::<4, 3>([3.into(), 4.into(), 5.into()], 859);
+        test_hash_chip::<4, 3>([from_const(3), from_const(4), from_const(5)], 859);
     }
 
     #[test]
     fn test_hash_chip_t4_4() {
-        test_hash_chip::<4, 4>([6.into(), 7.into(), 8.into(), 9.into()], 1713);
+        test_hash_chip::<4, 4>(
+            [from_const(6), from_const(7), from_const(8), from_const(9)],
+            1713,
+        );
     }
 
     #[test]
     fn test_hash_chip_t4_5() {
         test_hash_chip::<4, 5>(
-            [10.into(), 11.into(), 12.into(), 13.into(), 14.into()],
+            [
+                from_const(10),
+                from_const(11),
+                from_const(12),
+                from_const(13),
+                from_const(14),
+            ],
             1715,
         );
     }
@@ -543,56 +565,74 @@ mod tests {
 
     #[test]
     fn test_preimage_chip_t3_1() {
-        test_preimage_chip::<3, 1>([42.into()], 650);
+        test_preimage_chip::<3, 1>([from_const(42)], 650);
     }
 
     #[test]
     fn test_preimage_chip_t3_2() {
-        test_preimage_chip::<3, 2>([1.into(), 2.into()], 649);
+        test_preimage_chip::<3, 2>([from_const(1), from_const(2)], 649);
     }
 
     #[test]
     fn test_preimage_chip_t3_3() {
-        test_preimage_chip::<3, 3>([3.into(), 4.into(), 5.into()], 1295);
+        test_preimage_chip::<3, 3>([from_const(3), from_const(4), from_const(5)], 1295);
     }
 
     #[test]
     fn test_preimage_chip_t3_4() {
-        test_preimage_chip::<3, 4>([6.into(), 7.into(), 8.into(), 9.into()], 1296);
+        test_preimage_chip::<3, 4>(
+            [from_const(6), from_const(7), from_const(8), from_const(9)],
+            1296,
+        );
     }
 
     #[test]
     fn test_preimage_chip_t3_5() {
         test_preimage_chip::<3, 5>(
-            [10.into(), 11.into(), 12.into(), 13.into(), 14.into()],
+            [
+                from_const(10),
+                from_const(11),
+                from_const(12),
+                from_const(13),
+                from_const(14),
+            ],
             1942,
         );
     }
 
     #[test]
     fn test_preimage_chip_t4_1() {
-        test_preimage_chip::<4, 1>([42.into()], 858);
+        test_preimage_chip::<4, 1>([from_const(42)], 858);
     }
 
     #[test]
     fn test_preimage_chip_t4_2() {
-        test_preimage_chip::<4, 2>([1.into(), 2.into()], 857);
+        test_preimage_chip::<4, 2>([from_const(1), from_const(2)], 857);
     }
 
     #[test]
     fn test_preimage_chip_t4_3() {
-        test_preimage_chip::<4, 3>([3.into(), 4.into(), 5.into()], 856);
+        test_preimage_chip::<4, 3>([from_const(3), from_const(4), from_const(5)], 856);
     }
 
     #[test]
     fn test_preimage_chip_t4_4() {
-        test_preimage_chip::<4, 4>([6.into(), 7.into(), 8.into(), 9.into()], 1709);
+        test_preimage_chip::<4, 4>(
+            [from_const(6), from_const(7), from_const(8), from_const(9)],
+            1709,
+        );
     }
 
     #[test]
     fn test_preimage_chip_t4_5() {
         test_preimage_chip::<4, 5>(
-            [10.into(), 11.into(), 12.into(), 13.into(), 14.into()],
+            [
+                from_const(10),
+                from_const(11),
+                from_const(12),
+                from_const(13),
+                from_const(14),
+            ],
             1710,
         );
     }
