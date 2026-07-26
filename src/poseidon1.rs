@@ -292,30 +292,15 @@ mod tests {
 
     #[test]
     fn test_permutation_1() {
-        assert!(
-            test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
-                [from_const(12), from_const(34), from_const(56)],
-                [parse_scalar("0"), parse_scalar("0"), parse_scalar("0")],
-                1,
-            )
-            .is_ok()
-        );
-        assert!(
-            test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
-                [from_const(12), from_const(34), from_const(56)],
-                [parse_scalar("0"), parse_scalar("0"), parse_scalar("0")],
-                2,
-            )
-            .is_ok()
-        );
-        assert!(
-            test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
-                [from_const(12), from_const(34), from_const(56)],
-                [parse_scalar("0"), parse_scalar("0"), parse_scalar("0")],
-                3,
-            )
-            .is_ok()
-        );
+        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let outputs = [
+            parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
+            parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
+            parse_scalar("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
+        ];
+        assert!(test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 2).is_ok());
+        assert!(test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 3).is_ok());
     }
 
     // TODO
