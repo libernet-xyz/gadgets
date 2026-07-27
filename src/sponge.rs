@@ -155,6 +155,8 @@ mod tests {
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon as poseidon1;
 
+    const BLOWUP_LOG2: usize = 3;
+
     fn test_hash_v1<
         const N: usize,
         Cfg: poseidon1::Config<Scalar, T, R, C>,
@@ -164,7 +166,6 @@ mod tests {
     >(
         inputs: [Scalar; N],
         expected_output: [Scalar; R],
-        blowup_log2: usize,
     ) -> Result<()> {
         let num_chunks = N.next_multiple_of(R) / R;
         let chip = Chip::<N, Poseidon1PermutationChip<Cfg, T, R, C>, T, R, C>::default();
@@ -184,11 +185,13 @@ mod tests {
         assert_eq!(witness.num_columns(), T * num_chunks);
         let output = chip.witness(&mut witness, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions { blowup_log2 };
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
         let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
         assert_eq!(proof.degree_bound(), 256);
-        assert_eq!(proof.blowup_log2(), blowup_log2);
-        assert_eq!(proof.extended_domain_size(), 256 << blowup_log2);
+        assert_eq!(proof.blowup_log2(), BLOWUP_LOG2);
+        assert_eq!(proof.extended_domain_size(), 256 << BLOWUP_LOG2);
         let public_inputs = circuit.verify(&proof, options)?;
         assert!(
             output
@@ -209,7 +212,7 @@ mod tests {
             parse_scalar("0x73952c443e4710be4a4c01e20046008b477f0d6fef5d87409cdebc4cdff3490c"),
             parse_scalar("0x05bf595cdacac4f9eba8679b69dcde4eeeca6db242005bf6b923fde28ea88a46"),
         ];
-        assert!(test_hash_v1::<1, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<1, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -219,7 +222,7 @@ mod tests {
             parse_scalar("0x28935bd3eba75f7b2d4f62babbd4e907b1ffcc28f73d1cae33654441a8a84023"),
             parse_scalar("0x339d0e485d8fdfb8c3391182d457fa3e73f043f566af1463ab05e57045122519"),
         ];
-        assert!(test_hash_v1::<2, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<2, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -229,7 +232,7 @@ mod tests {
             parse_scalar("0x2bfc323795d99f44817eaa143a7db00103ff1eae1bd67ee3ab3f5a1006c7695d"),
             parse_scalar("0x5e7468521c84b23259b813d193017a2b3c7813ce82e94ce4cc74a8c527db0923"),
         ];
-        assert!(test_hash_v1::<3, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<3, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -239,7 +242,7 @@ mod tests {
             parse_scalar("0x06ea9f66eddb8f036b0d6201dcf6a8c610b8aca9371e2bfc7fbd1deb1e5bb158"),
             parse_scalar("0x0bc4c477fdeee23bf2f139b12c2ea927d145f298e6204255cbad8461af9150c6"),
         ];
-        assert!(test_hash_v1::<4, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<4, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -255,7 +258,7 @@ mod tests {
             parse_scalar("0x05ae2c9b2bdbb5a64d4e838bd96b0b4c2366fc6d3cee4309793e01dfd2a589d1"),
             parse_scalar("0x67de663ef4d5db733c68cae13b6bb28aa97d0fc904dccdfa80f4c9fae36f51d0"),
         ];
-        assert!(test_hash_v1::<5, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<5, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -266,7 +269,7 @@ mod tests {
             parse_scalar("0x732f901b286e0f3575ab52e19494406c38f3db3e06169143f4c0369b3ba58ed9"),
             parse_scalar("0x24c8327a61a3bd811e04b11107609bd91b8916ab5cf53fe927edaa27a9e8d5da"),
         ];
-        assert!(test_hash_v1::<1, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<1, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -277,7 +280,7 @@ mod tests {
             parse_scalar("0x292ad2994473be89dbfec5185888d85924bfa0f64b3be556609bbde3bad4360c"),
             parse_scalar("0x3f972105e69fcceafe6ce580dab417c50a34316d2de43d73a79f861ef55ca87a"),
         ];
-        assert!(test_hash_v1::<2, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<2, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -288,7 +291,7 @@ mod tests {
             parse_scalar("0x664ca128f4f6f225f282a671b522c267389f30f01d858757a1f029941510d8ec"),
             parse_scalar("0x38ef442cd0ce47da5e7fdd912edfc2a95a36409b142fd0f94545267af135bcfa"),
         ];
-        assert!(test_hash_v1::<3, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<3, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -299,7 +302,7 @@ mod tests {
             parse_scalar("0x688cf6e7f2aba6c399bc3253ce3827f7a003f8170fe679cbcc2b37e9ba65211e"),
             parse_scalar("0x1d14218c5f5ae32b4fc20b250b52ad8ec96a77627a6c103c8ecf3919290d6239"),
         ];
-        assert!(test_hash_v1::<4, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<4, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -316,6 +319,6 @@ mod tests {
             parse_scalar("0x0bb3130cba6d1aa9cd4ac577dd503905305ce7ccc08d04ec15d9a9700eb747a1"),
             parse_scalar("0x1cc1f59d0c8b31f60c5b10478b28db466bdcdefda0e8da296d96d5529177d621"),
         ];
-        assert!(test_hash_v1::<5, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_hash_v1::<5, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs).is_ok());
     }
 }

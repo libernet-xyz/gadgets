@@ -10,4 +10,4 @@ mod utils;
 pub mod poseidon1;
 // pub mod poseidon2;
 pub mod sponge;
-// pub mod xits;
+pub mod xits;
