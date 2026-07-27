@@ -49,7 +49,7 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         let c = Cfg::get_round_constants();
         for i in 0..T {
             let state = view.get(view.cell(0, i));
-            view.set(view.cell(0, i), state + c[i]);
+            view.set(view.cell(1, i), state + c[i]);
         }
     }
 
@@ -62,9 +62,9 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
 
     fn witness_full_sbox(&self, view: &mut impl WitnessView) {
         for i in 0..T {
-            let src_cell = view.cell(-1, i);
-            let dst_cell = view.cell(0, i);
-            view.set(dst_cell, view.get(src_cell).cube());
+            let state = view.get(view.cell(-1, i));
+            view.set(view.cell(0, i), state.cube());
+            view.set(view.cell(1, i), state.square().square() * state);
         }
     }
 
