@@ -44,15 +44,7 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
 
     fn witness_first_arc(&self, view: &mut impl WitnessView, inputs: [CellOrUnconstrained; T]) {
         for i in 0..T {
-            let dst_cell = view.cell(0, i);
-            match inputs[i] {
-                CellOrUnconstrained::Cell(cell) => {
-                    view.copy(cell, dst_cell);
-                }
-                CellOrUnconstrained::Unconstrained(value) => {
-                    view.set(dst_cell, value);
-                }
-            }
+            view.copy(inputs[i], view.cell(0, i));
         }
         let c = Cfg::get_round_constants();
         for i in 0..T {
@@ -89,7 +81,7 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         view.set(view.cell(0, 0), state.cube());
         view.set(view.cell(1, 0), state.square().square() * state);
         for i in 1..T {
-            view.copy(view.cell(-1, i), view.cell(1, i));
+            view.copy(view.cell(-1, i).into(), view.cell(1, i));
         }
     }
 
@@ -165,31 +157,26 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         let num_total_rounds = Cfg::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
         self.build_first_arc(builder, inputs);
-        let mut view = builder.sub_at(2, 0, T);
+        let mut view = builder.sub(2, 0, T);
         for r in 0..num_full_rounds {
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.build_full_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
+            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.build_full_sbox(view))
+                .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
         }
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.build_partial_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
+            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.build_partial_sbox(view))
+                .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
         }
         for r in (num_full_rounds + num_partial_rounds)..(num_total_rounds - 1) {
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.build_full_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
+            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.build_full_sbox(view))
+                .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
         }
         {
-            let r = num_total_rounds - 1;
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.build_full_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.build_last_mds(view));
+            let mut view = view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.build_full_sbox(view))
+                .sub_fn(1, 0, T, |view| self.build_last_mds(view));
         }
         Ok(std::array::from_fn(|i| {
             Some(view.cell(num_total_rounds * Self::ROUND_HEIGHT, i))
@@ -208,29 +195,24 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         self.witness_first_arc(witness, inputs);
         let mut view = witness.sub(2, 0, T);
         for r in 0..num_full_rounds {
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.witness_full_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
+            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
+                .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
         }
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.witness_partial_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
+            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.witness_partial_sbox(view))
+                .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
         }
         for r in (num_full_rounds + num_partial_rounds)..(num_total_rounds - 1) {
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.witness_full_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
+            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
+                .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
         }
         {
-            let r = num_total_rounds - 1;
-            view.sub_fn(r * Self::ROUND_HEIGHT, 0, T, |view| {
-                self.witness_full_sbox(view)
-            })
-            .sub_fn(1, 0, T, |view| self.witness_last_mds(view));
+            let mut view = view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T);
+            view.sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
+                .sub_fn(1, 0, T, |view| self.witness_last_mds(view));
         }
         Ok(std::array::from_fn(|i| {
             view.cell(num_total_rounds * Self::ROUND_HEIGHT, i).into()
@@ -271,7 +253,7 @@ mod tests {
         assert_eq!(witness.degree_bound(), 256);
         assert_eq!(witness.num_columns(), T);
         let output = chip.witness(&mut witness, inputs.map(|input| input.into()))?;
-        assert!(circuit.check_witness(&witness).is_ok());
+        circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions { blowup_log2 };
         let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
         assert_eq!(proof.degree_bound(), 256);
