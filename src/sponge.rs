@@ -15,6 +15,8 @@ pub struct Chip<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usi
 impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize>
     Chip<N, P, T, R, C>
 {
+    const ABSORB_HEIGHT: usize = 3;
+
     fn build_absorb(
         &self,
         view: &mut impl CircuitView,
@@ -106,7 +108,7 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
                 .sub_fn(0, 0, T, |view| {
                     state = self.build_absorb(view, state, &mut input_it);
                 })
-                .sub_chip(0, 0, &self.permutation, state)?;
+                .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
         }
 
         Ok(std::array::from_fn(|i| state[i]))
@@ -137,7 +139,7 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
                 .sub_fn(0, 0, T, |view| {
                     state = self.witness_absorb(view, state, &mut input_it);
                 })
-                .sub_chip(0, 0, &self.permutation, state)?;
+                .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
         }
 
         Ok(std::array::from_fn(|i| state[i]))
@@ -256,5 +258,64 @@ mod tests {
         assert!(test_hash_v1::<5, poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
     }
 
-    // TODO
+    #[test]
+    fn test_hash_v1_t4_1() {
+        let inputs = [from_const(42)];
+        let outputs = [
+            parse_scalar("0x2fdb574b84cca8f2c657ea588d8812bafbba305b7a9933728753de0fcf104c40"),
+            parse_scalar("0x732f901b286e0f3575ab52e19494406c38f3db3e06169143f4c0369b3ba58ed9"),
+            parse_scalar("0x24c8327a61a3bd811e04b11107609bd91b8916ab5cf53fe927edaa27a9e8d5da"),
+        ];
+        assert!(test_hash_v1::<1, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v1_t4_2() {
+        let inputs = [from_const(1), from_const(2)];
+        let outputs = [
+            parse_scalar("0x33eaaa53f69ea75566e04bcb9318f965d5e74b68663bb4a09adfeeae27c752f4"),
+            parse_scalar("0x292ad2994473be89dbfec5185888d85924bfa0f64b3be556609bbde3bad4360c"),
+            parse_scalar("0x3f972105e69fcceafe6ce580dab417c50a34316d2de43d73a79f861ef55ca87a"),
+        ];
+        assert!(test_hash_v1::<2, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v1_t4_3() {
+        let inputs = [from_const(3), from_const(4), from_const(5)];
+        let outputs = [
+            parse_scalar("0x5220b264d93b85d22b4eb5a19c53ebfd08e1702e00dc76de14603165663006ea"),
+            parse_scalar("0x664ca128f4f6f225f282a671b522c267389f30f01d858757a1f029941510d8ec"),
+            parse_scalar("0x38ef442cd0ce47da5e7fdd912edfc2a95a36409b142fd0f94545267af135bcfa"),
+        ];
+        assert!(test_hash_v1::<3, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v1_t4_4() {
+        let inputs = [from_const(6), from_const(7), from_const(8), from_const(9)];
+        let outputs = [
+            parse_scalar("0x6cef40d837aeb6183356cf40d9818bc0ee109c557b17bffd80ab2905e4e2292f"),
+            parse_scalar("0x688cf6e7f2aba6c399bc3253ce3827f7a003f8170fe679cbcc2b37e9ba65211e"),
+            parse_scalar("0x1d14218c5f5ae32b4fc20b250b52ad8ec96a77627a6c103c8ecf3919290d6239"),
+        ];
+        assert!(test_hash_v1::<4, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v1_t4_5() {
+        let inputs = [
+            from_const(10),
+            from_const(11),
+            from_const(12),
+            from_const(13),
+            from_const(14),
+        ];
+        let outputs = [
+            parse_scalar("0x22c96d13097aa3b4782f9d2580dc2295378f87c85aaed5f47ee3f8b036faf8ee"),
+            parse_scalar("0x0bb3130cba6d1aa9cd4ac577dd503905305ce7ccc08d04ec15d9a9700eb747a1"),
+            parse_scalar("0x1cc1f59d0c8b31f60c5b10478b28db466bdcdefda0e8da296d96d5529177d621"),
+        ];
+        assert!(test_hash_v1::<5, poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+    }
 }
