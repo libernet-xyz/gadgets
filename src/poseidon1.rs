@@ -159,27 +159,25 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         self.build_first_arc(builder, inputs);
         let mut view = builder.sub(2, 0, T);
         for r in 0..num_full_rounds {
-            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.build_full_sbox(view))
+            view.sub(r * Self::ROUND_HEIGHT, 0, T)
+                .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
                 .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
         }
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.build_partial_sbox(view))
+            view.sub(r * Self::ROUND_HEIGHT, 0, T)
+                .sub_fn(0, 0, T, |view| self.build_partial_sbox(view))
                 .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
         }
         for r in (num_full_rounds + num_partial_rounds)..(num_total_rounds - 1) {
-            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.build_full_sbox(view))
+            view.sub(r * Self::ROUND_HEIGHT, 0, T)
+                .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
                 .sub_fn(1, 0, T, |view| self.build_mds_and_next_arc(view, r));
         }
-        {
-            let mut view = view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.build_full_sbox(view))
-                .sub_fn(1, 0, T, |view| self.build_last_mds(view));
-        }
+        view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T)
+            .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
+            .sub_fn(1, 0, T, |view| self.build_last_mds(view));
         Ok(std::array::from_fn(|i| {
-            Some(view.cell(num_total_rounds * Self::ROUND_HEIGHT, i))
+            Some(view.cell(num_total_rounds * Self::ROUND_HEIGHT - 1, i))
         }))
     }
 
@@ -195,27 +193,26 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         self.witness_first_arc(witness, inputs);
         let mut view = witness.sub(2, 0, T);
         for r in 0..num_full_rounds {
-            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
+            view.sub(r * Self::ROUND_HEIGHT, 0, T)
+                .sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
                 .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
         }
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.witness_partial_sbox(view))
+            view.sub(r * Self::ROUND_HEIGHT, 0, T)
+                .sub_fn(0, 0, T, |view| self.witness_partial_sbox(view))
                 .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
         }
         for r in (num_full_rounds + num_partial_rounds)..(num_total_rounds - 1) {
-            let mut view = view.sub(r * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
+            view.sub(r * Self::ROUND_HEIGHT, 0, T)
+                .sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
                 .sub_fn(1, 0, T, |view| self.witness_mds_and_next_arc(view, r));
         }
-        {
-            let mut view = view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T);
-            view.sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
-                .sub_fn(1, 0, T, |view| self.witness_last_mds(view));
-        }
+        view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T)
+            .sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
+            .sub_fn(1, 0, T, |view| self.witness_last_mds(view));
         Ok(std::array::from_fn(|i| {
-            view.cell(num_total_rounds * Self::ROUND_HEIGHT, i).into()
+            view.cell(num_total_rounds * Self::ROUND_HEIGHT - 1, i)
+                .into()
         }))
     }
 }
