@@ -149,15 +149,15 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
 
     fn build(
         &self,
-        builder: &mut impl CircuitView,
+        view: &mut impl CircuitView,
         inputs: [Option<Cell>; T],
     ) -> Result<[Option<Cell>; T]> {
         let num_full_rounds = Cfg::num_full_rounds();
         let num_partial_rounds = Cfg::num_partial_rounds();
         let num_total_rounds = Cfg::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
-        self.build_first_arc(builder, inputs);
-        let mut view = builder.sub(2, 0, T);
+        self.build_first_arc(view, inputs);
+        let mut view = view.sub(2, 0, T);
         for r in 0..num_full_rounds {
             view.sub(r * Self::ROUND_HEIGHT, 0, T)
                 .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
@@ -183,15 +183,15 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
 
     fn witness(
         &self,
-        witness: &mut impl WitnessView,
+        view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; T],
     ) -> Result<[CellOrUnconstrained; T]> {
         let num_full_rounds = Cfg::num_full_rounds();
         let num_partial_rounds = Cfg::num_partial_rounds();
         let num_total_rounds = Cfg::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
-        self.witness_first_arc(witness, inputs);
-        let mut view = witness.sub(2, 0, T);
+        self.witness_first_arc(view, inputs);
+        let mut view = view.sub(2, 0, T);
         for r in 0..num_full_rounds {
             view.sub(r * Self::ROUND_HEIGHT, 0, T)
                 .sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
@@ -236,6 +236,7 @@ mod tests {
         blowup_log2: usize,
     ) -> Result<()> {
         let chip = PermutationChip::<Cfg, T, R, C>::default();
+        assert_eq!(chip.width(), T);
         let mut builder = CircuitBuilder::default();
         let output = chip.build(&mut builder, std::array::from_fn(|_| None))?;
         builder.declare_public_rows([output[0].unwrap().row()]);
@@ -270,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn test_permutation_1() {
+    fn test_permutation_t3() {
         let inputs = [from_const(0), from_const(1), from_const(2)];
         let outputs = [
             parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
@@ -282,5 +283,17 @@ mod tests {
         assert!(test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 3).is_ok());
     }
 
-    // TODO
+    #[test]
+    fn test_permutation_t4() {
+        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let outputs = [
+            parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
+            parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
+            parse_scalar("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
+            parse_scalar("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
+        ];
+        assert!(test_permutation::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_permutation::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 2).is_ok());
+        assert!(test_permutation::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 3).is_ok());
+    }
 }
