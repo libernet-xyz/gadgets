@@ -227,6 +227,11 @@ mod tests {
 
     const BLOWUP_LOG2: usize = 1;
 
+    #[inline]
+    fn cell(row: usize, column: usize) -> Cell {
+        Cell::new(row, column)
+    }
+
     #[test]
     fn test_next_power_of_three() {
         assert_eq!(next_power_of_three(0), 1);
@@ -467,12 +472,11 @@ mod tests {
         let proof = circuit
             .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
             .unwrap();
-        assert!(
-            circuit
-                .to_compressed::<Sha2Hash<Scalar>>(proving_options)
-                .verify(&proof)
-                .is_ok()
-        );
+        let openings = circuit
+            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
+            .verify(&proof)
+            .unwrap();
+        assert!((0..N).all(|i| openings[&cell(0, i)] == bits[i]));
     }
 
     #[test]
@@ -501,7 +505,7 @@ mod tests {
         test_bit_decomposer_chip::<3>(7);
     }
 
-    fn test_bit_comparator_chip<const N: usize>(lhs: u64, rhs: u64) {
+    fn test_const_bit_comparator_chip<const N: usize>(lhs: u64, rhs: u64) {
         let mut builder = CircuitBuilder::default();
         let decomposer_chip = BitDecomposerChip::<N>::default();
         let bits = decomposer_chip.build(&mut builder, [None]).unwrap();
@@ -540,31 +544,31 @@ mod tests {
     }
 
     #[test]
-    fn test_bit_comparator_chip_1() {
-        test_bit_comparator_chip::<1>(0, 0);
-        test_bit_comparator_chip::<1>(1, 0);
-        test_bit_comparator_chip::<1>(0, 1);
-        test_bit_comparator_chip::<1>(1, 1);
+    fn test_const_bit_comparator_chip_1() {
+        test_const_bit_comparator_chip::<1>(0, 0);
+        test_const_bit_comparator_chip::<1>(1, 0);
+        test_const_bit_comparator_chip::<1>(0, 1);
+        test_const_bit_comparator_chip::<1>(1, 1);
     }
 
     #[test]
-    fn test_bit_comparator_chip_2() {
-        test_bit_comparator_chip::<2>(0, 0);
-        test_bit_comparator_chip::<2>(1, 0);
-        test_bit_comparator_chip::<2>(2, 0);
-        test_bit_comparator_chip::<2>(3, 0);
-        test_bit_comparator_chip::<2>(0, 1);
-        test_bit_comparator_chip::<2>(1, 1);
-        test_bit_comparator_chip::<2>(2, 1);
-        test_bit_comparator_chip::<2>(3, 1);
-        test_bit_comparator_chip::<2>(0, 2);
-        test_bit_comparator_chip::<2>(1, 2);
-        test_bit_comparator_chip::<2>(2, 2);
-        test_bit_comparator_chip::<2>(3, 2);
-        test_bit_comparator_chip::<2>(0, 3);
-        test_bit_comparator_chip::<2>(1, 3);
-        test_bit_comparator_chip::<2>(2, 3);
-        test_bit_comparator_chip::<2>(3, 3);
+    fn test_const_bit_comparator_chip_2() {
+        test_const_bit_comparator_chip::<2>(0, 0);
+        test_const_bit_comparator_chip::<2>(1, 0);
+        test_const_bit_comparator_chip::<2>(2, 0);
+        test_const_bit_comparator_chip::<2>(3, 0);
+        test_const_bit_comparator_chip::<2>(0, 1);
+        test_const_bit_comparator_chip::<2>(1, 1);
+        test_const_bit_comparator_chip::<2>(2, 1);
+        test_const_bit_comparator_chip::<2>(3, 1);
+        test_const_bit_comparator_chip::<2>(0, 2);
+        test_const_bit_comparator_chip::<2>(1, 2);
+        test_const_bit_comparator_chip::<2>(2, 2);
+        test_const_bit_comparator_chip::<2>(3, 2);
+        test_const_bit_comparator_chip::<2>(0, 3);
+        test_const_bit_comparator_chip::<2>(1, 3);
+        test_const_bit_comparator_chip::<2>(2, 3);
+        test_const_bit_comparator_chip::<2>(3, 3);
     }
 
     // TODO
