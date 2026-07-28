@@ -263,6 +263,43 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
     }
 }
 
+/// Divides `value`, treated as an integer, by `3^exp`, rounding down.
+pub fn div_pow3(value: Scalar, exp: usize) -> Scalar {
+    let dividend = value.to_u256();
+    let divisor = U256::from(3).pow(exp.into());
+    (dividend / divisor).try_into().unwrap()
+}
+
+/// Divides `value`, treated as an integer, by 3, rounding down.
+pub fn div3(value: Scalar) -> Scalar {
+    let dividend = value.to_u256();
+    (dividend / 3).try_into().unwrap()
+}
+
+/// Returns `value`, treated as an integer, modulo 3.
+pub fn mod3(value: Scalar) -> Scalar {
+    let value = value.to_u256();
+    (value % 3).try_into().unwrap()
+}
+
+/// Decomposes `value` into its `N` base-3 digits (trits), least significant first.
+///
+/// Panics if `value` does not fit in `N` trits.
+pub fn decompose_trits<const N: usize>(mut value: U256) -> [Scalar; N] {
+    let mut trits = [Scalar::ZERO; N];
+    for i in 0..N {
+        trits[i] = Scalar::from((value % 3).as_u64());
+        value /= 3;
+    }
+    assert_eq!(value, U256::zero());
+    trits
+}
+
+/// Like [`decompose_trits`], but takes `value` as a [`Scalar`] rather than a [`U256`].
+pub fn decompose_scalar_trits<const N: usize>(value: Scalar) -> [Scalar; N] {
+    decompose_trits::<N>(value.to_u256())
+}
+
 // TODO
 
 #[cfg(test)]
@@ -699,6 +736,204 @@ mod tests {
     #[test]
     fn test_full_bit_decomposer_chip_7() {
         test_full_bit_decomposer_chip_impl(7);
+    }
+
+    #[test]
+    fn test_div_pow3() {
+        assert_eq!(
+            div_pow3(
+                parse_scalar("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
+                4
+            ),
+            parse_scalar("0x00032f71d3d0aac0e3aaca6871f05f0032c75591a1720ced55a4ab0058da7229")
+        );
+    }
+
+    #[test]
+    fn test_div3() {
+        assert_eq!(
+            div3(parse_scalar(
+                "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+            )),
+            parse_scalar("0x005601015702025803035904045a05055b06065c07075d08085e09095f0a0a60")
+        );
+    }
+
+    #[test]
+    fn test_mod3() {
+        assert_eq!(mod3(from_const(42)), from_const(0));
+        assert_eq!(mod3(from_const(43)), from_const(1));
+        assert_eq!(mod3(from_const(44)), from_const(2));
+        assert_eq!(mod3(from_const(45)), from_const(0));
+        assert_eq!(mod3(from_const(46)), from_const(1));
+        assert_eq!(mod3(from_const(47)), from_const(2));
+    }
+
+    #[test]
+    fn test_mod3_large() {
+        assert_eq!(
+            mod3(parse_scalar(
+                "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+            )),
+            from_const(0)
+        );
+        assert_eq!(
+            mod3(parse_scalar(
+                "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
+            )),
+            from_const(1)
+        );
+        assert_eq!(
+            mod3(parse_scalar(
+                "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f22"
+            )),
+            from_const(2)
+        );
+        assert_eq!(
+            mod3(parse_scalar(
+                "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f23"
+            )),
+            from_const(0)
+        );
+        assert_eq!(
+            mod3(parse_scalar(
+                "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f24"
+            )),
+            from_const(1)
+        );
+        assert_eq!(
+            mod3(parse_scalar(
+                "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f25"
+            )),
+            from_const(2)
+        );
+    }
+
+    #[test]
+    fn test_decompose_trits_one() {
+        assert_eq!(decompose_trits::<1>(0.into()), [from_const(0)]);
+        assert_eq!(decompose_trits::<1>(1.into()), [from_const(1)]);
+        assert_eq!(decompose_trits::<1>(2.into()), [from_const(2)]);
+    }
+
+    #[test]
+    fn test_decompose_trits_two() {
+        assert_eq!(
+            decompose_trits::<2>(0.into()),
+            [from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(1.into()),
+            [from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(2.into()),
+            [from_const(2), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(3.into()),
+            [from_const(0), from_const(1)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(4.into()),
+            [from_const(1), from_const(1)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(5.into()),
+            [from_const(2), from_const(1)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(6.into()),
+            [from_const(0), from_const(2)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(7.into()),
+            [from_const(1), from_const(2)]
+        );
+        assert_eq!(
+            decompose_trits::<2>(8.into()),
+            [from_const(2), from_const(2)]
+        );
+    }
+
+    #[test]
+    fn test_decompose_trits_three() {
+        assert_eq!(
+            decompose_trits::<3>(0.into()),
+            [from_const(0), from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(1.into()),
+            [from_const(1), from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(2.into()),
+            [from_const(2), from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(3.into()),
+            [from_const(0), from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(4.into()),
+            [from_const(1), from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(5.into()),
+            [from_const(2), from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(6.into()),
+            [from_const(0), from_const(2), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(7.into()),
+            [from_const(1), from_const(2), from_const(0)]
+        );
+        assert_eq!(
+            decompose_trits::<3>(8.into()),
+            [from_const(2), from_const(2), from_const(0)]
+        );
+    }
+
+    #[test]
+    fn test_decompose_scalar_trits() {
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(0)),
+            [from_const(0), from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(1)),
+            [from_const(1), from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(2)),
+            [from_const(2), from_const(0), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(3)),
+            [from_const(0), from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(4)),
+            [from_const(1), from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(5)),
+            [from_const(2), from_const(1), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(6)),
+            [from_const(0), from_const(2), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(7)),
+            [from_const(1), from_const(2), from_const(0)]
+        );
+        assert_eq!(
+            decompose_scalar_trits::<3>(from_const(8)),
+            [from_const(2), from_const(2), from_const(0)]
+        );
     }
 
     // TODO
