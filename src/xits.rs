@@ -1,7 +1,7 @@
 use anyhow::Result;
 use primitive_types::U256;
 use starkom_bluesky::{Scalar, from_const};
-use starkom_ff::{Field, Field256};
+use starkom_ff::{Field, Field256, PrimeField};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, make_const,
     rvar, var,
@@ -212,6 +212,54 @@ impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
             );
         }
         Ok([view.cell(1, 0).into()])
+    }
+}
+
+/// Decomposes an input signal into 256 bits.
+///
+/// The returned bits are in little-endian order.
+///
+/// Note that the MSB will always be zero because BlueSky scalars don't cover the upper half of the
+/// 256 bit range.
+#[derive(Debug, Clone)]
+pub struct FullBitDecomposerChip {
+    decomposer: BitDecomposerChip<256>,
+    comparator: ConstBitComparatorChip<256>,
+}
+
+impl Default for FullBitDecomposerChip {
+    fn default() -> Self {
+        Self {
+            decomposer: BitDecomposerChip::default(),
+            comparator: ConstBitComparatorChip::new(Scalar::MODULUS.parse().unwrap()),
+        }
+    }
+}
+
+impl PlonkChip<1, 256> for FullBitDecomposerChip {
+    fn width(&self) -> usize {
+        257
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 256]> {
+        let bits = self.decomposer.build(view, inputs)?;
+        let [cmp] = view.sub_chip(1, 0, &self.comparator, bits)?;
+        view.add_gate(cmp.unwrap().row(), var(0) + 1);
+        Ok(bits)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 1],
+    ) -> Result<[CellOrUnconstrained; 256]> {
+        let bits = self.decomposer.witness(view, inputs)?;
+        view.sub_chip(1, 0, &self.comparator, bits)?;
+        Ok(bits)
     }
 }
 
@@ -445,6 +493,7 @@ mod tests {
 
     fn test_bit_decomposer_chip<const N: usize>(value: u64) {
         let chip = BitDecomposerChip::<N>::default();
+        assert_eq!(chip.width(), N + 1);
         let mut builder = CircuitBuilder::default();
         chip.build(&mut builder, [None]).unwrap();
         builder.declare_public_rows([0]);
@@ -510,6 +559,7 @@ mod tests {
         let decomposer_chip = BitDecomposerChip::<N>::default();
         let bits = decomposer_chip.build(&mut builder, [None]).unwrap();
         let comparator_chip = ConstBitComparatorChip::<N>::new(rhs.into());
+        assert_eq!(comparator_chip.width(), N);
         let [cmp] = comparator_chip.build(&mut builder, bits).unwrap();
         builder.declare_public_rows([cmp.unwrap().row()]);
         let circuit = builder
@@ -517,6 +567,9 @@ mod tests {
                 canonicalize_constraints: false,
             })
             .unwrap();
+        assert_eq!(circuit.num_rows(), 2);
+        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = decomposer_chip
             .witness(&mut witness, [Scalar::from(lhs).into()])
@@ -569,6 +622,83 @@ mod tests {
         test_const_bit_comparator_chip::<2>(1, 3);
         test_const_bit_comparator_chip::<2>(2, 3);
         test_const_bit_comparator_chip::<2>(3, 3);
+    }
+
+    fn test_full_bit_decomposer_chip_impl(value: u64) {
+        let chip = FullBitDecomposerChip::default();
+        assert_eq!(chip.width(), 257);
+        let mut builder = CircuitBuilder::default();
+        chip.build(&mut builder, [None]).unwrap();
+        builder.declare_public_rows([0]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), 3);
+        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.num_columns(), 257);
+        let mut witness = circuit.make_witness();
+        let bits = chip
+            .witness(&mut witness, [Scalar::from(value).into()])
+            .unwrap()
+            .map(|bit| match bit {
+                CellOrUnconstrained::Cell(cell) => witness.get(cell),
+                _ => panic!("the output bits must be constrained"),
+            });
+        assert_eq!(bits, decompose_bits::<256>(value.into())[0..256]);
+        circuit.check_witness(&witness).unwrap();
+        let proving_options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit
+            .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
+            .unwrap();
+        let openings = circuit
+            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
+            .verify(&proof)
+            .unwrap();
+        assert!((0..256).all(|i| openings[&cell(0, i)] == bits[i]));
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_0() {
+        test_full_bit_decomposer_chip_impl(0);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_1() {
+        test_full_bit_decomposer_chip_impl(1);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_2() {
+        test_full_bit_decomposer_chip_impl(2);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_3() {
+        test_full_bit_decomposer_chip_impl(3);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_4() {
+        test_full_bit_decomposer_chip_impl(4);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_5() {
+        test_full_bit_decomposer_chip_impl(5);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_6() {
+        test_full_bit_decomposer_chip_impl(6);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_7() {
+        test_full_bit_decomposer_chip_impl(7);
     }
 
     // TODO
