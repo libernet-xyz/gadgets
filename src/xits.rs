@@ -1,9 +1,10 @@
+use anyhow::Result;
 use primitive_types::U256;
 use starkom_bluesky::{Scalar, from_const};
 use starkom_ff::{Field, Field256};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, make_const,
-    var,
+    rvar, var,
 };
 
 /// Returns the smallest power of three that is >= n (returns 1 for n=0).
@@ -104,7 +105,7 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
         &self,
         view: &mut impl CircuitView,
         inputs: [Option<Cell>; 1],
-    ) -> anyhow::Result<[Option<Cell>; N]> {
+    ) -> Result<[Option<Cell>; N]> {
         for i in 0..N {
             view.add_gate(0, var(i) * (make_const(1) - var(i)));
         }
@@ -124,7 +125,7 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
         &self,
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 1],
-    ) -> anyhow::Result<[CellOrUnconstrained; N]> {
+    ) -> Result<[CellOrUnconstrained; N]> {
         let value = match inputs[0] {
             CellOrUnconstrained::Cell(cell) => view.get(cell),
             CellOrUnconstrained::Unconstrained(value) => value,
@@ -138,12 +139,91 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
     }
 }
 
+/// Compares the number represented by the input bits against a specified constant scalar.
+///
+/// The inputs bits must be provided in little-endian order.
+///
+/// The returned signal is:
+///
+///  * -1 if the input value is strictly less than the constant,
+///  * 0 if the input value is equal to the constant,
+///  * 1 if the input value is strictly greater than the constant.
+#[derive(Debug, Default, Clone)]
+pub struct ConstBitComparatorChip<const N: usize> {
+    rhs: U256,
+}
+
+impl<const N: usize> ConstBitComparatorChip<N> {
+    pub fn new(rhs: U256) -> Self {
+        Self { rhs }
+    }
+}
+
+impl<const N: usize> ConstBitComparatorChip<N> {
+    fn get_rhs_bit(&self, i: usize) -> Scalar {
+        ((self.rhs >> i) & 1.into()).try_into().unwrap()
+    }
+}
+
+impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
+    fn width(&self) -> usize {
+        N
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; N],
+    ) -> Result<[Option<Cell>; 1]> {
+        for i in 0..N {
+            view.connect(inputs[i], view.cell(0, i).into());
+        }
+        view.add_gate(0, rvar(N - 1, 0) - self.get_rhs_bit(N - 1) - rvar(N - 1, 1));
+        for i in (0..(N - 1)).rev() {
+            let bit = self.get_rhs_bit(i);
+            view.add_gate(
+                0,
+                (rvar(i + 1, 1) ^ 3) + (make_const(1) - (rvar(i + 1, 1) ^ 2)) * (rvar(i, 0) - bit)
+                    - rvar(i, 1),
+            );
+        }
+        Ok([view.cell(1, 0).into()])
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; N],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        for i in 0..N {
+            view.copy(inputs[i], view.cell(0, i));
+        }
+        view.set(
+            view.cell(1, N - 1),
+            view.get(view.cell(0, N - 1)) - self.get_rhs_bit(N - 1),
+        );
+        for i in (0..(N - 1)).rev() {
+            let bit = self.get_rhs_bit(i);
+            let cmp = view.get(view.cell(0, i)) - bit;
+            let prev = view.get(view.cell(1, i + 1));
+            view.set(
+                view.cell(1, i),
+                prev.cube() + (from_const(1) - prev.square()) * cmp,
+            );
+        }
+        Ok([view.cell(1, 0).into()])
+    }
+}
+
+// TODO
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use starkom_bluesky::parse_scalar;
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use std::cmp::Ordering;
 
     const BLOWUP_LOG2: usize = 1;
 
@@ -419,6 +499,72 @@ mod tests {
         test_bit_decomposer_chip::<3>(5);
         test_bit_decomposer_chip::<3>(6);
         test_bit_decomposer_chip::<3>(7);
+    }
+
+    fn test_bit_comparator_chip<const N: usize>(lhs: u64, rhs: u64) {
+        let mut builder = CircuitBuilder::default();
+        let decomposer_chip = BitDecomposerChip::<N>::default();
+        let bits = decomposer_chip.build(&mut builder, [None]).unwrap();
+        let comparator_chip = ConstBitComparatorChip::<N>::new(rhs.into());
+        let [cmp] = comparator_chip.build(&mut builder, bits).unwrap();
+        builder.declare_public_rows([cmp.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        let mut witness = circuit.make_witness();
+        let bits = decomposer_chip
+            .witness(&mut witness, [Scalar::from(lhs).into()])
+            .unwrap();
+        assert!(comparator_chip.witness(&mut witness, bits).is_ok());
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit
+            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .unwrap();
+        let openings = circuit
+            .to_compressed::<Sha2Hash<Scalar>>(options)
+            .verify(&proof)
+            .unwrap();
+        assert_eq!(
+            openings[&cmp.unwrap()],
+            match lhs.cmp(&rhs) {
+                Ordering::Less => -from_const(1),
+                Ordering::Equal => from_const(0),
+                Ordering::Greater => from_const(1),
+            }
+        );
+    }
+
+    #[test]
+    fn test_bit_comparator_chip_1() {
+        test_bit_comparator_chip::<1>(0, 0);
+        test_bit_comparator_chip::<1>(1, 0);
+        test_bit_comparator_chip::<1>(0, 1);
+        test_bit_comparator_chip::<1>(1, 1);
+    }
+
+    #[test]
+    fn test_bit_comparator_chip_2() {
+        test_bit_comparator_chip::<2>(0, 0);
+        test_bit_comparator_chip::<2>(1, 0);
+        test_bit_comparator_chip::<2>(2, 0);
+        test_bit_comparator_chip::<2>(3, 0);
+        test_bit_comparator_chip::<2>(0, 1);
+        test_bit_comparator_chip::<2>(1, 1);
+        test_bit_comparator_chip::<2>(2, 1);
+        test_bit_comparator_chip::<2>(3, 1);
+        test_bit_comparator_chip::<2>(0, 2);
+        test_bit_comparator_chip::<2>(1, 2);
+        test_bit_comparator_chip::<2>(2, 2);
+        test_bit_comparator_chip::<2>(3, 2);
+        test_bit_comparator_chip::<2>(0, 3);
+        test_bit_comparator_chip::<2>(1, 3);
+        test_bit_comparator_chip::<2>(2, 3);
+        test_bit_comparator_chip::<2>(3, 3);
     }
 
     // TODO
