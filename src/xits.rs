@@ -300,6 +300,56 @@ pub fn decompose_scalar_trits<const N: usize>(value: Scalar) -> [Scalar; N] {
     decompose_trits::<N>(value.to_u256())
 }
 
+/// Decomposes the input signal into N trits.
+///
+/// WARNING: this chip is unsafe to use with 160 or 161 trits because it doesn't guard against
+/// aliasing. Use the [`FullTritDecomposerChip`] for a full decomposition into 161 trits.
+#[derive(Debug, Default, Clone)]
+pub struct TritDecomposerChip<const N: usize> {}
+
+impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
+    fn width(&self) -> usize {
+        N + 1
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; N]> {
+        for i in 0..N {
+            view.add_gate(0, var(i) * (var(i) - 1) * (var(i) - 2));
+        }
+        view.connect(inputs[0], view.cell(0, N).into());
+        const THREE: Scalar = from_const(3);
+        view.add_gate(
+            0,
+            var(N)
+                - (0..N)
+                    .map(|i| var(i) * THREE.pow_small(i))
+                    .sum::<Constraint>(),
+        );
+        Ok(std::array::from_fn(|i| view.cell(0, i).into()))
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 1],
+    ) -> Result<[CellOrUnconstrained; N]> {
+        let value = match inputs[0] {
+            CellOrUnconstrained::Cell(cell) => view.get(cell),
+            CellOrUnconstrained::Unconstrained(value) => value,
+        };
+        decompose_scalar_trits::<N>(value)
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, trit)| view.set(view.cell(0, i), trit));
+        view.copy(inputs[0], view.cell(0, N));
+        Ok(std::array::from_fn(|i| view.cell(0, i).into()))
+    }
+}
+
 // TODO
 
 #[cfg(test)]
@@ -934,6 +984,94 @@ mod tests {
             decompose_scalar_trits::<3>(from_const(8)),
             [from_const(2), from_const(2), from_const(0)]
         );
+    }
+
+    fn test_trit_decomposer_chip<const N: usize>(value: u64) {
+        let chip = TritDecomposerChip::<N>::default();
+        assert_eq!(chip.width(), N + 1);
+        let mut builder = CircuitBuilder::default();
+        chip.build(&mut builder, [None]).unwrap();
+        builder.declare_public_rows([0]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), 1);
+        assert_eq!(circuit.degree_bound(), 4);
+        assert_eq!(circuit.num_columns(), N + 1);
+        let mut witness = circuit.make_witness();
+        let trits = chip
+            .witness(&mut witness, [Scalar::from(value).into()])
+            .unwrap()
+            .map(|trit| match trit {
+                CellOrUnconstrained::Cell(cell) => witness.get(cell),
+                _ => panic!("the output trits must be constrained"),
+            });
+        assert_eq!(trits, decompose_trits::<N>(value.into())[0..N]);
+        circuit.check_witness(&witness).unwrap();
+        let proving_options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit
+            .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
+            .unwrap();
+        let openings = circuit
+            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
+            .verify(&proof)
+            .unwrap();
+        assert!((0..N).all(|i| openings[&cell(0, i)] == trits[i]));
+    }
+
+    #[test]
+    fn test_trit_decomposer_chip_1() {
+        test_trit_decomposer_chip::<1>(0);
+        test_trit_decomposer_chip::<1>(1);
+        test_trit_decomposer_chip::<1>(2);
+    }
+
+    #[test]
+    fn test_trit_decomposer_chip_2() {
+        test_trit_decomposer_chip::<2>(0);
+        test_trit_decomposer_chip::<2>(1);
+        test_trit_decomposer_chip::<2>(2);
+        test_trit_decomposer_chip::<2>(3);
+        test_trit_decomposer_chip::<2>(4);
+        test_trit_decomposer_chip::<2>(5);
+        test_trit_decomposer_chip::<2>(6);
+        test_trit_decomposer_chip::<2>(7);
+        test_trit_decomposer_chip::<2>(8);
+    }
+
+    #[test]
+    fn test_trit_decomposer_chip_3() {
+        test_trit_decomposer_chip::<3>(0);
+        test_trit_decomposer_chip::<3>(1);
+        test_trit_decomposer_chip::<3>(2);
+        test_trit_decomposer_chip::<3>(3);
+        test_trit_decomposer_chip::<3>(4);
+        test_trit_decomposer_chip::<3>(5);
+        test_trit_decomposer_chip::<3>(6);
+        test_trit_decomposer_chip::<3>(7);
+        test_trit_decomposer_chip::<3>(8);
+        test_trit_decomposer_chip::<3>(9);
+        test_trit_decomposer_chip::<3>(10);
+        test_trit_decomposer_chip::<3>(11);
+        test_trit_decomposer_chip::<3>(12);
+        test_trit_decomposer_chip::<3>(13);
+        test_trit_decomposer_chip::<3>(14);
+        test_trit_decomposer_chip::<3>(15);
+        test_trit_decomposer_chip::<3>(16);
+        test_trit_decomposer_chip::<3>(17);
+        test_trit_decomposer_chip::<3>(18);
+        test_trit_decomposer_chip::<3>(19);
+        test_trit_decomposer_chip::<3>(20);
+        test_trit_decomposer_chip::<3>(21);
+        test_trit_decomposer_chip::<3>(22);
+        test_trit_decomposer_chip::<3>(23);
+        test_trit_decomposer_chip::<3>(24);
+        test_trit_decomposer_chip::<3>(25);
+        test_trit_decomposer_chip::<3>(26);
     }
 
     // TODO
