@@ -166,7 +166,8 @@ mod tests {
         assert_eq!(chip.width(), H * 3);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
-        builder.sub_chip(1, 0, &chip, inputs)?;
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -195,7 +196,7 @@ mod tests {
     fn test_binary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34)]];
         let root_hash =
-            parse_scalar("0x165e74be18ef4be6de5e232cd3480dcc38176807ac918b904576964612c5b6de");
+            parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06");
         assert!(test_binary_smt::<1>(0, 12, path, root_hash).is_ok());
         assert!(test_binary_smt::<1>(1, 34, path, root_hash).is_ok());
     }
@@ -204,7 +205,7 @@ mod tests {
     fn test_binary_smt_height_one_2() {
         let path = [[from_const(34), from_const(12)]];
         let root_hash =
-            parse_scalar("0x5edee3683c6686f34afdcc9bdabd06cc43c2d5a28d6509a6301eceb33e255e72");
+            parse_scalar("0x6a6ca65c7ab651a6e7751e7a23df1d7ff66f745f1b09f4b39df2dfeb4e137422");
         assert!(test_binary_smt::<1>(0, 34, path, root_hash).is_ok());
         assert!(test_binary_smt::<1>(1, 12, path, root_hash).is_ok());
     }
@@ -213,7 +214,7 @@ mod tests {
     fn test_binary_smt_height_one_3() {
         let path = [[from_const(56), from_const(78)]];
         let root_hash =
-            parse_scalar("0x38e7bb7b6ccae0c74031423877db058f4ab3a284964e2d91bf97497851eca5db");
+            parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe");
         assert!(test_binary_smt::<1>(0, 56, path, root_hash).is_ok());
         assert!(test_binary_smt::<1>(1, 78, path, root_hash).is_ok());
     }
@@ -223,12 +224,12 @@ mod tests {
         let path = [
             [from_const(12), from_const(34)],
             [
-                parse_scalar("0x165e74be18ef4be6de5e232cd3480dcc38176807ac918b904576964612c5b6de"),
-                parse_scalar("0x38e7bb7b6ccae0c74031423877db058f4ab3a284964e2d91bf97497851eca5db"),
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x2945d8bf64346bb2085bb6ec93520cd641a3c77f1501dba2cbcb8982eb8dbaa1");
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
         assert!(test_binary_smt::<2>(0, 12, path, root_hash).is_ok());
         assert!(test_binary_smt::<2>(1, 34, path, root_hash).is_ok());
     }
@@ -238,12 +239,12 @@ mod tests {
         let path = [
             [from_const(56), from_const(78)],
             [
-                parse_scalar("0x165e74be18ef4be6de5e232cd3480dcc38176807ac918b904576964612c5b6de"),
-                parse_scalar("0x38e7bb7b6ccae0c74031423877db058f4ab3a284964e2d91bf97497851eca5db"),
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x2945d8bf64346bb2085bb6ec93520cd641a3c77f1501dba2cbcb8982eb8dbaa1");
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
         assert!(test_binary_smt::<2>(2, 56, path, root_hash).is_ok());
         assert!(test_binary_smt::<2>(3, 78, path, root_hash).is_ok());
     }
