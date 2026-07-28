@@ -5,9 +5,9 @@ use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, rvar,
 };
 use starkom_poseidon as poseidon;
+use std::fmt::Formatter;
 use std::marker::PhantomData;
 
-#[derive(Debug, Copy, Clone)]
 pub struct PermutationChip<
     Cfg: poseidon::Config<Scalar, T, R, C>,
     const T: usize,
@@ -15,6 +15,27 @@ pub struct PermutationChip<
     const C: usize,
 > {
     _data: PhantomData<Cfg>,
+}
+
+impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize>
+    std::fmt::Debug for PermutationChip<Cfg, T, R, C>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PermutationChip").finish()
+    }
+}
+
+impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize> Copy
+    for PermutationChip<Cfg, T, R, C>
+{
+}
+
+impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize> Clone
+    for PermutationChip<Cfg, T, R, C>
+{
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize> Default

@@ -1,9 +1,11 @@
+use crate::poseidon1::PermutationChip as Poseidon1PermutationChip;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
 use starkom_ff::Field;
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, rvar, var,
 };
+use starkom_poseidon as poseidon1;
 
 /// A hash with sponge construction.
 #[derive(Debug, Default, Copy, Clone)]
@@ -146,14 +148,18 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
     }
 }
 
+pub type Poseidon1ChipT3<const N: usize> =
+    Chip<N, Poseidon1PermutationChip<poseidon1::BlueSkyConfig3, 3, 2, 1>, 3, 2, 1>;
+
+pub type Poseidon1ChipT4<const N: usize> =
+    Chip<N, Poseidon1PermutationChip<poseidon1::BlueSkyConfig4, 4, 3, 1>, 4, 3, 1>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::poseidon1::PermutationChip as Poseidon1PermutationChip;
     use starkom_bluesky::{from_const, parse_scalar};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
-    use starkom_poseidon as poseidon1;
 
     const BLOWUP_LOG2: usize = 3;
 
