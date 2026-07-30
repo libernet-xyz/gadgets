@@ -86,6 +86,10 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
         T * N.next_multiple_of(R) / R
     }
 
+    fn height(&self) -> usize {
+        Self::ABSORB_HEIGHT + self.permutation.height()
+    }
+
     fn build(
         &self,
         view: &mut impl CircuitView,
@@ -102,7 +106,7 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
         let mut input_it = inputs.iter().copied();
 
         state = self.build_absorb(view, state, &mut input_it);
-        state = view.sub_chip(3, 0, &self.permutation, state)?;
+        state = view.sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
 
         for c in 1..num_chunks {
             state = view
@@ -176,6 +180,7 @@ mod tests {
         let num_chunks = N.next_multiple_of(R) / R;
         let chip = Chip::<N, Poseidon1PermutationChip<Cfg, T, R, C>, T, R, C>::default();
         assert_eq!(chip.width(), T * num_chunks);
+        assert_eq!(chip.height(), 197);
         let mut builder = CircuitBuilder::default();
         let output = chip.build(&mut builder, std::array::from_fn(|_| None))?;
         builder.declare_public_rows([output[0].unwrap().row()]);

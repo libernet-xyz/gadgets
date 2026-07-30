@@ -40,8 +40,6 @@ impl<const H: usize> Default for BinaryChip<H> {
 }
 
 impl<const H: usize> BinaryChip<H> {
-    const DECOMPOSER_HEIGHT: usize = 1;
-
     const STAGE_WIDTH: usize = 3;
 
     const SELECTOR_HEIGHT: usize = 2;
@@ -93,6 +91,10 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
         std::cmp::max(self.decomposer.width(), Self::STAGE_WIDTH * H)
     }
 
+    fn height(&self) -> usize {
+        self.decomposer.height() + Self::SELECTOR_HEIGHT + self.hasher.height()
+    }
+
     fn build(
         &self,
         view: &mut impl CircuitView,
@@ -104,7 +106,7 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
         for i in 0..H {
             let bit = bits[i];
             let mut view = view.sub(
-                Self::DECOMPOSER_HEIGHT,
+                self.decomposer.height(),
                 i * Self::STAGE_WIDTH,
                 Self::STAGE_WIDTH,
             );
@@ -128,7 +130,7 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
         let mut hash = value;
         for i in 0..H {
             let mut view = view.sub(
-                Self::DECOMPOSER_HEIGHT,
+                self.decomposer.height(),
                 i * Self::STAGE_WIDTH,
                 Self::STAGE_WIDTH,
             );
@@ -164,6 +166,7 @@ mod tests {
         let value = Scalar::from(value);
         let chip = BinaryChip::<H>::new(path);
         assert_eq!(chip.width(), H * 3);
+        assert_eq!(chip.height(), 200);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;

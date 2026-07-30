@@ -51,6 +51,7 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
 impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize>
     PermutationChip<Cfg, T, R, C>
 {
+    const ARC_HEIGHT: usize = 2;
     const ROUND_HEIGHT: usize = 3;
 
     fn build_first_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
@@ -168,6 +169,10 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         T
     }
 
+    fn height(&self) -> usize {
+        Self::ARC_HEIGHT + Self::ROUND_HEIGHT * Cfg::num_total_rounds()
+    }
+
     fn build(
         &self,
         view: &mut impl CircuitView,
@@ -178,7 +183,7 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         let num_total_rounds = Cfg::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
         self.build_first_arc(view, inputs);
-        let mut view = view.sub(2, 0, T);
+        let mut view = view.sub(Self::ARC_HEIGHT, 0, T);
         for r in 0..num_full_rounds {
             view.sub(r * Self::ROUND_HEIGHT, 0, T)
                 .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
@@ -258,6 +263,7 @@ mod tests {
     ) -> Result<()> {
         let chip = PermutationChip::<Cfg, T, R, C>::default();
         assert_eq!(chip.width(), T);
+        assert_eq!(chip.height(), 194);
         let mut builder = CircuitBuilder::default();
         let output = chip.build(&mut builder, std::array::from_fn(|_| None))?;
         builder.declare_public_rows([output[0].unwrap().row()]);

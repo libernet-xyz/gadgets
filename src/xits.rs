@@ -101,6 +101,10 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
         N + 1
     }
 
+    fn height(&self) -> usize {
+        1
+    }
+
     fn build(
         &self,
         view: &mut impl CircuitView,
@@ -168,6 +172,10 @@ impl<const N: usize> ConstBitComparatorChip<N> {
 impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
     fn width(&self) -> usize {
         N
+    }
+
+    fn height(&self) -> usize {
+        2
     }
 
     fn build(
@@ -241,6 +249,10 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
         257
     }
 
+    fn height(&self) -> usize {
+        3
+    }
+
     fn build(
         &self,
         view: &mut impl CircuitView,
@@ -312,6 +324,10 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
         N + 1
     }
 
+    fn height(&self) -> usize {
+        1
+    }
+
     fn build(
         &self,
         view: &mut impl CircuitView,
@@ -347,6 +363,59 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
             .for_each(|(i, trit)| view.set(view.cell(0, i), trit));
         view.copy(inputs[0], view.cell(0, N));
         Ok(std::array::from_fn(|i| view.cell(0, i).into()))
+    }
+}
+
+/// Compares the number represented by the input trits against a specified constant scalar.
+///
+/// The returned signal is:
+///
+///  * -1 if the input value is strictly less than the constant,
+///  * 0 if the input value is equal to the constant,
+///  * 1 if the input value is strictly greater than the constant.
+#[derive(Debug, Default, Clone)]
+pub struct ConstTritComparatorChip<const N: usize> {
+    rhs: U256,
+}
+
+impl<const N: usize> ConstTritComparatorChip<N> {
+    pub fn new(rhs: U256) -> Self {
+        Self { rhs }
+    }
+
+    fn get_rhs_trit(&self, i: usize) -> Scalar {
+        let three = U256::from(3);
+        ((self.rhs / three.pow(i.into())) % three)
+            .try_into()
+            .unwrap()
+    }
+}
+
+impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
+    fn width(&self) -> usize {
+        N
+    }
+
+    fn height(&self) -> usize {
+        2
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; N],
+    ) -> Result<[Option<Cell>; 1]> {
+        // TODO
+        todo!()
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; N],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        // TODO
+        todo!()
     }
 }
 
@@ -581,6 +650,7 @@ mod tests {
     fn test_bit_decomposer_chip<const N: usize>(value: u64) {
         let chip = BitDecomposerChip::<N>::default();
         assert_eq!(chip.width(), N + 1);
+        assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::default();
         chip.build(&mut builder, [None]).unwrap();
         builder.declare_public_rows([0]);
@@ -647,21 +717,31 @@ mod tests {
         let bits = decomposer_chip.build(&mut builder, [None]).unwrap();
         let comparator_chip = ConstBitComparatorChip::<N>::new(rhs.into());
         assert_eq!(comparator_chip.width(), N);
-        let [cmp] = comparator_chip.build(&mut builder, bits).unwrap();
+        assert_eq!(comparator_chip.height(), 2);
+        let [cmp] = builder
+            .sub_chip(decomposer_chip.height(), 0, &comparator_chip, bits)
+            .unwrap();
         builder.declare_public_rows([cmp.unwrap().row()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
             })
             .unwrap();
-        assert_eq!(circuit.num_rows(), 2);
+        assert_eq!(
+            circuit.num_rows(),
+            decomposer_chip.height() + comparator_chip.height()
+        );
         assert_eq!(circuit.degree_bound(), 8);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = decomposer_chip
             .witness(&mut witness, [Scalar::from(lhs).into()])
             .unwrap();
-        assert!(comparator_chip.witness(&mut witness, bits).is_ok());
+        assert!(
+            witness
+                .sub_chip(decomposer_chip.height(), 0, &comparator_chip, bits)
+                .is_ok()
+        );
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
@@ -714,6 +794,7 @@ mod tests {
     fn test_full_bit_decomposer_chip_impl(value: u64) {
         let chip = FullBitDecomposerChip::default();
         assert_eq!(chip.width(), 257);
+        assert_eq!(chip.height(), 3);
         let mut builder = CircuitBuilder::default();
         chip.build(&mut builder, [None]).unwrap();
         builder.declare_public_rows([0]);
@@ -989,6 +1070,7 @@ mod tests {
     fn test_trit_decomposer_chip<const N: usize>(value: u64) {
         let chip = TritDecomposerChip::<N>::default();
         assert_eq!(chip.width(), N + 1);
+        assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::default();
         chip.build(&mut builder, [None]).unwrap();
         builder.declare_public_rows([0]);
