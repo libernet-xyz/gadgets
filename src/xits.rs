@@ -259,8 +259,9 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
         inputs: [Option<Cell>; 1],
     ) -> Result<[Option<Cell>; 256]> {
         let bits = self.decomposer.build(view, inputs)?;
-        let [cmp] = view.sub_chip(1, 0, &self.comparator, bits)?;
-        view.add_gate(cmp.unwrap().row(), var(0) + 1);
+        let mut view = view.sub(self.decomposer.height(), 0, self.width());
+        view.sub_chip(0, 0, &self.comparator, bits)?;
+        view.add_gate(self.comparator.height() - 1, var(0) + 1);
         Ok(bits)
     }
 
