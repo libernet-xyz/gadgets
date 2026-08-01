@@ -5,6 +5,7 @@ use starkom_ff::Field;
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, rvar, var,
 };
+use starkom_poseidon as poseidon1;
 
 /// A hash with sponge construction.
 #[derive(Debug, Default, Copy, Clone)]
@@ -153,8 +154,11 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
     }
 }
 
-pub type Poseidon1ChipT3HW<const N: usize> = Chip<N, Poseidon1PermutationChipHW<3>, 3, 2, 1>;
-pub type Poseidon1ChipT4HW<const N: usize> = Chip<N, Poseidon1PermutationChipHW<4>, 4, 3, 1>;
+pub type Poseidon1ChipT3HW<const N: usize> =
+    Chip<N, Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3, 2, 1>;
+
+pub type Poseidon1ChipT4HW<const N: usize> =
+    Chip<N, Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1>;
 
 #[cfg(test)]
 mod tests {
@@ -162,7 +166,6 @@ mod tests {
     use starkom_bluesky::{from_const, parse_scalar};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
-    use starkom_poseidon as poseidon1;
 
     const BLOWUP_LOG2: usize = 3;
 
@@ -177,7 +180,7 @@ mod tests {
         expected_output: [Scalar; R],
     ) -> Result<()> {
         let num_chunks = N.next_multiple_of(R) / R;
-        let chip = Chip::<N, Poseidon1PermutationChipHW<T>, T, R, C>::default();
+        let chip = Chip::<N, Poseidon1PermutationChipHW<Cfg, T>, T, R, C>::default();
         assert_eq!(chip.width(), T * num_chunks);
         assert_eq!(chip.height(), 197);
         let mut builder = CircuitBuilder::default();
