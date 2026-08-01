@@ -12,14 +12,23 @@ use starkom_plonk::{
 use starkom_poseidon as poseidon1;
 
 /// A hash with sponge construction.
+///
+/// This chip implements only the sponge construction, while the PRP is outsourced to the `P` chip
+/// specified in the generic arguments.
+///
+/// `N` is the number of input scalars, `T` is the state vector size, `R` is the ingestion rate, and
+/// `C` is the number of capacity slots.
+///
+/// `T` must be equal to `R + C`. `N` can be any number and will be split in chunks of `R` scalars
+/// each; if `N` is not a multiple of `R` the last chunk will be padded with zeros.
 #[derive(Debug, Default, Copy, Clone)]
-pub struct Chip<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize>
+pub struct Chip<P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize, const N: usize>
 {
     permutation: P,
 }
 
-impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize>
-    Chip<N, P, T, R, C>
+impl<P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize, const N: usize>
+    Chip<P, T, R, C, N>
 {
     const ABSORB_HEIGHT: usize = 3;
 
@@ -87,8 +96,10 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
     }
 }
 
-impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize>
-    PlonkChip<N, R> for Chip<N, P, T, R, C>
+impl<const T: usize, const R: usize, const C: usize, const N: usize> PlonkChip<N, R>
+    for Chip<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
+where
+    poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
 {
     fn width(&self) -> usize {
         self.permutation.width() * Self::num_chunks()
@@ -161,26 +172,50 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
 /// Compared to [`Poseidon1ChipT3IR`] and [`Poseidon1ChipT3ER`] this chip uses half the columns but
 /// creates many more gate constraints (roughly 40 times more).
 pub type Poseidon1ChipT3HW<const N: usize> =
-    Chip<N, Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3, 2, 1>;
+    Chip<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3, 2, 1, N>;
 
 /// T=4 Poseidon hash with [hard-wired round constants](`crate::poseidon1::RcModeHardWired`).
 ///
 /// Compared to [`Poseidon1ChipT4IR`] and [`Poseidon1ChipT4ER`] this chip uses half the columns but
 /// creates many more gate constraints (roughly 40 times more).
 pub type Poseidon1ChipT4HW<const N: usize> =
-    Chip<N, Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1>;
+    Chip<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1, N>;
 
+/// T=3 Poseidon hash with
+/// [internal ROM storage for round constants](`crate::poseidon1::RcModeInternalRom`).
+///
+/// The first chunk uses a [`PermutationChipIR` chip](`crate::poseidon1::PermutationChipIR`), while
+/// subsequent chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`)
+/// referring to the ROM of the first chip.
 pub type Poseidon1ChipT3IR<const N: usize> =
-    Chip<N, Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>, 3, 2, 1>;
+    Chip<Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>, 3, 2, 1, N>;
 
+/// T=4 Poseidon hash with
+/// [internal ROM storage for round constants](`crate::poseidon1::RcModeInternalRom`).
+///
+/// The first chunk uses a [`PermutationChipIR` chip](`crate::poseidon1::PermutationChipIR`), while
+/// subsequent chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`)
+/// referring to the ROM of the first chip.
 pub type Poseidon1ChipT4IR<const N: usize> =
-    Chip<N, Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1>;
+    Chip<Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1, N>;
 
+/// T=3 Poseidon hash with
+/// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
+///
+/// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
+/// user-specified ROM area for the round constants, so a `Poseidon1ChipT3ER` can only be placed in
+/// the circuit if a [`Poseidon1ChipT3IR`] is also present.
 pub type Poseidon1ChipT3ER<'a, const N: usize> =
-    Chip<N, Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig3, 3>, 3, 2, 1>;
+    Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig3, 3>, 3, 2, 1, N>;
 
+/// T=4 Poseidon hash with
+/// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
+///
+/// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
+/// user-specified ROM area for the round constants, so a `Poseidon1ChipT4ER` can only be placed in
+/// the circuit if a [`Poseidon1ChipT4IR`] is also present.
 pub type Poseidon1ChipT4ER<'a, const N: usize> =
-    Chip<N, Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig4, 4>, 4, 3, 1>;
+    Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig4, 4>, 4, 3, 1, N>;
 
 #[cfg(test)]
 mod tests {
@@ -192,17 +227,20 @@ mod tests {
     const BLOWUP_LOG2: usize = 3;
 
     fn test_hash_v1<
-        const N: usize,
         P: PlonkChip<T, T> + Default,
         const T: usize,
         const R: usize,
         const C: usize,
+        const N: usize,
     >(
         inputs: [Scalar; N],
         expected_output: [Scalar; R],
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        Chip<P, T, R, C, N>: PlonkChip<N, R>,
+    {
         let num_chunks = N.next_multiple_of(R) / R;
-        let chip = Chip::<N, P, T, R, C>::default();
+        let chip = Chip::<P, T, R, C, N>::default();
         assert_eq!(chip.width(), T * num_chunks);
         assert_eq!(chip.height(), 197);
         let mut builder = CircuitBuilder::default();
@@ -248,7 +286,7 @@ mod tests {
             parse_scalar("0x05bf595cdacac4f9eba8679b69dcde4eeeca6db242005bf6b923fde28ea88a46"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<1, P, 3, 2, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 3, 2, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -259,7 +297,7 @@ mod tests {
             parse_scalar("0x339d0e485d8fdfb8c3391182d457fa3e73f043f566af1463ab05e57045122519"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<2, P, 3, 2, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 3, 2, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -270,7 +308,7 @@ mod tests {
             parse_scalar("0x5e7468521c84b23259b813d193017a2b3c7813ce82e94ce4cc74a8c527db0923"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<3, P, 3, 2, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 3, 2, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -281,7 +319,7 @@ mod tests {
             parse_scalar("0x0bc4c477fdeee23bf2f139b12c2ea927d145f298e6204255cbad8461af9150c6"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<4, P, 3, 2, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 3, 2, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -298,7 +336,7 @@ mod tests {
             parse_scalar("0x67de663ef4d5db733c68cae13b6bb28aa97d0fc904dccdfa80f4c9fae36f51d0"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<5, P, 3, 2, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 3, 2, 1, 5>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -310,7 +348,7 @@ mod tests {
             parse_scalar("0x24c8327a61a3bd811e04b11107609bd91b8916ab5cf53fe927edaa27a9e8d5da"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<1, P, 4, 3, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 4, 3, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -322,7 +360,7 @@ mod tests {
             parse_scalar("0x3f972105e69fcceafe6ce580dab417c50a34316d2de43d73a79f861ef55ca87a"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<2, P, 4, 3, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 4, 3, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -334,7 +372,7 @@ mod tests {
             parse_scalar("0x38ef442cd0ce47da5e7fdd912edfc2a95a36409b142fd0f94545267af135bcfa"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<3, P, 4, 3, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 4, 3, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -346,7 +384,7 @@ mod tests {
             parse_scalar("0x1d14218c5f5ae32b4fc20b250b52ad8ec96a77627a6c103c8ecf3919290d6239"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<4, P, 4, 3, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 4, 3, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -364,6 +402,6 @@ mod tests {
             parse_scalar("0x1cc1f59d0c8b31f60c5b10478b28db466bdcdefda0e8da296d96d5529177d621"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<5, P, 4, 3, 1>(inputs, outputs).is_ok());
+        assert!(test_hash_v1::<P, 4, 3, 1, 5>(inputs, outputs).is_ok());
     }
 }
