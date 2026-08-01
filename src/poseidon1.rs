@@ -14,19 +14,25 @@ mod internal {
     /// Encodes the operations that differ between round constant modes
     /// ([hard-wired](`RcModeHardWired`), [internal ROM](`RcModeInternalRom`),
     /// [external ROM](`RcModeExternalRom`)).
-    pub trait RcMode<const T: usize>: Debug + Clone {
+    pub trait RcMode<const T: usize>: Debug + Copy + Clone {
         fn width(&self) -> usize;
 
         fn build_first_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]);
-
         fn witness_first_arc(&self, view: &mut impl WitnessView, inputs: [CellOrUnconstrained; T]);
 
         fn build_mds_and_next_arc(&self, view: &mut impl CircuitView, round: usize);
-
         fn witness_mds_and_next_arc(&self, view: &mut impl WitnessView, round: usize);
     }
 }
 
+/// Hard-wired RC mode for the Poseidon1 permutation.
+///
+/// In this mode the chip takes exactly `T` columns, with `T` being the state vector size, but uses
+/// a different gate for every ARC layer. You should use this mode only if the elevated number of
+/// gates is not a concern.
+///
+/// This mode is best suited for circuits that runs a small number of hashes, such as preimage
+/// knowledge proofs and zkMAC signatures.
 pub struct RcModeHardWired<C: poseidon::Config<Scalar, T>, const T: usize> {
     _data: PhantomData<C>,
 }
@@ -143,6 +149,26 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> Clone for RcModeInternalRom
     }
 }
 
+impl<C: poseidon::Config<Scalar, T>, const T: usize> RcModeInternalRom<C, T> {
+    fn get_rom_area_cells(&self, view: &impl CircuitView) -> Vec<Cell> {
+        let mut rom = Vec::with_capacity(C::get_round_constants().len());
+        for i in 0..T {
+            rom.push(view.cell(1, T + i));
+        }
+        for r in 1..C::num_total_rounds() {
+            for i in 0..T {
+                rom.push(view.cell(
+                    PermutationChipIR::<C, T>::FIRST_ARC_HEIGHT
+                        + r * PermutationChipIR::<C, T>::ROUND_HEIGHT
+                        - 1,
+                    T + i,
+                ));
+            }
+        }
+        rom
+    }
+}
+
 impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
     for RcModeInternalRom<C, T>
 {
@@ -205,6 +231,102 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
     }
 }
 
+pub struct RcModeExternalRom<'a, C: poseidon::Config<Scalar, T>, const T: usize> {
+    /// List of cells of the ROM area.
+    ///
+    /// The list has the same layout as the scalars returned by
+    /// [`poseidon::Config::get_round_constants`]: they're indexed row-first, one row per round.
+    rom: &'a [Cell],
+
+    _data: PhantomData<C>,
+}
+
+impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> Debug for RcModeExternalRom<'a, C, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RcModeInternalRom")
+            .field("_data", &self._data)
+            .finish()
+    }
+}
+
+impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> Copy for RcModeExternalRom<'a, C, T> {}
+
+impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> Clone for RcModeExternalRom<'a, C, T> {
+    fn clone(&self) -> Self {
+        Self {
+            rom: self.rom,
+            _data: self._data.clone(),
+        }
+    }
+}
+
+impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
+    for RcModeExternalRom<'a, C, T>
+{
+    fn width(&self) -> usize {
+        T * 2
+    }
+
+    fn build_first_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
+        for i in 0..T {
+            view.connect(inputs[i], Some(view.cell(0, i)));
+        }
+        for i in 0..T {
+            view.connect(self.rom[i].into(), view.cell(1, T + i).into());
+            view.add_gate(0, rvar(i, 0) + rvar(T + i, 1) - rvar(i, 1));
+        }
+    }
+
+    fn witness_first_arc(&self, view: &mut impl WitnessView, inputs: [CellOrUnconstrained; T]) {
+        for i in 0..T {
+            view.copy(inputs[i], view.cell(0, i));
+        }
+        let c = C::get_round_constants();
+        for i in 0..T {
+            let state = view.get(view.cell(0, i));
+            view.set(view.cell(1, i), state + c[i]);
+            view.set(view.cell(1, T + i), c[i]);
+        }
+    }
+
+    fn build_mds_and_next_arc(&self, view: &mut impl CircuitView, round: usize) {
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.connect(
+                self.rom[(round + 1) * T + i].into(),
+                view.cell(T + i, 0).into(),
+            );
+            view.add_gate(
+                0,
+                (0..T)
+                    .map(|j| rvar(j, 0) * m[i * T + j])
+                    .sum::<Constraint>()
+                    + rvar(T + i, 1)
+                    - rvar(i, 1),
+            );
+        }
+    }
+
+    fn witness_mds_and_next_arc(&self, view: &mut impl WitnessView, round: usize) {
+        let c = C::get_round_constants();
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.set(view.cell(1, T + i), c[(round + 1) * T + i]);
+            view.set(
+                view.cell(1, i),
+                (0..T)
+                    .map(|j| view.get(view.cell(0, j)) * m[i * T + j])
+                    .sum::<Scalar>()
+                    + c[(round + 1) * T + i],
+            );
+        }
+    }
+}
+
+/// Poseidon permutation chip.
+///
+/// You may want to use [`PermutationChipHW`], [`PermutationChipIR`], or [`PermutationChipER`]
+/// rather than referring to this struct directly.
 pub struct PermutationChip<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize> {
     rc: M,
     _data: PhantomData<C>,
@@ -229,7 +351,7 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T> + Default, const T: 
     }
 }
 
-impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T> + Copy, const T: usize> Copy
+impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize> Copy
     for PermutationChip<C, M, T>
 {
 }
@@ -305,6 +427,37 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize>
                     .map(|j| view.get(view.cell(0, j)) * m[i * T + j])
                     .sum::<Scalar>(),
             );
+        }
+    }
+}
+
+impl<C: poseidon::Config<Scalar, T>, const T: usize>
+    PermutationChip<C, RcModeInternalRom<C, T>, T>
+{
+    /// Returns the cells of the ROM area where the round constants are stored.
+    ///
+    /// The provided circuit `view` MUST be consistent with the one passed to [`Self::build`].
+    ///
+    /// The returned vector can be used to instantiate one or more [`PermutationChipER`] chips.
+    pub fn get_rom_area_cells(&self, view: &impl CircuitView) -> Vec<Cell> {
+        self.rc.get_rom_area_cells(view)
+    }
+}
+
+impl<'a, C: poseidon::Config<Scalar, T>, const T: usize>
+    PermutationChip<C, RcModeExternalRom<'a, C, T>, T>
+{
+    /// Creates a `PermutationChipER` using the provided ROM area.
+    ///
+    /// Call [`PermutationChipIR::get_rom_area_cells`] to get the ROM area cells from a suitable
+    /// [`PermutationChipIR`].
+    pub fn new(rom: &'a [Cell]) -> Self {
+        Self {
+            rc: RcModeExternalRom {
+                rom,
+                _data: Default::default(),
+            },
+            _data: Default::default(),
         }
     }
 }
@@ -390,8 +543,15 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize> Plo
     }
 }
 
+/// Poseidon permutation chip with [hard-wired round constants](`RcModeHardWired`).
 pub type PermutationChipHW<C, const T: usize> = PermutationChip<C, RcModeHardWired<C, T>, T>;
+
+/// Poseidon permutation chip with [internal ROM storage for round constants](`RcModeInternalRom`).
 pub type PermutationChipIR<C, const T: usize> = PermutationChip<C, RcModeInternalRom<C, T>, T>;
+
+/// Poseidon permutation chip with [internal ROM storage for round constants](`RcModeExternalRom`).
+pub type PermutationChipER<'a, C, const T: usize> =
+    PermutationChip<C, RcModeExternalRom<'a, C, T>, T>;
 
 #[cfg(test)]
 mod tests {
