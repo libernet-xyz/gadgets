@@ -167,6 +167,135 @@ where
     }
 }
 
+impl<const T: usize, const R: usize, const C: usize, const N: usize>
+    Chip<Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
+where
+    poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
+{
+    pub fn get_rom_area_cells(&self, view: &impl CircuitView) -> Vec<Cell> {
+        self.permutation.get_rom_area_cells(view)
+    }
+}
+
+impl<const T: usize, const R: usize, const C: usize, const N: usize> PlonkChip<N, R>
+    for Chip<Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
+where
+    poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
+{
+    fn width(&self) -> usize {
+        self.permutation.width() * Self::num_chunks()
+    }
+
+    fn height(&self) -> usize {
+        Self::ABSORB_HEIGHT + self.permutation.height()
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; N],
+    ) -> Result<[Option<Cell>; R]> {
+        // TODO
+        todo!()
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; N],
+    ) -> Result<[CellOrUnconstrained; R]> {
+        // TODO
+        todo!()
+    }
+}
+
+impl<'a, const T: usize, const R: usize, const C: usize, const N: usize>
+    Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
+where
+    poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
+{
+    /// Creates a Poseidon1 sponge chip using the provided external ROM area.
+    ///
+    /// Call [`Self::get_rom_area_cells`] to get the ROM area cells from a suitable internal ROM
+    /// chip.
+    pub fn new(rom: &'a [Cell]) -> Self {
+        Self {
+            permutation: Poseidon1PermutationChipER::new(rom),
+        }
+    }
+}
+
+impl<'a, const T: usize, const R: usize, const C: usize, const N: usize> PlonkChip<N, R>
+    for Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
+where
+    poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
+{
+    fn width(&self) -> usize {
+        self.permutation.width() * Self::num_chunks()
+    }
+
+    fn height(&self) -> usize {
+        Self::ABSORB_HEIGHT + self.permutation.height()
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; N],
+    ) -> Result<[Option<Cell>; R]> {
+        let mut state: [Option<Cell>; T] = std::array::from_fn(|i| {
+            view.add_gate(0, var(i));
+            Some(view.cell(0, i))
+        });
+
+        let mut input_it = inputs.iter().copied();
+
+        state = self.build_absorb(view, state, &mut input_it);
+        state = view.sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
+
+        let chunk_width = self.permutation.width();
+        for c in 1..Self::num_chunks() {
+            state = view
+                .sub(0, c * chunk_width, chunk_width)
+                .sub_fn(0, 0, T, |view| {
+                    state = self.build_absorb(view, state, &mut input_it);
+                })
+                .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
+        }
+
+        Ok(std::array::from_fn(|i| state[i]))
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; N],
+    ) -> Result<[CellOrUnconstrained; R]> {
+        let mut state: [CellOrUnconstrained; T] = std::array::from_fn(|i| {
+            let cell = view.cell(0, i);
+            view.set(cell, Scalar::ZERO);
+            cell.into()
+        });
+
+        let mut input_it = inputs.iter().copied();
+
+        state = self.witness_absorb(view, state, &mut input_it);
+        state = view.sub_chip(3, 0, &self.permutation, state)?;
+
+        let chunk_width = self.permutation.width();
+        for c in 1..Self::num_chunks() {
+            state = view
+                .sub(0, c * chunk_width, chunk_width)
+                .sub_fn(0, 0, chunk_width, |view| {
+                    state = self.witness_absorb(view, state, &mut input_it);
+                })
+                .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
+        }
+
+        Ok(std::array::from_fn(|i| state[i]))
+    }
+}
+
 /// T=3 Poseidon hash with [hard-wired round constants](`crate::poseidon1::RcModeHardWired`).
 ///
 /// Compared to [`Poseidon1ChipT3IR`] and [`Poseidon1ChipT3ER`] this chip uses half the columns but
