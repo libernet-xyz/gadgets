@@ -1,11 +1,10 @@
-use crate::poseidon1::PermutationChip as Poseidon1PermutationChip;
+use crate::poseidon1::PermutationChipHW as Poseidon1PermutationChipHW;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
 use starkom_ff::Field;
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, rvar, var,
 };
-use starkom_poseidon as poseidon1;
 
 /// A hash with sponge construction.
 #[derive(Debug, Default, Copy, Clone)]
@@ -83,7 +82,7 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
     PlonkChip<N, R> for Chip<N, P, T, R, C>
 {
     fn width(&self) -> usize {
-        T * N.next_multiple_of(R) / R
+        self.permutation.width() * N.next_multiple_of(R) / R
     }
 
     fn height(&self) -> usize {
@@ -108,9 +107,10 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
         state = self.build_absorb(view, state, &mut input_it);
         state = view.sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
 
+        let chunk_width = self.permutation.width();
         for c in 1..num_chunks {
             state = view
-                .sub(0, c * T, T)
+                .sub(0, c * chunk_width, chunk_width)
                 .sub_fn(0, 0, T, |view| {
                     state = self.build_absorb(view, state, &mut input_it);
                 })
@@ -139,10 +139,11 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
         state = self.witness_absorb(view, state, &mut input_it);
         state = view.sub_chip(3, 0, &self.permutation, state)?;
 
+        let chunk_width = self.permutation.width();
         for c in 1..num_chunks {
             state = view
-                .sub(0, c * T, T)
-                .sub_fn(0, 0, T, |view| {
+                .sub(0, c * chunk_width, chunk_width)
+                .sub_fn(0, 0, chunk_width, |view| {
                     state = self.witness_absorb(view, state, &mut input_it);
                 })
                 .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
@@ -152,11 +153,8 @@ impl<const N: usize, P: PlonkChip<T, T>, const T: usize, const R: usize, const C
     }
 }
 
-pub type Poseidon1ChipT3<const N: usize> =
-    Chip<N, Poseidon1PermutationChip<poseidon1::BlueSkyConfig3, 3, 2, 1>, 3, 2, 1>;
-
-pub type Poseidon1ChipT4<const N: usize> =
-    Chip<N, Poseidon1PermutationChip<poseidon1::BlueSkyConfig4, 4, 3, 1>, 4, 3, 1>;
+pub type Poseidon1ChipT3HW<const N: usize> = Chip<N, Poseidon1PermutationChipHW<3>, 3, 2, 1>;
+pub type Poseidon1ChipT4HW<const N: usize> = Chip<N, Poseidon1PermutationChipHW<4>, 4, 3, 1>;
 
 #[cfg(test)]
 mod tests {
@@ -164,12 +162,13 @@ mod tests {
     use starkom_bluesky::{from_const, parse_scalar};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use starkom_poseidon as poseidon1;
 
     const BLOWUP_LOG2: usize = 3;
 
     fn test_hash_v1<
         const N: usize,
-        Cfg: poseidon1::Config<Scalar, T, R, C>,
+        Cfg: poseidon1::Config<Scalar, T>,
         const T: usize,
         const R: usize,
         const C: usize,
@@ -178,7 +177,7 @@ mod tests {
         expected_output: [Scalar; R],
     ) -> Result<()> {
         let num_chunks = N.next_multiple_of(R) / R;
-        let chip = Chip::<N, Poseidon1PermutationChip<Cfg, T, R, C>, T, R, C>::default();
+        let chip = Chip::<N, Poseidon1PermutationChipHW<T>, T, R, C>::default();
         assert_eq!(chip.width(), T * num_chunks);
         assert_eq!(chip.height(), 197);
         let mut builder = CircuitBuilder::default();

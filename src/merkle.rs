@@ -15,7 +15,7 @@ use starkom_plonk::{
 #[derive(Debug, Clone)]
 pub struct BinaryChip<const H: usize> {
     decomposer: xits::BitDecomposerChip<H>,
-    hasher: sponge::Poseidon1ChipT3<2>,
+    hasher: sponge::Poseidon1ChipT3HW<2>,
     path: [[Scalar; 2]; H],
 }
 
@@ -23,7 +23,7 @@ impl<const H: usize> Default for BinaryChip<H> {
     fn default() -> Self {
         Self {
             decomposer: xits::BitDecomposerChip::default(),
-            hasher: sponge::Poseidon1ChipT3::default(),
+            hasher: sponge::Poseidon1ChipT3HW::default(),
             path: [[Scalar::ZERO; 2]; H],
         }
     }
@@ -35,7 +35,7 @@ impl<const H: usize> BinaryChip<H> {
     pub fn new(path: [[Scalar; 2]; H]) -> Self {
         Self {
             decomposer: xits::BitDecomposerChip::default(),
-            hasher: sponge::Poseidon1ChipT3::default(),
+            hasher: sponge::Poseidon1ChipT3HW::default(),
             path,
         }
     }
@@ -153,7 +153,7 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
 #[derive(Debug, Clone)]
 pub struct FullBinaryChip {
     decomposer: xits::FullBitDecomposerChip,
-    hasher: sponge::Poseidon1ChipT3<2>,
+    hasher: sponge::Poseidon1ChipT3HW<2>,
     path: [[Scalar; 2]; 256],
 }
 
@@ -161,7 +161,7 @@ impl Default for FullBinaryChip {
     fn default() -> Self {
         Self {
             decomposer: xits::FullBitDecomposerChip::default(),
-            hasher: sponge::Poseidon1ChipT3::default(),
+            hasher: sponge::Poseidon1ChipT3HW::default(),
             path: [[Scalar::ZERO; 2]; 256],
         }
     }
@@ -173,7 +173,7 @@ impl FullBinaryChip {
     pub fn new(path: [[Scalar; 2]; 256]) -> Self {
         Self {
             decomposer: xits::FullBitDecomposerChip::default(),
-            hasher: sponge::Poseidon1ChipT3::default(),
+            hasher: sponge::Poseidon1ChipT3HW::default(),
             path,
         }
     }

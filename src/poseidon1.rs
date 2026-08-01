@@ -2,44 +2,43 @@ use anyhow::Result;
 use starkom_bluesky::Scalar;
 use starkom_ff::Field;
 use starkom_plonk::{
-    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, rvar,
+    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, rvar, var,
 };
 use starkom_poseidon as poseidon;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
-pub struct PermutationChip<
-    Cfg: poseidon::Config<Scalar, T, R, C>,
-    const T: usize,
-    const R: usize,
-    const C: usize,
-> {
+pub const ROUND_CONSTANT_MODE_HARD_WIRED: usize = 0;
+pub const ROUND_CONSTANT_MODE_INTERNAL_ROM: usize = 1;
+pub const ROUND_CONSTANT_MODE_EXTERNAL_ROM: usize = 2;
+
+pub struct PermutationChip<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> {
     _data: PhantomData<Cfg>,
 }
 
-impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize>
-    std::fmt::Debug for PermutationChip<Cfg, T, R, C>
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> std::fmt::Debug
+    for PermutationChip<M, Cfg, T>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PermutationChip").finish()
     }
 }
 
-impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize> Copy
-    for PermutationChip<Cfg, T, R, C>
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> Copy
+    for PermutationChip<M, Cfg, T>
 {
 }
 
-impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize> Clone
-    for PermutationChip<Cfg, T, R, C>
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> Clone
+    for PermutationChip<M, Cfg, T>
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize> Default
-    for PermutationChip<Cfg, T, R, C>
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> Default
+    for PermutationChip<M, Cfg, T>
 {
     fn default() -> Self {
         Self {
@@ -48,12 +47,14 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
     }
 }
 
-impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize>
-    PermutationChip<Cfg, T, R, C>
-{
-    const ARC_HEIGHT: usize = 2;
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> PermutationChip<M, Cfg, T> {
+    const FIRST_ARC_HEIGHT: usize = 2;
     const ROUND_HEIGHT: usize = 3;
+}
 
+impl<Cfg: poseidon::Config<Scalar, T>, const T: usize>
+    PermutationChip<ROUND_CONSTANT_MODE_HARD_WIRED, Cfg, T>
+{
     fn build_first_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
@@ -74,7 +75,36 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
             view.set(view.cell(1, i), state + c[i]);
         }
     }
+}
 
+impl<Cfg: poseidon::Config<Scalar, T>, const T: usize>
+    PermutationChip<ROUND_CONSTANT_MODE_INTERNAL_ROM, Cfg, T>
+{
+    fn build_first_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
+        for i in 0..T {
+            view.connect(inputs[i], Some(view.cell(0, i)));
+        }
+        let c = Cfg::get_round_constants();
+        for i in 0..T {
+            view.add_gate(1, var(T + i) - c[i]);
+            view.add_gate(0, rvar(i, 0) + rvar(T + i, 1) - rvar(i, 1));
+        }
+    }
+
+    fn witness_first_arc(&self, view: &mut impl WitnessView, inputs: [CellOrUnconstrained; T]) {
+        for i in 0..T {
+            view.copy(inputs[i], view.cell(0, i));
+        }
+        let c = Cfg::get_round_constants();
+        for i in 0..T {
+            let state = view.get(view.cell(0, i));
+            view.set(view.cell(1, i), state + c[i]);
+            view.set(view.cell(1, T + i), c[i]);
+        }
+    }
+}
+
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> PermutationChip<M, Cfg, T> {
     fn build_full_sbox(&self, view: &mut impl CircuitView) {
         for i in 0..T {
             view.add_gate(0, (rvar(i, -1) ^ 3) - rvar(i, 0));
@@ -106,7 +136,11 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
             view.copy(view.cell(-1, i).into(), view.cell(1, i));
         }
     }
+}
 
+impl<Cfg: poseidon::Config<Scalar, T>, const T: usize>
+    PermutationChip<ROUND_CONSTANT_MODE_HARD_WIRED, Cfg, T>
+{
     fn build_mds_and_next_arc(&self, view: &mut impl CircuitView, round: usize) {
         let c = Cfg::get_round_constants();
         let m = Cfg::get_mds_matrix();
@@ -135,7 +169,44 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
             );
         }
     }
+}
 
+impl<Cfg: poseidon::Config<Scalar, T>, const T: usize>
+    PermutationChip<ROUND_CONSTANT_MODE_INTERNAL_ROM, Cfg, T>
+{
+    fn build_mds_and_next_arc(&self, view: &mut impl CircuitView, round: usize) {
+        let c = Cfg::get_round_constants();
+        let m = Cfg::get_mds_matrix();
+        for i in 0..T {
+            view.add_gate(1, var(T + i) - c[(round + 1) * T + i]);
+            view.add_gate(
+                0,
+                (0..T)
+                    .map(|j| rvar(j, 0) * m[i * T + j])
+                    .sum::<Constraint>()
+                    + rvar(T + i, 1)
+                    - rvar(i, 1),
+            );
+        }
+    }
+
+    fn witness_mds_and_next_arc(&self, view: &mut impl WitnessView, round: usize) {
+        let c = Cfg::get_round_constants();
+        let m = Cfg::get_mds_matrix();
+        for i in 0..T {
+            view.set(view.cell(1, T + i), c[(round + 1) * T + i]);
+            view.set(
+                view.cell(1, i),
+                (0..T)
+                    .map(|j| view.get(view.cell(0, j)) * m[i * T + j])
+                    .sum::<Scalar>()
+                    + c[(round + 1) * T + i],
+            );
+        }
+    }
+}
+
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> PermutationChip<M, Cfg, T> {
     fn build_last_mds(&self, view: &mut impl CircuitView) {
         let m = Cfg::get_mds_matrix();
         for i in 0..T {
@@ -162,15 +233,20 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
     }
 }
 
-impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, const C: usize>
-    PlonkChip<T, T> for PermutationChip<Cfg, T, R, C>
+impl<const M: usize, Cfg: poseidon::Config<Scalar, T>, const T: usize> PlonkChip<T, T>
+    for PermutationChip<M, Cfg, T>
 {
     fn width(&self) -> usize {
-        T
+        const {
+            match M {
+                ROUND_CONSTANT_MODE_HARD_WIRED => T,
+                _ => T * 2,
+            }
+        }
     }
 
     fn height(&self) -> usize {
-        Self::ARC_HEIGHT + Self::ROUND_HEIGHT * Cfg::num_total_rounds()
+        Self::FIRST_ARC_HEIGHT + Self::ROUND_HEIGHT * Cfg::num_total_rounds()
     }
 
     fn build(
@@ -183,7 +259,7 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
         let num_total_rounds = Cfg::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
         self.build_first_arc(view, inputs);
-        let mut view = view.sub(Self::ARC_HEIGHT, 0, T);
+        let mut view = view.sub(Self::FIRST_ARC_HEIGHT, 0, T);
         for r in 0..num_full_rounds {
             view.sub(r * Self::ROUND_HEIGHT, 0, T)
                 .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
@@ -243,6 +319,15 @@ impl<Cfg: poseidon::Config<Scalar, T, R, C>, const T: usize, const R: usize, con
     }
 }
 
+pub type PermutationChipHW<const T: usize> =
+    PermutationChip<ROUND_CONSTANT_MODE_HARD_WIRED, poseidon::BlueSkyConfig<T>, T>;
+
+pub type PermutationChipIR<const T: usize> =
+    PermutationChip<ROUND_CONSTANT_MODE_INTERNAL_ROM, poseidon::BlueSkyConfig<T>, T>;
+
+pub type PermutationChipER<const T: usize> =
+    PermutationChip<ROUND_CONSTANT_MODE_EXTERNAL_ROM, poseidon::BlueSkyConfig<T>, T>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,17 +336,12 @@ mod tests {
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon as poseidon1;
 
-    fn test_permutation<
-        Cfg: poseidon1::Config<Scalar, T, R, C>,
-        const T: usize,
-        const R: usize,
-        const C: usize,
-    >(
+    fn test_permutation_impl<const T: usize>(
+        chip: &impl PlonkChip<T, T>,
         inputs: [Scalar; T],
         expected_output: [Scalar; T],
         blowup_log2: usize,
     ) -> Result<()> {
-        let chip = PermutationChip::<Cfg, T, R, C>::default();
         assert_eq!(chip.width(), T);
         assert_eq!(chip.height(), 194);
         let mut builder = CircuitBuilder::default();
@@ -297,6 +377,20 @@ mod tests {
         Ok(())
     }
 
+    fn test_perm_hw<
+        Cfg: poseidon1::Config<Scalar, T>,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+    >(
+        inputs: [Scalar; T],
+        expected_output: [Scalar; T],
+        blowup_log2: usize,
+    ) -> Result<()> {
+        let chip = PermutationChip::<ROUND_CONSTANT_MODE_HARD_WIRED, Cfg, T>::default();
+        test_permutation_impl::<T>(&chip, inputs, expected_output, blowup_log2)
+    }
+
     #[test]
     fn test_permutation_t3() {
         let inputs = [from_const(0), from_const(1), from_const(2)];
@@ -305,9 +399,9 @@ mod tests {
             parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
             parse_scalar("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
         ];
-        assert!(test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
-        assert!(test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 2).is_ok());
-        assert!(test_permutation::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 3).is_ok());
+        assert!(test_perm_hw::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_perm_hw::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 2).is_ok());
+        assert!(test_perm_hw::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 3).is_ok());
     }
 
     #[test]
@@ -319,8 +413,8 @@ mod tests {
             parse_scalar("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
             parse_scalar("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
         ];
-        assert!(test_permutation::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
-        assert!(test_permutation::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 2).is_ok());
-        assert!(test_permutation::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 3).is_ok());
+        assert!(test_perm_hw::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_perm_hw::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 2).is_ok());
+        assert!(test_perm_hw::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 3).is_ok());
     }
 }
