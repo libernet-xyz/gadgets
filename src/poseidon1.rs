@@ -294,7 +294,7 @@ impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
         for i in 0..T {
             view.connect(
                 self.rom[(round + 1) * T + i].into(),
-                view.cell(T + i, 0).into(),
+                view.cell(1, T + i).into(),
             );
             view.add_gate(
                 0,
@@ -683,5 +683,102 @@ mod tests {
         assert!(test_perm_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
         assert!(test_perm_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 2).is_ok());
         assert!(test_perm_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 3).is_ok());
+    }
+
+    fn test_perm_er<
+        Cfg: poseidon1::Config<Scalar, T>,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+    >(
+        inputs: [Scalar; T],
+        expected_output: [Scalar; T],
+        blowup_log2: usize,
+    ) -> Result<()> {
+        let chip_ir = PermutationChipIR::<Cfg, T>::default();
+        assert_eq!(chip_ir.width(), T * 2);
+        assert_eq!(chip_ir.height(), 194);
+        let ir_width = chip_ir.width();
+
+        let mut builder = CircuitBuilder::default();
+        let (ir_output, rom) = {
+            let mut view = builder.sub(0, 0, ir_width);
+            let ir_output = chip_ir.build(&mut view, std::array::from_fn(|_| None))?;
+            let rom = chip_ir.get_rom_area_cells(&view);
+            (ir_output, rom)
+        };
+
+        let chip_er = PermutationChipER::<Cfg, T>::new(&rom);
+        assert_eq!(chip_er.width(), T * 2);
+        assert_eq!(chip_er.height(), 194);
+        let er_width = chip_er.width();
+        let er_output = {
+            let mut view = builder.sub(0, ir_width, er_width);
+            chip_er.build(&mut view, std::array::from_fn(|_| None))?
+        };
+
+        for i in 0..T {
+            builder.connect(ir_output[i], er_output[i]);
+        }
+        builder.declare_public_rows([ir_output[0].unwrap().row()]);
+
+        let circuit = builder.build(CompilationOptions {
+            canonicalize_constraints: false,
+        })?;
+        assert_eq!(circuit.num_rows(), 194);
+        assert_eq!(circuit.num_columns(), ir_width + er_width);
+
+        let mut witness = circuit.make_witness();
+        assert_eq!(witness.num_rows(), 194);
+        assert_eq!(witness.num_columns(), ir_width + er_width);
+        let ir_output = {
+            let mut view = witness.sub(0, 0, ir_width);
+            chip_ir.witness(&mut view, inputs.map(|input| input.into()))?
+        };
+        let er_output = {
+            let mut view = witness.sub(0, ir_width, er_width);
+            chip_er.witness(&mut view, inputs.map(|input| input.into()))?
+        };
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions { blowup_log2 };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let public_inputs = circuit.verify(&proof, options)?;
+        let get_value = |output: CellOrUnconstrained| match output {
+            CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
+            CellOrUnconstrained::Unconstrained(value) => value,
+        };
+        assert!(ir_output.into_iter().zip(er_output).enumerate().all(
+            |(i, (ir_output, er_output))| get_value(ir_output) == expected_output[i]
+                && get_value(er_output) == expected_output[i]
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_permutation_t3_er() {
+        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let outputs = [
+            parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
+            parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
+            parse_scalar("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
+        ];
+        assert!(test_perm_er::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_perm_er::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 2).is_ok());
+        assert!(test_perm_er::<poseidon1::BlueSkyConfig3, 3, 2, 1>(inputs, outputs, 3).is_ok());
+    }
+
+    #[test]
+    fn test_permutation_t4_er() {
+        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let outputs = [
+            parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
+            parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
+            parse_scalar("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
+            parse_scalar("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
+        ];
+        assert!(test_perm_er::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 1).is_ok());
+        assert!(test_perm_er::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 2).is_ok());
+        assert!(test_perm_er::<poseidon1::BlueSkyConfig4, 4, 3, 1>(inputs, outputs, 3).is_ok());
     }
 }
