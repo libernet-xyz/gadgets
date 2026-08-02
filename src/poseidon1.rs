@@ -224,10 +224,14 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
 ///
 /// See [`RcModeInternalRom`] for more information about internal and external ROM modes.
 pub struct RcModeExternalRom<C: poseidon::Config<Scalar, T>, const T: usize> {
-    /// Row distance from the IR chip (ROM lender) to the ER chip (ROM borrower).
+    /// Row offset of the IR chip (ROM lender), relative to wherever this ER chip (ROM borrower)
+    /// itself lands when it's built/witnessed. Added to this ER chip's own row to get the IR chip's
+    /// row.
     ir_chip_row_offset: isize,
 
-    /// Column distance from the IR chip (ROM lender) to the ER chip (ROM borrower).
+    /// Column offset of the IR chip (ROM lender), relative to wherever this ER chip (ROM borrower)
+    /// itself lands when it's built/witnessed. Added to this ER chip's own column to get the IR
+    /// chip's column.
     ir_chip_column_offset: isize,
 
     _data: PhantomData<C>,
@@ -264,14 +268,18 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> RcModeExternalRom<C, T> {
         }
     }
 
-    /// Returns the ROM cell from the remote IR chip that holds the i-th constant for round r.
-    fn remote_rom_cell(&self, r: usize, i: usize) -> Cell {
-        Cell::new(
-            (self.ir_chip_row_offset
-                + (PermutationChipIR::<C, T>::FIRST_ARC_HEIGHT
-                    + r * PermutationChipIR::<C, T>::ROUND_HEIGHT
-                    - 1) as isize) as usize,
-            (self.ir_chip_column_offset + (T + i) as isize) as usize,
+    /// Returns the ROM cell from the remote IR chip that mirrors this ER chip's own
+    /// `view.cell(1, T + i)`, i.e. the i-th constant of whatever ARC `view` is currently positioned
+    /// at.
+    ///
+    /// Since the IR and ER chips are built/witnessed through the exact same sequence of `.sub()` /
+    /// `.sub_fn()` calls, the IR chip's corresponding cell always sits at the same `(1, T + i)`
+    /// local offset from `view`'s current position, shifted only by the constant offset between the
+    /// two chips' own roots.
+    fn remote_rom_cell(&self, view: &impl CircuitView, i: usize) -> Cell {
+        view.cell(
+            self.ir_chip_row_offset + 1,
+            self.ir_chip_column_offset + (T + i) as isize,
         )
     }
 }
@@ -289,7 +297,7 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
         }
         for i in 0..T {
             view.connect(
-                self.remote_rom_cell(0, i).into(),
+                self.remote_rom_cell(view, i).into(),
                 view.cell(1, T + i).into(),
             );
             view.add_gate(0, rvar(i, 0) + rvar(T + i, 1) - rvar(i, 1));
@@ -308,11 +316,11 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
         }
     }
 
-    fn build_mds_and_next_arc(&self, view: &mut impl CircuitView, round: usize) {
+    fn build_mds_and_next_arc(&self, view: &mut impl CircuitView, _round: usize) {
         let m = C::get_mds_matrix();
         for i in 0..T {
             view.connect(
-                self.remote_rom_cell(round, i).into(),
+                self.remote_rom_cell(view, i).into(),
                 view.cell(1, T + i).into(),
             );
             view.add_gate(
@@ -455,8 +463,10 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize>
 impl<C: poseidon::Config<Scalar, T>, const T: usize>
     PermutationChip<C, RcModeExternalRom<C, T>, T>
 {
-    /// Constructs a `PermutationChipER` at the specified row and column offsets from an equivalent
-    /// IR chip whose round constant ROM will be borrowed.
+    /// Constructs a `PermutationChipER` that borrows its round constant ROM from an IR chip located
+    /// at the given row/column offsets relative to wherever this ER chip itself is later built or
+    /// witnessed (i.e. the IR chip's coordinates are this ER chip's own coordinates plus the given
+    /// offsets).
     ///
     /// See [`RcModeInternalRom`] for the rationale.
     pub fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
@@ -704,7 +714,7 @@ mod tests {
         assert_eq!(chip_ir.height(), 194);
         let ir_width = chip_ir.width();
 
-        let chip_er = PermutationChipER::<Cfg, T>::new(ir_width as isize, 0);
+        let chip_er = PermutationChipER::<Cfg, T>::new(0, -(ir_width as isize));
         assert_eq!(chip_er.width(), T * 2);
         assert_eq!(chip_er.height(), 194);
         let er_width = chip_er.width();
