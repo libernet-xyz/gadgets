@@ -153,42 +153,46 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
 ///
 /// If you don't need 256- or 255-bit keys use [`BinaryChip`].
 #[derive(Debug, Clone)]
-pub struct FullBinaryChip {
+pub struct FullBinaryChip<const L: usize> {
     decomposer: xits::FullBitDecomposerChip,
     hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig3, 3>,
     hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig3, 3>; 255],
     path: [[Scalar; 2]; 256],
 }
 
-impl Default for FullBinaryChip {
+impl<const L: usize> Default for FullBinaryChip<L> {
     fn default() -> Self {
-        let hasher_ir = poseidon1::PermutationChipIR::default();
-        let ir_width = hasher_ir.width() as isize;
-        Self {
-            decomposer: xits::FullBitDecomposerChip::default(),
-            hasher_ir,
-            hasher_er: std::array::from_fn(|i| {
-                poseidon1::PermutationChipER::new(0, (i as isize + 1) * -ir_width)
-            }),
-            path: [[Scalar::ZERO; 2]; 256],
-        }
+        Self::new([[Scalar::ZERO; 2]; 256])
     }
 }
 
-impl FullBinaryChip {
+impl<const L: usize> FullBinaryChip<L> {
     const SELECTOR_HEIGHT: usize = 2;
 
     pub fn new(path: [[Scalar; 2]; 256]) -> Self {
+        assert!(L > 0, "need at least one lane");
         let hasher_ir = poseidon1::PermutationChipIR::default();
-        let ir_width = hasher_ir.width() as isize;
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
             decomposer: xits::FullBitDecomposerChip::default(),
             hasher_ir,
             hasher_er: std::array::from_fn(|i| {
-                poseidon1::PermutationChipER::new(0, (i as isize + 1) * -ir_width)
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
             }),
             path,
         }
+    }
+
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
     fn build_input_selector(
@@ -235,30 +239,13 @@ impl FullBinaryChip {
     }
 }
 
-impl PlonkChip<2, 1> for FullBinaryChip {
+impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
     fn width(&self) -> usize {
-        std::cmp::max(
-            self.decomposer.width(),
-            self.hasher_ir.width()
-                + self
-                    .hasher_er
-                    .iter()
-                    .map(poseidon1::PermutationChipER::width)
-                    .sum::<usize>(),
-        )
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
 
     fn height(&self) -> usize {
-        self.decomposer.height()
-            + Self::SELECTOR_HEIGHT
-            + std::cmp::max(
-                self.hasher_ir.height(),
-                self.hasher_er
-                    .iter()
-                    .map(poseidon1::PermutationChipER::height)
-                    .max()
-                    .unwrap_or(0),
-            )
+        self.decomposer.height() + self.stage_height() * 256usize.next_multiple_of(L) / L
     }
 
     fn build(
@@ -279,19 +266,21 @@ impl PlonkChip<2, 1> for FullBinaryChip {
                 })
                 .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
         }
-        for i in 0..255 {
-            let bit = bits[i + 1];
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        for i in 1..256 {
+            let bit = bits[i];
             let mut view = view.sub(
-                self.decomposer.height(),
-                self.hasher_ir.width() + i * self.hasher_er[i].width(),
-                self.hasher_er[i].width(),
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width,
             );
             let inputs = std::array::from_fn(|i| view.cell(1, i).into());
             [hash, _, _] = view
-                .sub_fn(0, 0, self.hasher_er[i].width(), |view| {
+                .sub_fn(0, 0, stage_width, |view| {
                     self.build_input_selector(view, hash, bit)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i], inputs)?;
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -313,18 +302,20 @@ impl PlonkChip<2, 1> for FullBinaryChip {
                 })
                 .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
         }
-        for i in 0..255 {
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        for i in 1..256 {
             let mut view = view.sub(
-                self.decomposer.height(),
-                self.hasher_ir.width() + i * self.hasher_er[i].width(),
-                self.hasher_er[i].width(),
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width,
             );
             let inputs = std::array::from_fn(|i| view.cell(1, i).into());
             [hash, _, _] = view
-                .sub_fn(0, 0, self.hasher_er[i].width(), |view| {
-                    self.witness_input_selector(view, &bits, i + 1)
+                .sub_fn(0, 0, stage_width, |view| {
+                    self.witness_input_selector(view, &bits, i)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i], inputs)?;
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -563,6 +554,8 @@ mod tests {
         TREE.clone()
     }
 
+    const SMT_LANES: usize = 10;
+
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
         key: u64,
@@ -585,9 +578,15 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullBinaryChip::new(path);
-        assert_eq!(chip.width(), 256 * 6);
-        assert_eq!(chip.height(), 199);
+        let chip = FullBinaryChip::<SMT_LANES>::new(path);
+        assert_eq!(chip.stage_width(), 6);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(257, 6 * SMT_LANES));
+        assert_eq!(
+            chip.height(),
+            3 + chip.stage_height() * 256usize.next_multiple_of(SMT_LANES) / SMT_LANES
+        );
+
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -597,6 +596,9 @@ mod tests {
                 canonicalize_constraints: false,
             })
             .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
         let mut witness = circuit.make_witness();
         let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
         witness.set(inputs[0], key);
@@ -606,13 +608,16 @@ mod tests {
             CellOrUnconstrained::Cell(cell) => cell,
             _ => panic!(),
         };
+
         circuit.check_witness(&witness).unwrap();
+
         let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
         };
         let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
         let openings = circuit.verify(&proof, options)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
+
         Ok(())
     }
 
