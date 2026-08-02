@@ -162,11 +162,13 @@ pub struct FullBinaryChip {
 
 impl Default for FullBinaryChip {
     fn default() -> Self {
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let ir_width = hasher_ir.width() as isize;
         Self {
             decomposer: xits::FullBitDecomposerChip::default(),
-            hasher_ir: poseidon1::PermutationChipIR::default(),
+            hasher_ir,
             hasher_er: std::array::from_fn(|i| {
-                poseidon1::PermutationChipER::new(0, (i + 1) as isize * -4)
+                poseidon1::PermutationChipER::new(0, (i as isize + 1) * -ir_width)
             }),
             path: [[Scalar::ZERO; 2]; 256],
         }
@@ -177,11 +179,13 @@ impl FullBinaryChip {
     const SELECTOR_HEIGHT: usize = 2;
 
     pub fn new(path: [[Scalar; 2]; 256]) -> Self {
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let ir_width = hasher_ir.width() as isize;
         Self {
             decomposer: xits::FullBitDecomposerChip::default(),
-            hasher_ir: poseidon1::PermutationChipIR::default(),
+            hasher_ir,
             hasher_er: std::array::from_fn(|i| {
-                poseidon1::PermutationChipER::new(0, (i + 1) as isize * -4)
+                poseidon1::PermutationChipER::new(0, (i as isize + 1) * -ir_width)
             }),
             path,
         }
@@ -276,7 +280,7 @@ impl PlonkChip<2, 1> for FullBinaryChip {
                 .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
         }
         for i in 0..255 {
-            let bit = bits[i];
+            let bit = bits[i + 1];
             let mut view = view.sub(
                 self.decomposer.height(),
                 self.hasher_ir.width() + i * self.hasher_er[i].width(),
@@ -318,7 +322,7 @@ impl PlonkChip<2, 1> for FullBinaryChip {
             let inputs = std::array::from_fn(|i| view.cell(1, i).into());
             [hash, _, _] = view
                 .sub_fn(0, 0, self.hasher_er[i].width(), |view| {
-                    self.witness_input_selector(view, &bits, i)
+                    self.witness_input_selector(view, &bits, i + 1)
                 })
                 .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i], inputs)?;
         }
