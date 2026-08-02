@@ -39,9 +39,7 @@ pub struct RcModeHardWired<C: poseidon::Config<Scalar, T>, const T: usize> {
 
 impl<C: poseidon::Config<Scalar, T>, const T: usize> Debug for RcModeHardWired<C, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RcModeHardWired")
-            .field("_data", &self._data)
-            .finish()
+        f.debug_struct("RcModeHardWired").finish()
     }
 }
 
@@ -119,15 +117,26 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T> for RcM
     }
 }
 
+/// Internal ROM mode for the [`PermutationChip`].
+///
+/// In this mode the Poseidon round constants are stored in separate columns so that we can reuse
+/// the same gate constraints for the round themselves. By contrast, [`RcModeHardWired`] causes the
+/// gates of all rounds to be different from each other due to the hard-wired constants, and that
+/// results in an elevated number of gates and increased proving cost.
+///
+/// NOTE: the overall number of gates instantiated by this mode is comparable to the hard-wired mode
+/// because we still need to constrain the cells of the ROM area to have the correct values, but the
+/// advantage of this mode is that you can subsequently instantiate an arbitrary number of cheap,
+/// external ROM mode chips (see [`RcModeExternalRom`]). In other words: N hard-wired permutation
+/// chips pay the gate cost of the round constants N times, whereas 1 IR chip + (N-1) ER chips pay
+/// that cost only once (but still achieve N permutations).
 pub struct RcModeInternalRom<C: poseidon::Config<Scalar, T>, const T: usize> {
     _data: PhantomData<C>,
 }
 
 impl<C: poseidon::Config<Scalar, T>, const T: usize> Debug for RcModeInternalRom<C, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RcModeInternalRom")
-            .field("_data", &self._data)
-            .finish()
+        f.debug_struct("RcModeInternalRom").finish()
     }
 }
 
@@ -146,26 +155,6 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> Clone for RcModeInternalRom
         Self {
             _data: self._data.clone(),
         }
-    }
-}
-
-impl<C: poseidon::Config<Scalar, T>, const T: usize> RcModeInternalRom<C, T> {
-    fn get_rom_area_cells(&self, view: &impl CircuitView) -> Vec<Cell> {
-        let mut rom = Vec::with_capacity(C::get_round_constants().len());
-        for i in 0..T {
-            rom.push(view.cell(1, T + i));
-        }
-        for r in 1..C::num_total_rounds() {
-            for i in 0..T {
-                rom.push(view.cell(
-                    PermutationChipIR::<C, T>::FIRST_ARC_HEIGHT
-                        + r * PermutationChipIR::<C, T>::ROUND_HEIGHT
-                        - 1,
-                    T + i,
-                ));
-            }
-        }
-        rom
     }
 }
 
@@ -231,37 +220,64 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
     }
 }
 
-pub struct RcModeExternalRom<'a, C: poseidon::Config<Scalar, T>, const T: usize> {
-    /// List of cells of the ROM area.
-    ///
-    /// The list has the same layout as the scalars returned by
-    /// [`poseidon::Config::get_round_constants`]: they're indexed row-first, one row per round.
-    rom: &'a [Cell],
+/// External ROM mode for the [`PermutationChip`].
+///
+/// See [`RcModeInternalRom`] for more information about internal and external ROM modes.
+pub struct RcModeExternalRom<C: poseidon::Config<Scalar, T>, const T: usize> {
+    /// Row distance from the IR chip (ROM lender) to the ER chip (ROM borrower).
+    ir_chip_row_offset: isize,
+
+    /// Column distance from the IR chip (ROM lender) to the ER chip (ROM borrower).
+    ir_chip_column_offset: isize,
 
     _data: PhantomData<C>,
 }
 
-impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> Debug for RcModeExternalRom<'a, C, T> {
+impl<C: poseidon::Config<Scalar, T>, const T: usize> Debug for RcModeExternalRom<C, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RcModeInternalRom")
+        f.debug_struct("RcModeExternalRom")
+            .field("ir_chip_row_offset", &self.ir_chip_row_offset)
+            .field("ir_chip_column_offset", &self.ir_chip_column_offset)
             .field("_data", &self._data)
             .finish()
     }
 }
 
-impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> Copy for RcModeExternalRom<'a, C, T> {}
+impl<C: poseidon::Config<Scalar, T>, const T: usize> Copy for RcModeExternalRom<C, T> {}
 
-impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> Clone for RcModeExternalRom<'a, C, T> {
+impl<C: poseidon::Config<Scalar, T>, const T: usize> Clone for RcModeExternalRom<C, T> {
     fn clone(&self) -> Self {
         Self {
-            rom: self.rom,
+            ir_chip_row_offset: self.ir_chip_row_offset,
+            ir_chip_column_offset: self.ir_chip_column_offset,
             _data: self._data.clone(),
         }
     }
 }
 
-impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
-    for RcModeExternalRom<'a, C, T>
+impl<C: poseidon::Config<Scalar, T>, const T: usize> RcModeExternalRom<C, T> {
+    fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
+        Self {
+            ir_chip_row_offset,
+            ir_chip_column_offset,
+            _data: PhantomData::default(),
+        }
+    }
+
+    /// Returns the ROM cell from the remote IR chip that holds the i-th constant for round r.
+    fn remote_rom_cell(&self, r: usize, i: usize) -> Cell {
+        Cell::new(
+            (self.ir_chip_row_offset
+                + (PermutationChipIR::<C, T>::FIRST_ARC_HEIGHT
+                    + r * PermutationChipIR::<C, T>::ROUND_HEIGHT
+                    - 1) as isize) as usize,
+            (self.ir_chip_column_offset + (T + i) as isize) as usize,
+        )
+    }
+}
+
+impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
+    for RcModeExternalRom<C, T>
 {
     fn width(&self) -> usize {
         T * 2
@@ -272,7 +288,10 @@ impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
         for i in 0..T {
-            view.connect(self.rom[i].into(), view.cell(1, T + i).into());
+            view.connect(
+                self.remote_rom_cell(0, i).into(),
+                view.cell(1, T + i).into(),
+            );
             view.add_gate(0, rvar(i, 0) + rvar(T + i, 1) - rvar(i, 1));
         }
     }
@@ -293,7 +312,7 @@ impl<'a, C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
         let m = C::get_mds_matrix();
         for i in 0..T {
             view.connect(
-                self.rom[(round + 1) * T + i].into(),
+                self.remote_rom_cell(round, i).into(),
                 view.cell(1, T + i).into(),
             );
             view.add_gate(
@@ -336,7 +355,9 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize> Deb
     for PermutationChip<C, M, T>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PermutationChip").finish()
+        f.debug_struct("PermutationChip")
+            .field("rc", &self.rc)
+            .finish()
     }
 }
 
@@ -370,8 +391,8 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize> Clo
 impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize>
     PermutationChip<C, M, T>
 {
-    const FIRST_ARC_HEIGHT: usize = 2;
-    const ROUND_HEIGHT: usize = 3;
+    pub const FIRST_ARC_HEIGHT: usize = 2;
+    pub const ROUND_HEIGHT: usize = 3;
 
     fn build_full_sbox(&self, view: &mut impl CircuitView) {
         for i in 0..T {
@@ -432,32 +453,16 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize>
 }
 
 impl<C: poseidon::Config<Scalar, T>, const T: usize>
-    PermutationChip<C, RcModeInternalRom<C, T>, T>
+    PermutationChip<C, RcModeExternalRom<C, T>, T>
 {
-    /// Returns the cells of the ROM area where the round constants are stored.
+    /// Constructs a `PermutationChipER` at the specified row and column offsets from an equivalent
+    /// IR chip whose round constant ROM will be borrowed.
     ///
-    /// The provided circuit `view` MUST be consistent with the one passed to [`Self::build`].
-    ///
-    /// The returned vector can be used to instantiate one or more [`PermutationChipER`] chips.
-    pub fn get_rom_area_cells(&self, view: &impl CircuitView) -> Vec<Cell> {
-        self.rc.get_rom_area_cells(view)
-    }
-}
-
-impl<'a, C: poseidon::Config<Scalar, T>, const T: usize>
-    PermutationChip<C, RcModeExternalRom<'a, C, T>, T>
-{
-    /// Creates a `PermutationChipER` using the provided ROM area.
-    ///
-    /// Call [`PermutationChipIR::get_rom_area_cells`] to get the ROM area cells from a suitable
-    /// [`PermutationChipIR`].
-    pub fn new(rom: &'a [Cell]) -> Self {
+    /// See [`RcModeInternalRom`] for the rationale.
+    pub fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
         Self {
-            rc: RcModeExternalRom {
-                rom,
-                _data: Default::default(),
-            },
-            _data: Default::default(),
+            rc: RcModeExternalRom::new(ir_chip_row_offset, ir_chip_column_offset),
+            _data: PhantomData::default(),
         }
     }
 }
@@ -550,8 +555,7 @@ pub type PermutationChipHW<C, const T: usize> = PermutationChip<C, RcModeHardWir
 pub type PermutationChipIR<C, const T: usize> = PermutationChip<C, RcModeInternalRom<C, T>, T>;
 
 /// Poseidon permutation chip with [internal ROM storage for round constants](`RcModeExternalRom`).
-pub type PermutationChipER<'a, C, const T: usize> =
-    PermutationChip<C, RcModeExternalRom<'a, C, T>, T>;
+pub type PermutationChipER<C, const T: usize> = PermutationChip<C, RcModeExternalRom<C, T>, T>;
 
 #[cfg(test)]
 mod tests {
@@ -700,22 +704,14 @@ mod tests {
         assert_eq!(chip_ir.height(), 194);
         let ir_width = chip_ir.width();
 
-        let mut builder = CircuitBuilder::default();
-        let (ir_output, rom) = {
-            let mut view = builder.sub(0, 0, ir_width);
-            let ir_output = chip_ir.build(&mut view, std::array::from_fn(|_| None))?;
-            let rom = chip_ir.get_rom_area_cells(&view);
-            (ir_output, rom)
-        };
-
-        let chip_er = PermutationChipER::<Cfg, T>::new(&rom);
+        let chip_er = PermutationChipER::<Cfg, T>::new(ir_width as isize, 0);
         assert_eq!(chip_er.width(), T * 2);
         assert_eq!(chip_er.height(), 194);
         let er_width = chip_er.width();
-        let er_output = {
-            let mut view = builder.sub(0, ir_width, er_width);
-            chip_er.build(&mut view, std::array::from_fn(|_| None))?
-        };
+
+        let mut builder = CircuitBuilder::default();
+        let ir_output = builder.sub_chip(0, 0, &chip_ir, std::array::from_fn(|_| None))?;
+        let er_output = builder.sub_chip(0, ir_width, &chip_er, std::array::from_fn(|_| None))?;
 
         for i in 0..T {
             builder.connect(ir_output[i], er_output[i]);
@@ -731,14 +727,10 @@ mod tests {
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 194);
         assert_eq!(witness.num_columns(), ir_width + er_width);
-        let ir_output = {
-            let mut view = witness.sub(0, 0, ir_width);
-            chip_ir.witness(&mut view, inputs.map(|input| input.into()))?
-        };
-        let er_output = {
-            let mut view = witness.sub(0, ir_width, er_width);
-            chip_er.witness(&mut view, inputs.map(|input| input.into()))?
-        };
+        let ir_output = witness.sub_chip(0, 0, &chip_ir, inputs.map(|input| input.into()))?;
+        let er_output =
+            witness.sub_chip(0, ir_width, &chip_er, inputs.map(|input| input.into()))?;
+
         circuit.check_witness(&witness).unwrap();
 
         let options = ProvingOptions { blowup_log2 };

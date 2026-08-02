@@ -30,7 +30,7 @@ pub struct Chip<P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usi
 impl<P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize, const N: usize>
     Chip<P, T, R, C, N>
 {
-    const ABSORB_HEIGHT: usize = 3;
+    pub const ABSORB_HEIGHT: usize = 3;
 
     pub fn num_chunks() -> usize {
         N.next_multiple_of(R) / R
@@ -167,16 +167,6 @@ where
     }
 }
 
-impl<const T: usize, const R: usize, const C: usize, const N: usize>
-    Chip<Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
-where
-    poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
-{
-    pub fn get_rom_area_cells(&self, view: &impl CircuitView) -> Vec<Cell> {
-        self.permutation.get_rom_area_cells(view)
-    }
-}
-
 impl<const T: usize, const R: usize, const C: usize, const N: usize> PlonkChip<N, R>
     for Chip<Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
 where
@@ -209,24 +199,23 @@ where
     }
 }
 
-impl<'a, const T: usize, const R: usize, const C: usize, const N: usize>
-    Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
+impl<const T: usize, const R: usize, const C: usize, const N: usize>
+    Chip<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
 where
     poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
 {
-    /// Creates a Poseidon1 sponge chip using the provided external ROM area.
-    ///
-    /// Call [`Self::get_rom_area_cells`] to get the ROM area cells from a suitable internal ROM
-    /// chip.
-    pub fn new(rom: &'a [Cell]) -> Self {
+    /// Constructs a [ER mode](`Poseidon1PermutationChipER`) sponge hash chip at the specified row
+    /// and column offsets from an equivalent [IR](`Poseidon1PermutationChipIR`) chip whose round
+    /// constant ROM will be borrowed.
+    pub fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
         Self {
-            permutation: Poseidon1PermutationChipER::new(rom),
+            permutation: Poseidon1PermutationChipER::new(ir_chip_row_offset, ir_chip_column_offset),
         }
     }
 }
 
-impl<'a, const T: usize, const R: usize, const C: usize, const N: usize> PlonkChip<N, R>
-    for Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
+impl<const T: usize, const R: usize, const C: usize, const N: usize> PlonkChip<N, R>
+    for Chip<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
 where
     poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
 {
@@ -334,8 +323,8 @@ pub type Poseidon1ChipT4IR<const N: usize> =
 /// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
 /// user-specified ROM area for the round constants, so a `Poseidon1ChipT3ER` can only be placed in
 /// the circuit if a [`Poseidon1ChipT3IR`] is also present.
-pub type Poseidon1ChipT3ER<'a, const N: usize> =
-    Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig3, 3>, 3, 2, 1, N>;
+pub type Poseidon1ChipT3ER<const N: usize> =
+    Chip<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3, 2, 1, N>;
 
 /// T=4 Poseidon hash with
 /// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
@@ -343,8 +332,8 @@ pub type Poseidon1ChipT3ER<'a, const N: usize> =
 /// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
 /// user-specified ROM area for the round constants, so a `Poseidon1ChipT4ER` can only be placed in
 /// the circuit if a [`Poseidon1ChipT4IR`] is also present.
-pub type Poseidon1ChipT4ER<'a, const N: usize> =
-    Chip<Poseidon1PermutationChipER<'a, poseidon1::BlueSkyConfig4, 4>, 4, 3, 1, N>;
+pub type Poseidon1ChipT4ER<const N: usize> =
+    Chip<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1, N>;
 
 #[cfg(test)]
 mod tests {
