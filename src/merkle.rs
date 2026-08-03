@@ -3,6 +3,7 @@ use crate::sponge;
 use crate::xits;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
+use starkom_bluesky::from_const;
 use starkom_ff::Field;
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
@@ -259,7 +260,7 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
         {
             let bit = bits[0];
             let mut view = view.sub(self.decomposer.height(), 0, self.hasher_ir.width());
-            let inputs = std::array::from_fn(|i| view.cell(1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
             [hash, _, _] = view
                 .sub_fn(0, 0, self.hasher_ir.width(), |view| {
                     self.build_input_selector(view, hash, bit)
@@ -275,7 +276,7 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
                 stage_width * (i % L),
                 stage_width,
             );
-            let inputs = std::array::from_fn(|i| view.cell(1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
             [hash, _, _] = view
                 .sub_fn(0, 0, stage_width, |view| {
                     self.build_input_selector(view, hash, bit)
@@ -295,7 +296,7 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
         let mut hash;
         {
             let mut view = view.sub(self.decomposer.height(), 0, self.hasher_ir.width());
-            let inputs = std::array::from_fn(|i| view.cell(1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
             [hash, _, _] = view
                 .sub_fn(0, 0, self.hasher_ir.width(), |view| {
                     self.witness_input_selector(view, &bits, 0)
@@ -310,7 +311,7 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
                 stage_width * (i % L),
                 stage_width,
             );
-            let inputs = std::array::from_fn(|i| view.cell(1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
             [hash, _, _] = view
                 .sub_fn(0, 0, stage_width, |view| {
                     self.witness_input_selector(view, &bits, i)
@@ -370,6 +371,68 @@ impl<const L: usize> FullTernaryChip<L> {
     fn stage_height(&self) -> usize {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
+
+    fn build_input_selector(
+        &self,
+        view: &mut impl CircuitView,
+        hash: Option<Cell>,
+        trit: Option<Cell>,
+    ) {
+        view.connect(hash, view.cell(0, 0).into());
+        view.connect(trit, view.cell(0, 3).into());
+        let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
+        let l1 = var(3) * 2 - (var(3) ^ 2);
+        let l2 = ((var(3) ^ 2) - var(3)) / 2;
+        view.add_gate(
+            0,
+            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - rvar(0, 1),
+        );
+        view.add_gate(
+            0,
+            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - rvar(1, 1),
+        );
+        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - rvar(2, 1));
+        view.add_gate(1, var(2));
+    }
+
+    fn witness_input_selector(
+        &self,
+        view: &mut impl WitnessView,
+        trits: &[CellOrUnconstrained],
+        i: usize,
+    ) {
+        let trit = trits[i];
+        let trit_value = match trit {
+            CellOrUnconstrained::Cell(cell) => view.get(cell),
+            CellOrUnconstrained::Unconstrained(value) => value,
+        };
+        const ZERO: Scalar = from_const(0);
+        const ONE: Scalar = from_const(1);
+        const TWO: Scalar = from_const(2);
+        match trit_value {
+            ZERO => {
+                view.set(view.cell(0, 0), self.path[i][0]);
+                view.set(view.cell(0, 1), self.path[i][1]);
+                view.set(view.cell(0, 2), self.path[i][2]);
+            }
+            ONE => {
+                view.set(view.cell(0, 0), self.path[i][1]);
+                view.set(view.cell(0, 1), self.path[i][0]);
+                view.set(view.cell(0, 2), self.path[i][2]);
+            }
+            TWO => {
+                view.set(view.cell(0, 0), self.path[i][2]);
+                view.set(view.cell(0, 1), self.path[i][0]);
+                view.set(view.cell(0, 2), self.path[i][1]);
+            }
+            _ => panic!("invalid trit value {}", trit_value),
+        };
+        view.copy(trit, view.cell(0, 3).into());
+        view.set(view.cell(1, 0), self.path[i][0]);
+        view.set(view.cell(1, 1), self.path[i][0]);
+        view.set(view.cell(1, 2), self.path[i][0]);
+        view.set(view.cell(1, 3), Scalar::ZERO);
+    }
 }
 
 impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
@@ -386,7 +449,36 @@ impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
         view: &mut impl CircuitView,
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]> {
-        todo!()
+        let [key, value] = inputs;
+        let trits = self.decomposer.build(view, [key])?;
+        let mut hash = value;
+        {
+            let trit = trits[0];
+            let mut view = view.sub(self.decomposer.height(), 0, self.hasher_ir.width());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, self.hasher_ir.width(), |view| {
+                    self.build_input_selector(view, hash, trit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        for i in 1..161 {
+            let trit = trits[i];
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width,
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, stage_width, |view| {
+                    self.build_input_selector(view, hash, trit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
+        }
+        Ok([hash])
     }
 
     fn witness(
@@ -394,7 +486,34 @@ impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 2],
     ) -> Result<[CellOrUnconstrained; 1]> {
-        todo!()
+        let [key, _] = inputs;
+        let trits = self.decomposer.witness(view, [key])?;
+        let mut hash;
+        {
+            let mut view = view.sub(self.decomposer.height(), 0, self.hasher_ir.width());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, self.hasher_ir.width(), |view| {
+                    self.witness_input_selector(view, &trits, 0)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        for i in 1..161 {
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width,
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, stage_width, |view| {
+                    self.witness_input_selector(view, &trits, i)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
+        }
+        Ok([hash])
     }
 }
 
