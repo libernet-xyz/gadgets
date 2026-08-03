@@ -414,7 +414,7 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
                 ((rvar(i, 0) - trit) * 7 - ((rvar(i, 0) - trit) ^ 3)) / 6 - rvar(i, 1),
             );
         }
-        view.connect(view.cell(N - 1, 1).into(), view.cell(N - 1, 2).into());
+        view.connect(view.cell(1, N - 1).into(), view.cell(2, N - 1).into());
         for i in (0..(N - 1)).rev() {
             view.add_gate(
                 1,
@@ -432,12 +432,13 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
     ) -> Result<[CellOrUnconstrained; 1]> {
         for i in 0..N {
             view.copy(inputs[i], view.cell(0, i).into());
+            let diff = view.get(view.cell(0, i)) - self.get_rhs_trit(i);
             view.set(
                 view.cell(1, i),
-                view.get(view.cell(0, i)) - self.get_rhs_trit(i),
+                (diff * from_const(7) - diff.cube()) / from_const(6),
             );
         }
-        view.copy(view.cell(N - 1, 1).into(), view.cell(N - 1, 2).into());
+        view.copy(view.cell(1, N - 1).into(), view.cell(2, N - 1));
         for i in (0..(N - 1)).rev() {
             let cmp = view.get(view.cell(1, i));
             let prev = view.get(view.cell(2, i + 1));
@@ -446,7 +447,7 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
                 prev.cube() + (from_const(1) - prev.square()) * cmp,
             );
         }
-        Ok([view.cell(1, 0).into()])
+        Ok([view.cell(2, 0).into()])
     }
 }
 
