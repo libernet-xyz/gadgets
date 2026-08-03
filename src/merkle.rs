@@ -392,7 +392,7 @@ impl<const L: usize> FullTernaryChip<L> {
             l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - rvar(1, 1),
         );
         view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - rvar(2, 1));
-        view.add_gate(1, var(2));
+        view.add_gate(1, var(3));
     }
 
     fn witness_input_selector(
@@ -429,8 +429,8 @@ impl<const L: usize> FullTernaryChip<L> {
         };
         view.copy(trit, view.cell(0, 3).into());
         view.set(view.cell(1, 0), self.path[i][0]);
-        view.set(view.cell(1, 1), self.path[i][0]);
-        view.set(view.cell(1, 2), self.path[i][0]);
+        view.set(view.cell(1, 1), self.path[i][1]);
+        view.set(view.cell(1, 2), self.path[i][2]);
         view.set(view.cell(1, 3), Scalar::ZERO);
     }
 }
