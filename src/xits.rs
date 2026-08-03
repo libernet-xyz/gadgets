@@ -483,8 +483,11 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
         view: &mut impl CircuitView,
         inputs: [Option<Cell>; 1],
     ) -> Result<[Option<Cell>; 161]> {
-        // TODO
-        todo!()
+        let trits = self.decomposer.build(view, inputs)?;
+        let mut view = view.sub(self.decomposer.height(), 0, self.width());
+        view.sub_chip(0, 0, &self.comparator, trits)?;
+        view.add_gate(self.comparator.height() - 1, var(0) + 1);
+        Ok(trits)
     }
 
     fn witness(
@@ -492,8 +495,9 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 1],
     ) -> Result<[CellOrUnconstrained; 161]> {
-        // TODO
-        todo!()
+        let trits = self.decomposer.witness(view, inputs)?;
+        view.sub_chip(1, 0, &self.comparator, trits)?;
+        Ok(trits)
     }
 }
 
@@ -1306,5 +1310,101 @@ mod tests {
         }
     }
 
-    // TODO
+    fn test_full_trit_decomposer_chip_impl(value: u64) {
+        let chip = FullTritDecomposerChip::default();
+        assert_eq!(chip.width(), 162);
+        assert_eq!(chip.height(), 4);
+        let mut builder = CircuitBuilder::default();
+        chip.build(&mut builder, [None]).unwrap();
+        builder.declare_public_rows([0]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), 4);
+        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.num_columns(), 162);
+        let mut witness = circuit.make_witness();
+        let trits = chip
+            .witness(&mut witness, [Scalar::from(value).into()])
+            .unwrap()
+            .map(|trit| match trit {
+                CellOrUnconstrained::Cell(cell) => witness.get(cell),
+                _ => panic!("the output trits must be constrained"),
+            });
+        assert_eq!(trits, decompose_trits::<161>(value.into())[0..161]);
+        circuit.check_witness(&witness).unwrap();
+        let proving_options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit
+            .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
+            .unwrap();
+        let openings = circuit
+            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
+            .verify(&proof)
+            .unwrap();
+        assert!((0..161).all(|i| openings[&cell(0, i)] == trits[i]));
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_0() {
+        test_full_trit_decomposer_chip_impl(0);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_1() {
+        test_full_trit_decomposer_chip_impl(1);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_2() {
+        test_full_trit_decomposer_chip_impl(2);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_3() {
+        test_full_trit_decomposer_chip_impl(3);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_4() {
+        test_full_trit_decomposer_chip_impl(4);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_5() {
+        test_full_trit_decomposer_chip_impl(5);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_6() {
+        test_full_trit_decomposer_chip_impl(6);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_7() {
+        test_full_trit_decomposer_chip_impl(7);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_8() {
+        test_full_trit_decomposer_chip_impl(8);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_9() {
+        test_full_trit_decomposer_chip_impl(9);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_10() {
+        test_full_trit_decomposer_chip_impl(10);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_11() {
+        test_full_trit_decomposer_chip_impl(11);
+    }
 }
