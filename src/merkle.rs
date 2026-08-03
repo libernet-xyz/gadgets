@@ -7,7 +7,7 @@ use starkom_ff::Field;
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
 };
-use starkom_poseidon::BlueSkyConfig3;
+use starkom_poseidon::{BlueSkyConfig3, BlueSkyConfig4};
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
@@ -321,7 +321,82 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
     }
 }
 
-// TODO
+/// Runs a Merkle lookup over a ternary Sparse Merkle Tree of height 161.
+///
+/// The keys of such a tree span the full BlueSky range. Internally this chip uses a
+/// [`xits::FullTritDecomposerChip`], making the 161-trit decomposition safe at the cost of some
+/// extra constraints.
+///
+/// If you don't need 161-trit keys use [`TernaryChip`].
+#[derive(Debug, Clone)]
+pub struct FullTernaryChip<const L: usize> {
+    decomposer: xits::FullTritDecomposerChip,
+    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig4, 4>,
+    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig4, 4>; 161],
+    path: [[Scalar; 3]; 161],
+}
+
+impl<const L: usize> Default for FullTernaryChip<L> {
+    fn default() -> Self {
+        Self::new([[Scalar::ZERO; 3]; 161])
+    }
+}
+
+impl<const L: usize> FullTernaryChip<L> {
+    const SELECTOR_HEIGHT: usize = 2;
+
+    pub fn new(path: [[Scalar; 3]; 161]) -> Self {
+        assert!(L > 0, "need at least one lane");
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
+        Self {
+            decomposer: xits::FullTritDecomposerChip::default(),
+            hasher_ir,
+            hasher_er: std::array::from_fn(|i| {
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
+            }),
+            path,
+        }
+    }
+
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
+    }
+}
+
+impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
+    fn width(&self) -> usize {
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
+    }
+
+    fn height(&self) -> usize {
+        self.decomposer.height() + self.stage_height() * 161usize.next_multiple_of(L) / L
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 2],
+    ) -> Result<[Option<Cell>; 1]> {
+        todo!()
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 2],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        todo!()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -554,12 +629,12 @@ mod tests {
         TREE.clone()
     }
 
-    const SMT_LANES: usize = 52;
-
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
         key: u64,
     ) -> Result<()> {
+        const LANES: usize = 52;
+
         let tree = {
             let mut tree = get_empty_binary_tree();
             for (key, value) in entries {
@@ -578,13 +653,13 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullBinaryChip::<SMT_LANES>::new(path);
+        let chip = FullBinaryChip::<LANES>::new(path);
         assert_eq!(chip.stage_width(), 6);
         assert_eq!(chip.stage_height(), 196);
-        assert_eq!(chip.width(), std::cmp::max(257, 6 * SMT_LANES));
+        assert_eq!(chip.width(), std::cmp::max(257, 6 * LANES));
         assert_eq!(
             chip.height(),
-            3 + chip.stage_height() * 256usize.next_multiple_of(SMT_LANES) / SMT_LANES
+            3 + chip.stage_height() * 256usize.next_multiple_of(LANES) / LANES
         );
 
         let mut builder = CircuitBuilder::default();

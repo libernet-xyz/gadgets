@@ -246,11 +246,11 @@ impl Default for FullBitDecomposerChip {
 
 impl PlonkChip<1, 256> for FullBitDecomposerChip {
     fn width(&self) -> usize {
-        257
+        std::cmp::max(self.decomposer.width(), self.comparator.width())
     }
 
     fn height(&self) -> usize {
-        3
+        self.decomposer.height() + self.comparator.height()
     }
 
     fn build(
@@ -398,7 +398,7 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
     }
 
     fn height(&self) -> usize {
-        2
+        3
     }
 
     fn build(
@@ -406,8 +406,23 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
         view: &mut impl CircuitView,
         inputs: [Option<Cell>; N],
     ) -> Result<[Option<Cell>; 1]> {
-        // TODO
-        todo!()
+        for i in 0..N {
+            view.connect(inputs[i], view.cell(0, i).into());
+            let trit = self.get_rhs_trit(i);
+            view.add_gate(
+                0,
+                ((rvar(i, 0) - trit) * 7 - ((rvar(i, 0) - trit) ^ 3)) / 6 - rvar(i, 1),
+            );
+        }
+        view.connect(view.cell(N - 1, 1).into(), view.cell(N - 1, 2).into());
+        for i in (0..(N - 1)).rev() {
+            view.add_gate(
+                1,
+                (rvar(i + 1, 1) ^ 3) + (make_const(1) - (rvar(i + 1, 1) ^ 2)) * rvar(i, 0)
+                    - rvar(i, 1),
+            );
+        }
+        Ok([view.cell(2, 0).into()])
     }
 
     fn witness(
@@ -415,12 +430,71 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; N],
     ) -> Result<[CellOrUnconstrained; 1]> {
+        for i in 0..N {
+            view.copy(inputs[i], view.cell(0, i).into());
+            view.set(
+                view.cell(1, i),
+                view.get(view.cell(0, i)) - self.get_rhs_trit(i),
+            );
+        }
+        view.copy(view.cell(N - 1, 1).into(), view.cell(N - 1, 2).into());
+        for i in (0..(N - 1)).rev() {
+            let cmp = view.get(view.cell(1, i));
+            let prev = view.get(view.cell(2, i + 1));
+            view.set(
+                view.cell(2, i),
+                prev.cube() + (from_const(1) - prev.square()) * cmp,
+            );
+        }
+        Ok([view.cell(1, 0).into()])
+    }
+}
+
+/// Decomposes an input signal into 161 trits, covering the full BlueSky range.
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Clone)]
+pub struct FullTritDecomposerChip {
+    decomposer: TritDecomposerChip<161>,
+    comparator: ConstTritComparatorChip<161>,
+}
+
+impl Default for FullTritDecomposerChip {
+    fn default() -> Self {
+        Self {
+            decomposer: TritDecomposerChip::default(),
+            comparator: ConstTritComparatorChip::new(Scalar::MODULUS.parse().unwrap()),
+        }
+    }
+}
+
+impl PlonkChip<1, 161> for FullTritDecomposerChip {
+    fn width(&self) -> usize {
+        std::cmp::max(self.decomposer.width(), self.comparator.width())
+    }
+
+    fn height(&self) -> usize {
+        self.decomposer.height() + self.comparator.height()
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 161]> {
+        // TODO
+        todo!()
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 1],
+    ) -> Result<[CellOrUnconstrained; 161]> {
         // TODO
         todo!()
     }
 }
-
-// TODO
 
 #[cfg(test)]
 mod tests {
@@ -1155,6 +1229,80 @@ mod tests {
         test_trit_decomposer_chip::<3>(24);
         test_trit_decomposer_chip::<3>(25);
         test_trit_decomposer_chip::<3>(26);
+    }
+
+    fn test_const_trit_comparator_chip<const N: usize>(lhs: u64, rhs: u64) {
+        let mut builder = CircuitBuilder::default();
+        let decomposer_chip = TritDecomposerChip::<N>::default();
+        let trits = decomposer_chip.build(&mut builder, [None]).unwrap();
+        let comparator_chip = ConstTritComparatorChip::<N>::new(rhs.into());
+        assert_eq!(comparator_chip.width(), N);
+        assert_eq!(comparator_chip.height(), 3);
+        let [cmp] = builder
+            .sub_chip(decomposer_chip.height(), 0, &comparator_chip, trits)
+            .unwrap();
+        builder.declare_public_rows([cmp.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(
+            circuit.num_rows(),
+            decomposer_chip.height() + comparator_chip.height()
+        );
+        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.num_columns(), N + 1);
+        let mut witness = circuit.make_witness();
+        let trits = decomposer_chip
+            .witness(&mut witness, [Scalar::from(lhs).into()])
+            .unwrap();
+        assert!(
+            witness
+                .sub_chip(decomposer_chip.height(), 0, &comparator_chip, trits)
+                .is_ok()
+        );
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit
+            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .unwrap();
+        let openings = circuit
+            .to_compressed::<Sha2Hash<Scalar>>(options)
+            .verify(&proof)
+            .unwrap();
+        assert_eq!(
+            openings[&cmp.unwrap()],
+            match lhs.cmp(&rhs) {
+                Ordering::Less => -from_const(1),
+                Ordering::Equal => from_const(0),
+                Ordering::Greater => from_const(1),
+            }
+        );
+    }
+
+    #[test]
+    fn test_const_trit_comparator_chip_1() {
+        test_const_trit_comparator_chip::<1>(0, 0);
+        test_const_trit_comparator_chip::<1>(1, 0);
+        test_const_trit_comparator_chip::<1>(2, 0);
+        test_const_trit_comparator_chip::<1>(0, 1);
+        test_const_trit_comparator_chip::<1>(1, 1);
+        test_const_trit_comparator_chip::<1>(2, 1);
+        test_const_trit_comparator_chip::<1>(0, 2);
+        test_const_trit_comparator_chip::<1>(1, 2);
+        test_const_trit_comparator_chip::<1>(2, 2);
+    }
+
+    #[test]
+    fn test_const_trit_comparator_chip_2() {
+        for i in 0..9 {
+            for j in 0..9 {
+                test_const_trit_comparator_chip::<2>(i, j);
+            }
+        }
     }
 
     // TODO
