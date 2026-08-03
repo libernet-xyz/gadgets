@@ -737,11 +737,85 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct TernaryNode {
+        level: usize,
+        hash: Scalar,
+        children: [Arc<dyn Node>; 3],
+    }
+
+    impl TernaryNode {
+        fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<Self> {
+            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfig4, Scalar, 4, 3, 1>([
+                children[0].hash(),
+                children[1].hash(),
+                children[2].hash(),
+            ]);
+            Arc::new(TernaryNode {
+                level,
+                hash,
+                children,
+            })
+        }
+
+        fn trit_at(&self, key: &U256) -> usize {
+            let divisor = U256::from(3).pow(self.level.into());
+            ((key / divisor) % 3).try_into().unwrap()
+        }
+    }
+
+    impl Node for TernaryNode {
+        fn hash(&self) -> Scalar {
+            self.hash
+        }
+
+        fn get_impl(&self, key: &U256) -> Scalar {
+            self.children[self.trit_at(key)].get_impl(key)
+        }
+
+        fn get_merkle_path_impl(&self, key: &U256) -> Vec<Vec<Scalar>> {
+            let mut path = self.children[self.trit_at(key)].get_merkle_path_impl(key);
+            path.push(self.children.iter().map(|child| child.hash()).collect());
+            path
+        }
+
+        fn put_impl(self: Arc<Self>, key: &U256, value: Scalar) -> Arc<dyn Node> {
+            let trit = self.trit_at(key);
+            let child = self.children[trit].clone().put_impl(key, value);
+            match trit {
+                0 => Self::new(
+                    self.level,
+                    [child, self.children[1].clone(), self.children[2].clone()],
+                ),
+                1 => Self::new(
+                    self.level,
+                    [self.children[0].clone(), child, self.children[2].clone()],
+                ),
+                2 => Self::new(
+                    self.level,
+                    [self.children[0].clone(), self.children[1].clone(), child],
+                ),
+                _ => panic!(),
+            }
+        }
+    }
+
     fn get_empty_binary_tree() -> Arc<dyn Node> {
         static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
             let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
             for i in 0..256 {
                 node = BinaryNode::new(i, node.clone(), node.clone());
+            }
+            node
+        });
+        TREE.clone()
+    }
+
+    fn get_empty_ternary_tree() -> Arc<dyn Node> {
+        static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
+            let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
+            for i in 0..161 {
+                node = TernaryNode::new(i, [node.clone(), node.clone(), node.clone()]);
             }
             node
         });
@@ -848,6 +922,83 @@ mod tests {
         assert!(test_full_binary_smt_impl(entries, 77).is_ok());
         assert!(test_full_binary_smt_impl(entries, 78).is_ok());
         assert!(test_full_binary_smt_impl(entries, 79).is_ok());
+    }
+
+    fn test_full_ternary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
+        entries: I,
+        key: u64,
+    ) -> Result<()> {
+        const LANES: usize = 33;
+
+        let tree = {
+            let mut tree = get_empty_ternary_tree();
+            for (key, value) in entries {
+                tree = tree.put(key.into(), value.into());
+            }
+            tree
+        };
+        let key = key.into();
+        let value = tree.get(key);
+        let path: [[Scalar; 3]; 161] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected_root_hash = tree.hash();
+
+        let chip = FullTernaryChip::<LANES>::new(path);
+        assert_eq!(chip.stage_width(), 8);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(162, 8 * LANES));
+        assert_eq!(
+            chip.height(),
+            4 + chip.stage_height() * 161usize.next_multiple_of(LANES) / LANES
+        );
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let openings = circuit.verify(&proof, options)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_full_ternary_smt_empty() {
+        assert!(test_full_ternary_smt_impl([], 0).is_ok());
+        assert!(test_full_ternary_smt_impl([], 1).is_ok());
+        assert!(test_full_ternary_smt_impl([], 2).is_ok());
+        assert!(test_full_ternary_smt_impl([], 3).is_ok());
+        assert!(test_full_ternary_smt_impl([], 4).is_ok());
+        assert!(test_full_ternary_smt_impl([], 5).is_ok());
     }
 
     // TODO
