@@ -554,7 +554,7 @@ mod tests {
         TREE.clone()
     }
 
-    const SMT_LANES: usize = 10;
+    const SMT_LANES: usize = 52;
 
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
