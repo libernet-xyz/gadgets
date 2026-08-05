@@ -998,6 +998,96 @@ mod tests {
         assert!(test_ternary_smt::<2, 1>(2, 56, path, root_hash, c).is_ok());
     }
 
+    #[test]
+    fn test_ternary_smt_height_two_one_lane_2() {
+        let path = [
+            [from_const(34), from_const(56), from_const(12)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        assert!(test_ternary_smt::<2, 1>(3, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(4, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(5, 12, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_one_lane_3() {
+        let path = [
+            [from_const(56), from_const(78), from_const(90)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        assert!(test_ternary_smt::<2, 1>(6, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(7, 78, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(8, 90, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_two_lanes_1() {
+        let path = [
+            [from_const(12), from_const(34), from_const(56)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0xabeda530f4fc805498b14b12f71239e35e6f4d0f1749aac803db2e76dfad7e4a");
+        assert!(test_ternary_smt::<2, 2>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(1, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(2, 56, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_two_lanes_2() {
+        let path = [
+            [from_const(34), from_const(56), from_const(12)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0xabeda530f4fc805498b14b12f71239e35e6f4d0f1749aac803db2e76dfad7e4a");
+        assert!(test_ternary_smt::<2, 2>(3, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(4, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(5, 12, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_two_lanes_3() {
+        let path = [
+            [from_const(56), from_const(78), from_const(90)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0xabeda530f4fc805498b14b12f71239e35e6f4d0f1749aac803db2e76dfad7e4a");
+        assert!(test_ternary_smt::<2, 2>(6, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(7, 78, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(8, 90, path, root_hash, c).is_ok());
+    }
+
     trait Node: 'static + Debug + Send + Sync {
         fn hash(&self) -> Scalar;
 
