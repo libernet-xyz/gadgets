@@ -418,8 +418,7 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
         for i in (0..(N - 1)).rev() {
             view.add_gate(
                 1,
-                (rvar(i + 1, 1) ^ 3) + (make_const(1) - (rvar(i + 1, 1) ^ 2)) * rvar(i, 0)
-                    - rvar(i, 1),
+                rvar(i + 1, 1) + (make_const(1) - (rvar(i + 1, 1) ^ 2)) * rvar(i, 0) - rvar(i, 1),
             );
         }
         Ok([view.cell(2, 0).into()])
@@ -444,7 +443,7 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
             let prev = view.get(view.cell(2, i + 1));
             view.set(
                 view.cell(2, i),
-                prev.cube() + (from_const(1) - prev.square()) * cmp,
+                prev + (from_const(1) - prev.square()) * cmp,
             );
         }
         Ok([view.cell(2, 0).into()])
@@ -504,6 +503,7 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use primitive_types::H256;
     use starkom_bluesky::parse_scalar;
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
@@ -514,6 +514,10 @@ mod tests {
     #[inline]
     fn cell(row: usize, column: usize) -> Cell {
         Cell::new(row, column)
+    }
+
+    fn parse_hash(s: &'static str) -> H256 {
+        s.parse().unwrap()
     }
 
     #[test]
@@ -727,7 +731,7 @@ mod tests {
         );
     }
 
-    fn test_bit_decomposer_chip<const N: usize>(value: u64) {
+    fn test_bit_decomposer_chip<const N: usize>(value: u64, circuit_commitment: H256) {
         let chip = BitDecomposerChip::<N>::default();
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
@@ -752,46 +756,52 @@ mod tests {
             });
         assert_eq!(bits, decompose_bits::<N>(value.into())[0..N]);
         circuit.check_witness(&witness).unwrap();
-        let proving_options = ProvingOptions {
+        let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
         };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
+            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
             .unwrap();
-        let openings = circuit
-            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
-            .verify(&proof)
-            .unwrap();
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let openings = circuit.verify(&proof).unwrap();
         assert!((0..N).all(|i| openings[&cell(0, i)] == bits[i]));
     }
 
     #[test]
     fn test_bit_decomposer_chip_1() {
-        test_bit_decomposer_chip::<1>(0);
-        test_bit_decomposer_chip::<1>(1);
+        let c = parse_hash("0x54c875a6d1868a642ea3411f2f856cd979233cec1ac9a5867955c89db11aec6b");
+        test_bit_decomposer_chip::<1>(0, c);
+        test_bit_decomposer_chip::<1>(1, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_2() {
-        test_bit_decomposer_chip::<2>(0);
-        test_bit_decomposer_chip::<2>(1);
-        test_bit_decomposer_chip::<2>(2);
-        test_bit_decomposer_chip::<2>(3);
+        let c = parse_hash("0x9f32441d30c4c51637ebfbdfa96c40e8b9346e0903acedd6d19226ed7d2a8181");
+        test_bit_decomposer_chip::<2>(0, c);
+        test_bit_decomposer_chip::<2>(1, c);
+        test_bit_decomposer_chip::<2>(2, c);
+        test_bit_decomposer_chip::<2>(3, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_3() {
-        test_bit_decomposer_chip::<3>(0);
-        test_bit_decomposer_chip::<3>(1);
-        test_bit_decomposer_chip::<3>(2);
-        test_bit_decomposer_chip::<3>(3);
-        test_bit_decomposer_chip::<3>(4);
-        test_bit_decomposer_chip::<3>(5);
-        test_bit_decomposer_chip::<3>(6);
-        test_bit_decomposer_chip::<3>(7);
+        let c = parse_hash("0xabe386e6b4aa50042e4b0edeb3605c29531a556fa414a0091e6a92b488f91d31");
+        test_bit_decomposer_chip::<3>(0, c);
+        test_bit_decomposer_chip::<3>(1, c);
+        test_bit_decomposer_chip::<3>(2, c);
+        test_bit_decomposer_chip::<3>(3, c);
+        test_bit_decomposer_chip::<3>(4, c);
+        test_bit_decomposer_chip::<3>(5, c);
+        test_bit_decomposer_chip::<3>(6, c);
+        test_bit_decomposer_chip::<3>(7, c);
     }
 
-    fn test_const_bit_comparator_chip<const N: usize>(lhs: u64, rhs: u64) {
+    fn test_const_bit_comparator_chip<const N: usize>(
+        lhs: u64,
+        rhs: u64,
+        circuit_commitment: H256,
+    ) {
         let mut builder = CircuitBuilder::default();
         let decomposer_chip = BitDecomposerChip::<N>::default();
         let bits = decomposer_chip.build(&mut builder, [None]).unwrap();
@@ -829,10 +839,9 @@ mod tests {
         let proof = circuit
             .prove::<Sha2Hash<Scalar>>(witness, options.clone())
             .unwrap();
-        let openings = circuit
-            .to_compressed::<Sha2Hash<Scalar>>(options)
-            .verify(&proof)
-            .unwrap();
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let openings = circuit.verify(&proof).unwrap();
         assert_eq!(
             openings[&cmp.unwrap()],
             match lhs.cmp(&rhs) {
@@ -845,30 +854,32 @@ mod tests {
 
     #[test]
     fn test_const_bit_comparator_chip_1() {
-        test_const_bit_comparator_chip::<1>(0, 0);
-        test_const_bit_comparator_chip::<1>(1, 0);
-        test_const_bit_comparator_chip::<1>(0, 1);
-        test_const_bit_comparator_chip::<1>(1, 1);
+        let c = parse_hash("0x84aad7ad79038b71cb58257a5a129e5b114286358604de9baa429920682a487f");
+        test_const_bit_comparator_chip::<1>(0, 0, c);
+        test_const_bit_comparator_chip::<1>(1, 0, c);
+        test_const_bit_comparator_chip::<1>(0, 1, c);
+        test_const_bit_comparator_chip::<1>(1, 1, c);
     }
 
     #[test]
     fn test_const_bit_comparator_chip_2() {
-        test_const_bit_comparator_chip::<2>(0, 0);
-        test_const_bit_comparator_chip::<2>(1, 0);
-        test_const_bit_comparator_chip::<2>(2, 0);
-        test_const_bit_comparator_chip::<2>(3, 0);
-        test_const_bit_comparator_chip::<2>(0, 1);
-        test_const_bit_comparator_chip::<2>(1, 1);
-        test_const_bit_comparator_chip::<2>(2, 1);
-        test_const_bit_comparator_chip::<2>(3, 1);
-        test_const_bit_comparator_chip::<2>(0, 2);
-        test_const_bit_comparator_chip::<2>(1, 2);
-        test_const_bit_comparator_chip::<2>(2, 2);
-        test_const_bit_comparator_chip::<2>(3, 2);
-        test_const_bit_comparator_chip::<2>(0, 3);
-        test_const_bit_comparator_chip::<2>(1, 3);
-        test_const_bit_comparator_chip::<2>(2, 3);
-        test_const_bit_comparator_chip::<2>(3, 3);
+        let c = parse_hash("0x5acdcc43ef21df21f1f0a419350f2d5510a4804426de782f91dad2873b95a908");
+        test_const_bit_comparator_chip::<2>(0, 0, c);
+        test_const_bit_comparator_chip::<2>(1, 0, c);
+        test_const_bit_comparator_chip::<2>(2, 0, c);
+        test_const_bit_comparator_chip::<2>(3, 0, c);
+        test_const_bit_comparator_chip::<2>(0, 1, c);
+        test_const_bit_comparator_chip::<2>(1, 1, c);
+        test_const_bit_comparator_chip::<2>(2, 1, c);
+        test_const_bit_comparator_chip::<2>(3, 1, c);
+        test_const_bit_comparator_chip::<2>(0, 2, c);
+        test_const_bit_comparator_chip::<2>(1, 2, c);
+        test_const_bit_comparator_chip::<2>(2, 2, c);
+        test_const_bit_comparator_chip::<2>(3, 2, c);
+        test_const_bit_comparator_chip::<2>(0, 3, c);
+        test_const_bit_comparator_chip::<2>(1, 3, c);
+        test_const_bit_comparator_chip::<2>(2, 3, c);
+        test_const_bit_comparator_chip::<2>(3, 3, c);
     }
 
     fn test_full_bit_decomposer_chip_impl(value: u64) {
@@ -896,16 +907,18 @@ mod tests {
             });
         assert_eq!(bits, decompose_bits::<256>(value.into())[0..256]);
         circuit.check_witness(&witness).unwrap();
-        let proving_options = ProvingOptions {
+        let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
         };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
+            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
             .unwrap();
-        let openings = circuit
-            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
-            .verify(&proof)
-            .unwrap();
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(
+            circuit.commitment(),
+            parse_hash("0xd438c9dbb9ca22a74bdd931cd796d5b86d3245b7ee2e2d0daa81d0e70f0c9d05")
+        );
+        let openings = circuit.verify(&proof).unwrap();
         assert!((0..256).all(|i| openings[&cell(0, i)] == bits[i]));
     }
 
@@ -1147,7 +1160,7 @@ mod tests {
         );
     }
 
-    fn test_trit_decomposer_chip<const N: usize>(value: u64) {
+    fn test_trit_decomposer_chip<const N: usize>(value: u64, circuit_commitment: H256) {
         let chip = TritDecomposerChip::<N>::default();
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
@@ -1172,71 +1185,77 @@ mod tests {
             });
         assert_eq!(trits, decompose_trits::<N>(value.into())[0..N]);
         circuit.check_witness(&witness).unwrap();
-        let proving_options = ProvingOptions {
+        let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
         };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
+            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
             .unwrap();
-        let openings = circuit
-            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
-            .verify(&proof)
-            .unwrap();
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let openings = circuit.verify(&proof).unwrap();
         assert!((0..N).all(|i| openings[&cell(0, i)] == trits[i]));
     }
 
     #[test]
     fn test_trit_decomposer_chip_1() {
-        test_trit_decomposer_chip::<1>(0);
-        test_trit_decomposer_chip::<1>(1);
-        test_trit_decomposer_chip::<1>(2);
+        let c = parse_hash("0x54c875a6d1868a642ea3411f2f856cd979233cec1ac9a5867955c89db11aec6b");
+        test_trit_decomposer_chip::<1>(0, c);
+        test_trit_decomposer_chip::<1>(1, c);
+        test_trit_decomposer_chip::<1>(2, c);
     }
 
     #[test]
     fn test_trit_decomposer_chip_2() {
-        test_trit_decomposer_chip::<2>(0);
-        test_trit_decomposer_chip::<2>(1);
-        test_trit_decomposer_chip::<2>(2);
-        test_trit_decomposer_chip::<2>(3);
-        test_trit_decomposer_chip::<2>(4);
-        test_trit_decomposer_chip::<2>(5);
-        test_trit_decomposer_chip::<2>(6);
-        test_trit_decomposer_chip::<2>(7);
-        test_trit_decomposer_chip::<2>(8);
+        let c = parse_hash("0x9f32441d30c4c51637ebfbdfa96c40e8b9346e0903acedd6d19226ed7d2a8181");
+        test_trit_decomposer_chip::<2>(0, c);
+        test_trit_decomposer_chip::<2>(1, c);
+        test_trit_decomposer_chip::<2>(2, c);
+        test_trit_decomposer_chip::<2>(3, c);
+        test_trit_decomposer_chip::<2>(4, c);
+        test_trit_decomposer_chip::<2>(5, c);
+        test_trit_decomposer_chip::<2>(6, c);
+        test_trit_decomposer_chip::<2>(7, c);
+        test_trit_decomposer_chip::<2>(8, c);
     }
 
     #[test]
     fn test_trit_decomposer_chip_3() {
-        test_trit_decomposer_chip::<3>(0);
-        test_trit_decomposer_chip::<3>(1);
-        test_trit_decomposer_chip::<3>(2);
-        test_trit_decomposer_chip::<3>(3);
-        test_trit_decomposer_chip::<3>(4);
-        test_trit_decomposer_chip::<3>(5);
-        test_trit_decomposer_chip::<3>(6);
-        test_trit_decomposer_chip::<3>(7);
-        test_trit_decomposer_chip::<3>(8);
-        test_trit_decomposer_chip::<3>(9);
-        test_trit_decomposer_chip::<3>(10);
-        test_trit_decomposer_chip::<3>(11);
-        test_trit_decomposer_chip::<3>(12);
-        test_trit_decomposer_chip::<3>(13);
-        test_trit_decomposer_chip::<3>(14);
-        test_trit_decomposer_chip::<3>(15);
-        test_trit_decomposer_chip::<3>(16);
-        test_trit_decomposer_chip::<3>(17);
-        test_trit_decomposer_chip::<3>(18);
-        test_trit_decomposer_chip::<3>(19);
-        test_trit_decomposer_chip::<3>(20);
-        test_trit_decomposer_chip::<3>(21);
-        test_trit_decomposer_chip::<3>(22);
-        test_trit_decomposer_chip::<3>(23);
-        test_trit_decomposer_chip::<3>(24);
-        test_trit_decomposer_chip::<3>(25);
-        test_trit_decomposer_chip::<3>(26);
+        let c = parse_hash("0xabe386e6b4aa50042e4b0edeb3605c29531a556fa414a0091e6a92b488f91d31");
+        test_trit_decomposer_chip::<3>(0, c);
+        test_trit_decomposer_chip::<3>(1, c);
+        test_trit_decomposer_chip::<3>(2, c);
+        test_trit_decomposer_chip::<3>(3, c);
+        test_trit_decomposer_chip::<3>(4, c);
+        test_trit_decomposer_chip::<3>(5, c);
+        test_trit_decomposer_chip::<3>(6, c);
+        test_trit_decomposer_chip::<3>(7, c);
+        test_trit_decomposer_chip::<3>(8, c);
+        test_trit_decomposer_chip::<3>(9, c);
+        test_trit_decomposer_chip::<3>(10, c);
+        test_trit_decomposer_chip::<3>(11, c);
+        test_trit_decomposer_chip::<3>(12, c);
+        test_trit_decomposer_chip::<3>(13, c);
+        test_trit_decomposer_chip::<3>(14, c);
+        test_trit_decomposer_chip::<3>(15, c);
+        test_trit_decomposer_chip::<3>(16, c);
+        test_trit_decomposer_chip::<3>(17, c);
+        test_trit_decomposer_chip::<3>(18, c);
+        test_trit_decomposer_chip::<3>(19, c);
+        test_trit_decomposer_chip::<3>(20, c);
+        test_trit_decomposer_chip::<3>(21, c);
+        test_trit_decomposer_chip::<3>(22, c);
+        test_trit_decomposer_chip::<3>(23, c);
+        test_trit_decomposer_chip::<3>(24, c);
+        test_trit_decomposer_chip::<3>(25, c);
+        test_trit_decomposer_chip::<3>(26, c);
     }
 
-    fn test_const_trit_comparator_chip<const N: usize>(lhs: u64, rhs: u64) {
+    fn test_const_trit_comparator_chip<const N: usize>(
+        lhs: u64,
+        rhs: u64,
+        circuit_commitment: H256,
+    ) {
         let mut builder = CircuitBuilder::default();
         let decomposer_chip = TritDecomposerChip::<N>::default();
         let trits = decomposer_chip.build(&mut builder, [None]).unwrap();
@@ -1274,10 +1293,9 @@ mod tests {
         let proof = circuit
             .prove::<Sha2Hash<Scalar>>(witness, options.clone())
             .unwrap();
-        let openings = circuit
-            .to_compressed::<Sha2Hash<Scalar>>(options)
-            .verify(&proof)
-            .unwrap();
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let openings = circuit.verify(&proof).unwrap();
         assert_eq!(
             openings[&cmp.unwrap()],
             match lhs.cmp(&rhs) {
@@ -1290,22 +1308,24 @@ mod tests {
 
     #[test]
     fn test_const_trit_comparator_chip_1() {
-        test_const_trit_comparator_chip::<1>(0, 0);
-        test_const_trit_comparator_chip::<1>(1, 0);
-        test_const_trit_comparator_chip::<1>(2, 0);
-        test_const_trit_comparator_chip::<1>(0, 1);
-        test_const_trit_comparator_chip::<1>(1, 1);
-        test_const_trit_comparator_chip::<1>(2, 1);
-        test_const_trit_comparator_chip::<1>(0, 2);
-        test_const_trit_comparator_chip::<1>(1, 2);
-        test_const_trit_comparator_chip::<1>(2, 2);
+        let c = parse_hash("0x6d90c756bd82c957ac918e3a32c3fe6556b9bd28594f3f9bdbaaa19a840c2fe5");
+        test_const_trit_comparator_chip::<1>(0, 0, c);
+        test_const_trit_comparator_chip::<1>(1, 0, c);
+        test_const_trit_comparator_chip::<1>(2, 0, c);
+        test_const_trit_comparator_chip::<1>(0, 1, c);
+        test_const_trit_comparator_chip::<1>(1, 1, c);
+        test_const_trit_comparator_chip::<1>(2, 1, c);
+        test_const_trit_comparator_chip::<1>(0, 2, c);
+        test_const_trit_comparator_chip::<1>(1, 2, c);
+        test_const_trit_comparator_chip::<1>(2, 2, c);
     }
 
     #[test]
     fn test_const_trit_comparator_chip_2() {
+        let c = parse_hash("0xc70b3827c122663ffd46f679476acfec43c46e9dd13fbf59ae7a90ed969b1166");
         for i in 0..9 {
             for j in 0..9 {
-                test_const_trit_comparator_chip::<2>(i, j);
+                test_const_trit_comparator_chip::<2>(i, j, c);
             }
         }
     }
@@ -1335,16 +1355,18 @@ mod tests {
             });
         assert_eq!(trits, decompose_trits::<161>(value.into())[0..161]);
         circuit.check_witness(&witness).unwrap();
-        let proving_options = ProvingOptions {
+        let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
         };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, proving_options.clone())
+            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
             .unwrap();
-        let openings = circuit
-            .to_compressed::<Sha2Hash<Scalar>>(proving_options)
-            .verify(&proof)
-            .unwrap();
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(
+            circuit.commitment(),
+            parse_hash("0xcc190ca38525000774d89830c69d3462605ee9591e990622e7ee1af4ec379107")
+        );
+        let openings = circuit.verify(&proof).unwrap();
         assert!((0..161).all(|i| openings[&cell(0, i)] == trits[i]));
     }
 

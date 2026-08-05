@@ -24,11 +24,7 @@ pub struct BinaryChip<const H: usize> {
 
 impl<const H: usize> Default for BinaryChip<H> {
     fn default() -> Self {
-        Self {
-            decomposer: xits::BitDecomposerChip::default(),
-            hasher: sponge::Poseidon1ChipT3HW::default(),
-            path: [[Scalar::ZERO; 2]; H],
-        }
+        Self::new([[Scalar::ZERO; 2]; H])
     }
 }
 
@@ -144,7 +140,63 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
     }
 }
 
-// TODO: TernaryChip
+/// Runs a Merkle lookup over a ternary Sparse Merkle Tree of height `H`.
+///
+/// WARNING: `H` must be strictly less than 161. Do NOT use this chip if `H` spans the full BlueSky
+/// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
+/// [`FullTernaryChip`] below instead.
+#[derive(Debug, Clone)]
+pub struct TernaryChip<const H: usize> {
+    decomposer: xits::TritDecomposerChip<H>,
+    hasher: sponge::Poseidon1ChipT4HW<3>,
+    path: [[Scalar; 3]; H],
+}
+
+impl<const H: usize> Default for TernaryChip<H> {
+    fn default() -> Self {
+        Self::new([[Scalar::ZERO; 3]; H])
+    }
+}
+
+impl<const H: usize> TernaryChip<H> {
+    const SELECTOR_HEIGHT: usize = 2;
+
+    pub fn new(path: [[Scalar; 3]; H]) -> Self {
+        Self {
+            decomposer: xits::TritDecomposerChip::default(),
+            hasher: sponge::Poseidon1ChipT4HW::default(),
+            path,
+        }
+    }
+}
+
+impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
+    fn width(&self) -> usize {
+        std::cmp::max(self.decomposer.width(), self.hasher.width() * H)
+    }
+
+    fn height(&self) -> usize {
+        self.decomposer.height() + Self::SELECTOR_HEIGHT + self.hasher.height()
+    }
+
+    fn build(
+        &self,
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 2],
+    ) -> Result<[Option<Cell>; 1]> {
+        // TODO
+        todo!()
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 2],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        // TODO
+        todo!()
+    }
+}
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height 256.
 ///
