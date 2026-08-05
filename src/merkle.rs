@@ -361,7 +361,7 @@ impl<const H: usize, const L: usize> PlonkChip<2, 1> for TernaryChip<H, L> {
                 })
                 .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
         }
-        for i in 1..161 {
+        for i in 1..H {
             let mut view = view.sub(
                 self.decomposer.height() + stage_height * (i / L),
                 stage_width * (i % L),
@@ -951,11 +951,51 @@ mod tests {
     fn test_ternary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34), from_const(56)]];
         let root_hash =
-            parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06");
-        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
+            parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49");
+        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
         assert!(test_ternary_smt::<1, 1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1, 1>(1, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1, 1>(2, 56, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_one_2() {
+        let path = [[from_const(34), from_const(56), from_const(12)]];
+        let root_hash =
+            parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3");
+        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        assert!(test_ternary_smt::<1, 1>(0, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(1, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(2, 12, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_one_3() {
+        let path = [[from_const(56), from_const(78), from_const(90)]];
+        let root_hash =
+            parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd");
+        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        assert!(test_ternary_smt::<1, 1>(0, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(1, 78, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(2, 90, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_one_lane_1() {
+        let path = [
+            [from_const(12), from_const(34), from_const(56)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        assert!(test_ternary_smt::<2, 1>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(1, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(2, 56, path, root_hash, c).is_ok());
     }
 
     trait Node: 'static + Debug + Send + Sync {
