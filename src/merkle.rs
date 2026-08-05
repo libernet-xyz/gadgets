@@ -663,8 +663,8 @@ mod tests {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
         let chip = BinaryChip::<H, L>::new(path);
-        assert_eq!(chip.width(), L * 3);
-        assert_eq!(chip.height(), 2 + 198 * H.next_multiple_of(L) / L);
+        assert_eq!(chip.width(), L * 6);
+        assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -700,7 +700,7 @@ mod tests {
         let path = [[from_const(12), from_const(34)]];
         let root_hash =
             parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06");
-        let c = parse_hash("0x10ffdb0818932da3f9f5bdee1f28732ed1e5ee1657cc15dcb7b94f56b0459074");
+        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1, 1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1, 1>(1, 34, path, root_hash, c).is_ok());
     }
@@ -710,7 +710,7 @@ mod tests {
         let path = [[from_const(34), from_const(12)]];
         let root_hash =
             parse_scalar("0x6a6ca65c7ab651a6e7751e7a23df1d7ff66f745f1b09f4b39df2dfeb4e137422");
-        let c = parse_hash("0x10ffdb0818932da3f9f5bdee1f28732ed1e5ee1657cc15dcb7b94f56b0459074");
+        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1, 1>(0, 34, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1, 1>(1, 12, path, root_hash, c).is_ok());
     }
@@ -720,7 +720,7 @@ mod tests {
         let path = [[from_const(56), from_const(78)]];
         let root_hash =
             parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe");
-        let c = parse_hash("0x10ffdb0818932da3f9f5bdee1f28732ed1e5ee1657cc15dcb7b94f56b0459074");
+        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1, 1>(0, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1, 1>(1, 78, path, root_hash, c).is_ok());
     }
@@ -736,7 +736,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
-        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
         assert!(test_binary_smt::<2, 1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2, 1>(1, 34, path, root_hash, c).is_ok());
     }
@@ -752,7 +752,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
-        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
         assert!(test_binary_smt::<2, 1>(2, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2, 1>(3, 78, path, root_hash, c).is_ok());
     }
@@ -768,7 +768,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
-        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        let c = parse_hash("0x98ebdec6c8e987a0e975b9dfcc881a41e6c31af1a96cc34c1b2df7942c24b331");
         assert!(test_binary_smt::<2, 2>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2, 2>(1, 34, path, root_hash, c).is_ok());
     }
@@ -784,7 +784,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
-        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        let c = parse_hash("0x98ebdec6c8e987a0e975b9dfcc881a41e6c31af1a96cc34c1b2df7942c24b331");
         assert!(test_binary_smt::<2, 2>(2, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2, 2>(3, 78, path, root_hash, c).is_ok());
     }
