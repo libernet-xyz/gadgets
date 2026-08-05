@@ -1,5 +1,4 @@
 use crate::poseidon1;
-use crate::sponge;
 use crate::xits;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
@@ -15,28 +14,50 @@ use starkom_poseidon::{BlueSkyConfig3, BlueSkyConfig4};
 /// WARNING: `H` must be strictly less than 255. Do NOT use this chip if `H` spans the full BlueSky
 /// range, as in that case the bit decomposition of the key would be UNSAFE! Use the
 /// [`FullBinaryChip`] below instead.
+///
+/// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
-pub struct BinaryChip<const H: usize> {
+pub struct BinaryChip<const H: usize, const L: usize> {
     decomposer: xits::BitDecomposerChip<H>,
-    hasher: sponge::Poseidon1ChipT3HW<2>,
+    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig3, 3>,
+    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig3, 3>; H],
     path: [[Scalar; 2]; H],
 }
 
-impl<const H: usize> Default for BinaryChip<H> {
+impl<const H: usize, const L: usize> Default for BinaryChip<H, L> {
     fn default() -> Self {
         Self::new([[Scalar::ZERO; 2]; H])
     }
 }
 
-impl<const H: usize> BinaryChip<H> {
+impl<const H: usize, const L: usize> BinaryChip<H, L> {
     const SELECTOR_HEIGHT: usize = 2;
 
     pub fn new(path: [[Scalar; 2]; H]) -> Self {
+        assert!(L > 0, "need at least one lane");
+        assert!(L <= H, "too many lanes");
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
             decomposer: xits::BitDecomposerChip::default(),
-            hasher: sponge::Poseidon1ChipT3HW::default(),
+            hasher_ir,
+            hasher_er: std::array::from_fn(|i| {
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
+            }),
             path,
         }
+    }
+
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
     fn build_input_selector(
@@ -81,13 +102,13 @@ impl<const H: usize> BinaryChip<H> {
     }
 }
 
-impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
+impl<const H: usize, const L: usize> PlonkChip<2, 1> for BinaryChip<H, L> {
     fn width(&self) -> usize {
-        std::cmp::max(self.decomposer.width(), self.hasher.width() * H)
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
 
     fn height(&self) -> usize {
-        self.decomposer.height() + Self::SELECTOR_HEIGHT + self.hasher.height()
+        self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
     fn build(
@@ -98,19 +119,31 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
         let [key, value] = inputs;
         let bits = self.decomposer.build(view, [key])?;
         let mut hash = value;
-        for i in 0..H {
-            let bit = bits[i];
-            let mut view = view.sub(
-                self.decomposer.height(),
-                i * self.hasher.width(),
-                self.hasher.width(),
-            );
-            let inputs = [view.cell(1, 0).into(), view.cell(1, 1).into()];
-            [hash, _] = view
-                .sub_fn(0, 0, self.hasher.width(), |view| {
+        {
+            let bit = bits[0];
+            let mut view = view.sub(self.decomposer.height(), 0, self.stage_width());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, self.stage_width(), |view| {
                     self.build_input_selector(view, hash, bit)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        for i in 1..H {
+            let bit = bits[i];
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width,
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, stage_width, |view| {
+                    self.build_input_selector(view, hash, bit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -120,21 +153,32 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 2],
     ) -> Result<[CellOrUnconstrained; 1]> {
-        let [key, value] = inputs;
+        let [key, _] = inputs;
         let bits = self.decomposer.witness(view, [key])?;
-        let mut hash = value;
-        for i in 0..H {
+        let mut hash;
+        {
+            let mut view = view.sub(self.decomposer.height(), 0, self.stage_width());
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, self.hasher_ir.width(), |view| {
+                    self.witness_input_selector(view, &bits, 0)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        for i in 1..H {
             let mut view = view.sub(
-                self.decomposer.height(),
-                i * self.hasher.width(),
-                self.hasher.width(),
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width,
             );
-            let inputs = [view.cell(1, 0).into(), view.cell(1, 1).into()];
-            [hash, _] = view
-                .sub_fn(0, 0, self.hasher.width(), |view| {
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, stage_width, |view| {
                     self.witness_input_selector(view, &bits, i)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -146,37 +190,57 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
 /// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
 /// [`FullTernaryChip`] below instead.
 #[derive(Debug, Clone)]
-pub struct TernaryChip<const H: usize> {
+pub struct TernaryChip<const H: usize, const L: usize> {
     decomposer: xits::TritDecomposerChip<H>,
-    hasher: sponge::Poseidon1ChipT4HW<3>,
+    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig4, 4>,
+    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig4, 4>; H],
     path: [[Scalar; 3]; H],
 }
 
-impl<const H: usize> Default for TernaryChip<H> {
+impl<const H: usize, const L: usize> Default for TernaryChip<H, L> {
     fn default() -> Self {
         Self::new([[Scalar::ZERO; 3]; H])
     }
 }
 
-impl<const H: usize> TernaryChip<H> {
+impl<const H: usize, const L: usize> TernaryChip<H, L> {
     const SELECTOR_HEIGHT: usize = 2;
 
     pub fn new(path: [[Scalar; 3]; H]) -> Self {
+        assert!(L > 0, "need at least one lane");
+        assert!(L <= H, "too many lanes");
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
             decomposer: xits::TritDecomposerChip::default(),
-            hasher: sponge::Poseidon1ChipT4HW::default(),
+            hasher_ir,
+            hasher_er: std::array::from_fn(|i| {
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
+            }),
             path,
         }
     }
+
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
+    }
 }
 
-impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
+impl<const H: usize, const L: usize> PlonkChip<2, 1> for TernaryChip<H, L> {
     fn width(&self) -> usize {
-        std::cmp::max(self.decomposer.width(), self.hasher.width() * H)
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
 
     fn height(&self) -> usize {
-        self.decomposer.height() + Self::SELECTOR_HEIGHT + self.hasher.height()
+        self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
     fn build(
@@ -205,6 +269,8 @@ impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
 /// constraints.
 ///
 /// If you don't need 256- or 255-bit keys use [`BinaryChip`].
+///
+/// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
 pub struct FullBinaryChip<const L: usize> {
     decomposer: xits::FullBitDecomposerChip,
@@ -572,7 +638,7 @@ impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use primitive_types::U256;
+    use primitive_types::{H256, U256};
     use starkom_bluesky::{from_const, parse_scalar};
     use starkom_ff::Field256;
     use starkom_pcs::hash::Sha2Hash;
@@ -583,17 +649,22 @@ mod tests {
 
     const BLOWUP_LOG2: usize = 3;
 
-    fn test_binary_smt<const H: usize>(
+    fn parse_hash(s: &'static str) -> H256 {
+        s.parse().unwrap()
+    }
+
+    fn test_binary_smt<const H: usize, const L: usize>(
         key: u64,
         value: u64,
         path: [[Scalar; 2]; H],
         expected_root_hash: Scalar,
+        circuit_commitment: H256,
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = BinaryChip::<H>::new(path);
-        assert_eq!(chip.width(), H * 3);
-        assert_eq!(chip.height(), 200);
+        let chip = BinaryChip::<H, L>::new(path);
+        assert_eq!(chip.width(), L * 3);
+        assert_eq!(chip.height(), 2 + 198 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -617,7 +688,9 @@ mod tests {
             blowup_log2: BLOWUP_LOG2,
         };
         let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        let openings = circuit.verify(&proof, options)?;
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
         Ok(())
     }
@@ -627,8 +700,9 @@ mod tests {
         let path = [[from_const(12), from_const(34)]];
         let root_hash =
             parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06");
-        assert!(test_binary_smt::<1>(0, 12, path, root_hash).is_ok());
-        assert!(test_binary_smt::<1>(1, 34, path, root_hash).is_ok());
+        let c = parse_hash("0x10ffdb0818932da3f9f5bdee1f28732ed1e5ee1657cc15dcb7b94f56b0459074");
+        assert!(test_binary_smt::<1, 1>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<1, 1>(1, 34, path, root_hash, c).is_ok());
     }
 
     #[test]
@@ -636,8 +710,9 @@ mod tests {
         let path = [[from_const(34), from_const(12)]];
         let root_hash =
             parse_scalar("0x6a6ca65c7ab651a6e7751e7a23df1d7ff66f745f1b09f4b39df2dfeb4e137422");
-        assert!(test_binary_smt::<1>(0, 34, path, root_hash).is_ok());
-        assert!(test_binary_smt::<1>(1, 12, path, root_hash).is_ok());
+        let c = parse_hash("0x10ffdb0818932da3f9f5bdee1f28732ed1e5ee1657cc15dcb7b94f56b0459074");
+        assert!(test_binary_smt::<1, 1>(0, 34, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<1, 1>(1, 12, path, root_hash, c).is_ok());
     }
 
     #[test]
@@ -645,12 +720,13 @@ mod tests {
         let path = [[from_const(56), from_const(78)]];
         let root_hash =
             parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe");
-        assert!(test_binary_smt::<1>(0, 56, path, root_hash).is_ok());
-        assert!(test_binary_smt::<1>(1, 78, path, root_hash).is_ok());
+        let c = parse_hash("0x10ffdb0818932da3f9f5bdee1f28732ed1e5ee1657cc15dcb7b94f56b0459074");
+        assert!(test_binary_smt::<1, 1>(0, 56, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<1, 1>(1, 78, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_binary_smt_height_two_1() {
+    fn test_binary_smt_height_two_one_lane_1() {
         let path = [
             [from_const(12), from_const(34)],
             [
@@ -660,12 +736,13 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
-        assert!(test_binary_smt::<2>(0, 12, path, root_hash).is_ok());
-        assert!(test_binary_smt::<2>(1, 34, path, root_hash).is_ok());
+        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        assert!(test_binary_smt::<2, 1>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 1>(1, 34, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_binary_smt_height_two_2() {
+    fn test_binary_smt_height_two_one_lane_2() {
         let path = [
             [from_const(56), from_const(78)],
             [
@@ -675,8 +752,41 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
-        assert!(test_binary_smt::<2>(2, 56, path, root_hash).is_ok());
-        assert!(test_binary_smt::<2>(3, 78, path, root_hash).is_ok());
+        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        assert!(test_binary_smt::<2, 1>(2, 56, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 1>(3, 78, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_binary_smt_height_two_two_lanes_1() {
+        let path = [
+            [from_const(12), from_const(34)],
+            [
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
+        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        assert!(test_binary_smt::<2, 2>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 2>(1, 34, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_binary_smt_height_two_two_lanes_2() {
+        let path = [
+            [from_const(56), from_const(78)],
+            [
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
+        let c = parse_hash("0xeaa4bee6ad15aa7e96608cb6adcec50844e473ce817aef7572d85088a5f4d451");
+        assert!(test_binary_smt::<2, 2>(2, 56, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 2>(3, 78, path, root_hash, c).is_ok());
     }
 
     trait Node: 'static + Debug + Send + Sync {
