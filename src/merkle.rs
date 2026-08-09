@@ -760,8 +760,9 @@ mod tests {
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon as poseidon1;
+    use std::collections::BTreeMap;
     use std::fmt::Debug;
-    use std::sync::{Arc, LazyLock};
+    use std::sync::{Arc, LazyLock, Mutex};
 
     const BLOWUP_LOG2: usize = 3;
 
@@ -1206,7 +1207,7 @@ mod tests {
     }
 
     impl TernaryNode {
-        fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<Self> {
+        fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<dyn Node> {
             let hash = poseidon1::hash0::<poseidon1::BlueSkyConfig4, Scalar, 4, 3, 1>([
                 children[0].hash(),
                 children[1].hash(),
@@ -1261,26 +1262,156 @@ mod tests {
         }
     }
 
-    fn get_empty_binary_tree() -> Arc<dyn Node> {
-        static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
-            let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
-            for i in 0..256 {
-                node = BinaryNode::new(i, node.clone(), node.clone());
+    fn get_empty_binary_tree_locked(
+        nodes_by_level: &mut BTreeMap<usize, Arc<dyn Node>>,
+        level: usize,
+    ) -> Arc<dyn Node> {
+        match nodes_by_level.get_mut(&level) {
+            Some(node) => node.clone(),
+            None => {
+                let node = if level > 0 {
+                    let child = get_empty_binary_tree_locked(nodes_by_level, level - 1);
+                    BinaryNode::new(level, child.clone(), child.clone())
+                } else {
+                    Arc::new(Leaf::default())
+                };
+                nodes_by_level.insert(level, node.clone());
+                node
             }
-            node
-        });
-        TREE.clone()
+        }
     }
 
-    fn get_empty_ternary_tree() -> Arc<dyn Node> {
-        static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
-            let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
-            for i in 0..161 {
-                node = TernaryNode::new(i, [node.clone(), node.clone(), node.clone()]);
+    fn get_empty_binary_tree(level: usize) -> Arc<dyn Node> {
+        static NODES_BY_LEVEL: LazyLock<Mutex<BTreeMap<usize, Arc<dyn Node>>>> =
+            LazyLock::new(|| Mutex::new(BTreeMap::default()));
+        let mut nodes_by_level = NODES_BY_LEVEL.lock().unwrap();
+        get_empty_binary_tree_locked(&mut nodes_by_level, level)
+    }
+
+    fn get_empty_ternary_tree_locked(
+        nodes_by_level: &mut BTreeMap<usize, Arc<dyn Node>>,
+        level: usize,
+    ) -> Arc<dyn Node> {
+        match nodes_by_level.get_mut(&level) {
+            Some(node) => node.clone(),
+            None => {
+                let node = if level > 0 {
+                    let child = get_empty_ternary_tree_locked(nodes_by_level, level - 1);
+                    TernaryNode::new(level, [child.clone(), child.clone(), child.clone()])
+                } else {
+                    Arc::new(Leaf::default())
+                };
+                nodes_by_level.insert(level, node.clone());
+                node
             }
-            node
-        });
-        TREE.clone()
+        }
+    }
+
+    fn get_empty_ternary_tree(level: usize) -> Arc<dyn Node> {
+        static NODES_BY_LEVEL: LazyLock<Mutex<BTreeMap<usize, Arc<dyn Node>>>> =
+            LazyLock::new(|| Mutex::new(BTreeMap::default()));
+        let mut nodes_by_level = NODES_BY_LEVEL.lock().unwrap();
+        get_empty_ternary_tree_locked(&mut nodes_by_level, level)
+    }
+
+    fn test_tall_binary_smt_impl<const H: usize, const L: usize>(
+        entries: impl IntoIterator<Item = (u64, u64)>,
+        key: u64,
+    ) -> Result<()> {
+        let tree = {
+            let mut tree = get_empty_binary_tree(H);
+            for (key, value) in entries {
+                tree = tree.put(key.into(), value.into());
+            }
+            tree
+        };
+        let key = key.into();
+        let value = tree.get(key);
+        let path: [[Scalar; 2]; H] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected_root_hash = tree.hash();
+
+        let chip = BinaryChip::<H, L>::new(path);
+        assert_eq!(chip.stage_width(), 6);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(H + 1, 6 * L));
+        assert_eq!(
+            chip.height(),
+            1 + chip.stage_height() * H.next_multiple_of(L) / L
+        );
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let openings = circuit.verify(&proof, options)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tall_binary_smt_empty() {
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 3).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 4).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 5).is_ok());
+    }
+
+    #[test]
+    fn test_tall_binary_smt_one_entry() {
+        let entries = [(12, 34)];
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 11).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 12).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 13).is_ok());
+    }
+
+    #[test]
+    fn test_tall_binary_smt_two_entries() {
+        let entries = [(34, 56), (78, 12)];
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 33).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 34).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 35).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 77).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 78).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 79).is_ok());
     }
 
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
@@ -1290,7 +1421,7 @@ mod tests {
         const LANES: usize = 52;
 
         let tree = {
-            let mut tree = get_empty_binary_tree();
+            let mut tree = get_empty_binary_tree(256);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1392,7 +1523,7 @@ mod tests {
         const LANES: usize = 33;
 
         let tree = {
-            let mut tree = get_empty_ternary_tree();
+            let mut tree = get_empty_ternary_tree(161);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
