@@ -1414,6 +1414,106 @@ mod tests {
         assert!(test_tall_binary_smt_impl::<20, 4>(entries, 79).is_ok());
     }
 
+    fn test_tall_ternary_smt_impl<const H: usize, const L: usize>(
+        entries: impl IntoIterator<Item = (u64, u64)>,
+        key: u64,
+    ) -> Result<()> {
+        let tree = {
+            let mut tree = get_empty_ternary_tree(H);
+            for (key, value) in entries {
+                tree = tree.put(key.into(), value.into());
+            }
+            tree
+        };
+        let key = key.into();
+        let value = tree.get(key);
+        let path: [[Scalar; 3]; H] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected_root_hash = tree.hash();
+
+        let chip = TernaryChip::<H, L>::new(path);
+        assert_eq!(chip.stage_width(), 8);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(H + 1, 8 * L));
+        assert_eq!(
+            chip.height(),
+            1 + chip.stage_height() * H.next_multiple_of(L) / L
+        );
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let openings = circuit.verify(&proof, options)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tall_ternary_smt_empty() {
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 3).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 4).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 5).is_ok());
+    }
+
+    #[test]
+    fn test_tall_ternary_smt_one_entry() {
+        let entries = [(12, 34)];
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 11).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 12).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 13).is_ok());
+    }
+
+    #[test]
+    fn test_tall_ternary_smt_two_entries() {
+        let entries = [(34, 56), (78, 12)];
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 33).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 34).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 35).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 77).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 78).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 79).is_ok());
+    }
+
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
         key: u64,
