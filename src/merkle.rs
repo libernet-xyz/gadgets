@@ -1155,7 +1155,7 @@ mod tests {
         }
 
         fn bit_at(&self, key: &U256) -> bool {
-            (key >> self.level) & U256::one() != U256::zero()
+            (key >> (self.level - 1)) & U256::one() != U256::zero()
         }
     }
 
@@ -1221,7 +1221,7 @@ mod tests {
         }
 
         fn trit_at(&self, key: &U256) -> usize {
-            let divisor = U256::from(3).pow(self.level.into());
+            let divisor = U256::from(3).pow((self.level - 1).into());
             ((key / divisor) % 3).try_into().unwrap()
         }
     }
