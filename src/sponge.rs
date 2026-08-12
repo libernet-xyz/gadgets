@@ -125,10 +125,11 @@ where
         state = view.sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
 
         let chunk_width = self.permutation.width();
+        let chunk_height = Self::ABSORB_HEIGHT + self.permutation.height();
         for c in 1..Self::num_chunks() {
             state = view
-                .sub(0, c * chunk_width, chunk_width)
-                .sub_fn(0, 0, T, |view| {
+                .sub(0, c * chunk_width, chunk_width.into(), chunk_height.into())
+                .sub_fn(0, 0, None, None, |view| {
                     state = self.build_absorb(view, state, &mut input_it);
                 })
                 .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
@@ -154,10 +155,11 @@ where
         state = view.sub_chip(3, 0, &self.permutation, state)?;
 
         let chunk_width = self.permutation.width();
+        let chunk_height = Self::ABSORB_HEIGHT + self.permutation.height();
         for c in 1..Self::num_chunks() {
             state = view
-                .sub(0, c * chunk_width, chunk_width)
-                .sub_fn(0, 0, chunk_width, |view| {
+                .sub(0, c * chunk_width, chunk_width.into(), chunk_height.into())
+                .sub_fn(0, 0, None, None, |view| {
                     state = self.witness_absorb(view, state, &mut input_it);
                 })
                 .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
@@ -243,10 +245,11 @@ where
         state = view.sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
 
         let chunk_width = self.permutation.width();
+        let chunk_height = Self::ABSORB_HEIGHT + self.permutation.height();
         for c in 1..Self::num_chunks() {
             state = view
-                .sub(0, c * chunk_width, chunk_width)
-                .sub_fn(0, 0, T, |view| {
+                .sub(0, c * chunk_width, chunk_width.into(), chunk_height.into())
+                .sub_fn(0, 0, None, None, |view| {
                     state = self.build_absorb(view, state, &mut input_it);
                 })
                 .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
@@ -272,10 +275,11 @@ where
         state = view.sub_chip(3, 0, &self.permutation, state)?;
 
         let chunk_width = self.permutation.width();
+        let chunk_height = Self::ABSORB_HEIGHT + self.permutation.height();
         for c in 1..Self::num_chunks() {
             state = view
-                .sub(0, c * chunk_width, chunk_width)
-                .sub_fn(0, 0, chunk_width, |view| {
+                .sub(0, c * chunk_width, chunk_width.into(), chunk_height.into())
+                .sub_fn(0, 0, None, None, |view| {
                     state = self.witness_absorb(view, state, &mut input_it);
                 })
                 .sub_chip(Self::ABSORB_HEIGHT, 0, &self.permutation, state)?;
@@ -362,7 +366,7 @@ mod tests {
         assert_eq!(chip.width(), T * num_chunks);
         assert_eq!(chip.height(), 197);
         let mut builder = CircuitBuilder::default();
-        let output = chip.build(&mut builder, std::array::from_fn(|_| None))?;
+        let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_rows([output[0].unwrap().row()]);
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
@@ -374,7 +378,7 @@ mod tests {
         assert_eq!(witness.num_rows(), 197);
         assert_eq!(witness.degree_bound(), 256);
         assert_eq!(witness.num_columns(), T * num_chunks);
-        let output = chip.witness(&mut witness, inputs.map(|input| input.into()))?;
+        let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,

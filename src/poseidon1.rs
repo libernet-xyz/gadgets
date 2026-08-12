@@ -498,25 +498,41 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize> Plo
         let num_total_rounds = C::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
         self.rc.build_first_arc(view, inputs);
-        let mut view = view.sub(Self::FIRST_ARC_HEIGHT, 0, T);
+        let mut view = view.sub(
+            Self::FIRST_ARC_HEIGHT,
+            0,
+            Some(self.width()),
+            Some(Self::ROUND_HEIGHT * num_total_rounds),
+        );
         for r in 0..num_full_rounds {
-            view.sub(r * Self::ROUND_HEIGHT, 0, T)
-                .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
-                .sub_fn(1, 0, T, |view| self.rc.build_mds_and_next_arc(view, r));
+            view.sub(r * Self::ROUND_HEIGHT, 0, None, Some(Self::ROUND_HEIGHT))
+                .sub_fn(0, 0, None, None, |view| self.build_full_sbox(view))
+                .sub_fn(1, 0, None, None, |view| {
+                    self.rc.build_mds_and_next_arc(view, r)
+                });
         }
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            view.sub(r * Self::ROUND_HEIGHT, 0, T)
-                .sub_fn(0, 0, T, |view| self.build_partial_sbox(view))
-                .sub_fn(1, 0, T, |view| self.rc.build_mds_and_next_arc(view, r));
+            view.sub(r * Self::ROUND_HEIGHT, 0, None, Some(Self::ROUND_HEIGHT))
+                .sub_fn(0, 0, None, None, |view| self.build_partial_sbox(view))
+                .sub_fn(1, 0, None, None, |view| {
+                    self.rc.build_mds_and_next_arc(view, r)
+                });
         }
         for r in (num_full_rounds + num_partial_rounds)..(num_total_rounds - 1) {
-            view.sub(r * Self::ROUND_HEIGHT, 0, T)
-                .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
-                .sub_fn(1, 0, T, |view| self.rc.build_mds_and_next_arc(view, r));
+            view.sub(r * Self::ROUND_HEIGHT, 0, None, Some(Self::ROUND_HEIGHT))
+                .sub_fn(0, 0, None, None, |view| self.build_full_sbox(view))
+                .sub_fn(1, 0, None, None, |view| {
+                    self.rc.build_mds_and_next_arc(view, r)
+                });
         }
-        view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T)
-            .sub_fn(0, 0, T, |view| self.build_full_sbox(view))
-            .sub_fn(1, 0, T, |view| self.build_last_mds(view));
+        view.sub(
+            (num_total_rounds - 1) * Self::ROUND_HEIGHT,
+            0,
+            None,
+            Some(Self::ROUND_HEIGHT),
+        )
+        .sub_fn(0, 0, None, None, |view| self.build_full_sbox(view))
+        .sub_fn(1, 0, None, None, |view| self.build_last_mds(view));
         Ok(std::array::from_fn(|i| {
             Some(view.cell(num_total_rounds * Self::ROUND_HEIGHT - 1, i))
         }))
@@ -532,25 +548,41 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize> Plo
         let num_total_rounds = C::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
         self.rc.witness_first_arc(view, inputs);
-        let mut view = view.sub(2, 0, T);
+        let mut view = view.sub(
+            2,
+            0,
+            Some(self.width()),
+            Some(Self::ROUND_HEIGHT * num_total_rounds),
+        );
         for r in 0..num_full_rounds {
-            view.sub(r * Self::ROUND_HEIGHT, 0, T)
-                .sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
-                .sub_fn(1, 0, T, |view| self.rc.witness_mds_and_next_arc(view, r));
+            view.sub(r * Self::ROUND_HEIGHT, 0, None, Some(Self::ROUND_HEIGHT))
+                .sub_fn(0, 0, None, None, |view| self.witness_full_sbox(view))
+                .sub_fn(1, 0, None, None, |view| {
+                    self.rc.witness_mds_and_next_arc(view, r)
+                });
         }
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            view.sub(r * Self::ROUND_HEIGHT, 0, T)
-                .sub_fn(0, 0, T, |view| self.witness_partial_sbox(view))
-                .sub_fn(1, 0, T, |view| self.rc.witness_mds_and_next_arc(view, r));
+            view.sub(r * Self::ROUND_HEIGHT, 0, None, Some(Self::ROUND_HEIGHT))
+                .sub_fn(0, 0, None, None, |view| self.witness_partial_sbox(view))
+                .sub_fn(1, 0, None, None, |view| {
+                    self.rc.witness_mds_and_next_arc(view, r)
+                });
         }
         for r in (num_full_rounds + num_partial_rounds)..(num_total_rounds - 1) {
-            view.sub(r * Self::ROUND_HEIGHT, 0, T)
-                .sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
-                .sub_fn(1, 0, T, |view| self.rc.witness_mds_and_next_arc(view, r));
+            view.sub(r * Self::ROUND_HEIGHT, 0, None, Some(Self::ROUND_HEIGHT))
+                .sub_fn(0, 0, None, None, |view| self.witness_full_sbox(view))
+                .sub_fn(1, 0, None, None, |view| {
+                    self.rc.witness_mds_and_next_arc(view, r)
+                });
         }
-        view.sub((num_total_rounds - 1) * Self::ROUND_HEIGHT, 0, T)
-            .sub_fn(0, 0, T, |view| self.witness_full_sbox(view))
-            .sub_fn(1, 0, T, |view| self.witness_last_mds(view));
+        view.sub(
+            (num_total_rounds - 1) * Self::ROUND_HEIGHT,
+            0,
+            None,
+            Some(Self::ROUND_HEIGHT),
+        )
+        .sub_fn(0, 0, None, None, |view| self.witness_full_sbox(view))
+        .sub_fn(1, 0, None, None, |view| self.witness_last_mds(view));
         Ok(std::array::from_fn(|i| {
             view.cell(num_total_rounds * Self::ROUND_HEIGHT - 1, i)
                 .into()
@@ -589,7 +621,7 @@ mod tests {
     ) -> Result<()> {
         assert_eq!(chip.height(), 194);
         let mut builder = CircuitBuilder::default();
-        let output = chip.build(&mut builder, std::array::from_fn(|_| None))?;
+        let output = builder.sub_chip(0, 0, chip, std::array::from_fn(|_| None))?;
         builder.declare_public_rows([output[0].unwrap().row()]);
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
@@ -601,7 +633,7 @@ mod tests {
         assert_eq!(witness.num_rows(), 194);
         assert_eq!(witness.degree_bound(), 256);
         assert_eq!(witness.num_columns(), chip.width());
-        let output = chip.witness(&mut witness, inputs.map(|input| input.into()))?;
+        let output = witness.sub_chip(0, 0, chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions { blowup_log2 };
         let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;

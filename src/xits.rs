@@ -258,8 +258,8 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
         view: &mut impl CircuitView,
         inputs: [Option<Cell>; 1],
     ) -> Result<[Option<Cell>; 256]> {
-        let bits = self.decomposer.build(view, inputs)?;
-        let mut view = view.sub(self.decomposer.height(), 0, self.width());
+        let bits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
+        let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, bits)?;
         view.add_gate(self.comparator.height() - 1, var(0) + 1);
         Ok(bits)
@@ -270,7 +270,7 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 1],
     ) -> Result<[CellOrUnconstrained; 256]> {
-        let bits = self.decomposer.witness(view, inputs)?;
+        let bits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         view.sub_chip(1, 0, &self.comparator, bits)?;
         Ok(bits)
     }
@@ -482,8 +482,8 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
         view: &mut impl CircuitView,
         inputs: [Option<Cell>; 1],
     ) -> Result<[Option<Cell>; 161]> {
-        let trits = self.decomposer.build(view, inputs)?;
-        let mut view = view.sub(self.decomposer.height(), 0, self.width());
+        let trits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
+        let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, trits)?;
         view.add_gate(self.comparator.height() - 1, var(0) + 1);
         Ok(trits)
@@ -494,8 +494,8 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 1],
     ) -> Result<[CellOrUnconstrained; 161]> {
-        let trits = self.decomposer.witness(view, inputs)?;
-        view.sub_chip(1, 0, &self.comparator, trits)?;
+        let trits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
+        view.sub_chip(self.decomposer.height(), 0, &self.comparator, trits)?;
         Ok(trits)
     }
 }
@@ -736,7 +736,7 @@ mod tests {
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::default();
-        chip.build(&mut builder, [None]).unwrap();
+        assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_rows([0]);
         let circuit = builder
             .build(CompilationOptions {
@@ -747,8 +747,8 @@ mod tests {
         assert_eq!(circuit.degree_bound(), 4);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
-        let bits = chip
-            .witness(&mut witness, [Scalar::from(value).into()])
+        let bits = witness
+            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|bit| match bit {
                 CellOrUnconstrained::Cell(cell) => witness.get(cell),
@@ -804,7 +804,7 @@ mod tests {
     ) {
         let mut builder = CircuitBuilder::default();
         let decomposer_chip = BitDecomposerChip::<N>::default();
-        let bits = decomposer_chip.build(&mut builder, [None]).unwrap();
+        let bits = builder.sub_chip(0, 0, &decomposer_chip, [None]).unwrap();
         let comparator_chip = ConstBitComparatorChip::<N>::new(rhs.into());
         assert_eq!(comparator_chip.width(), N);
         assert_eq!(comparator_chip.height(), 2);
@@ -824,8 +824,8 @@ mod tests {
         assert_eq!(circuit.degree_bound(), 8);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
-        let bits = decomposer_chip
-            .witness(&mut witness, [Scalar::from(lhs).into()])
+        let bits = witness
+            .sub_chip(0, 0, &decomposer_chip, [Scalar::from(lhs).into()])
             .unwrap();
         assert!(
             witness
@@ -887,7 +887,7 @@ mod tests {
         assert_eq!(chip.width(), 257);
         assert_eq!(chip.height(), 3);
         let mut builder = CircuitBuilder::default();
-        chip.build(&mut builder, [None]).unwrap();
+        assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_rows([0]);
         let circuit = builder
             .build(CompilationOptions {
@@ -898,8 +898,8 @@ mod tests {
         assert_eq!(circuit.degree_bound(), 8);
         assert_eq!(circuit.num_columns(), 257);
         let mut witness = circuit.make_witness();
-        let bits = chip
-            .witness(&mut witness, [Scalar::from(value).into()])
+        let bits = witness
+            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|bit| match bit {
                 CellOrUnconstrained::Cell(cell) => witness.get(cell),
@@ -1165,7 +1165,7 @@ mod tests {
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::default();
-        chip.build(&mut builder, [None]).unwrap();
+        assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_rows([0]);
         let circuit = builder
             .build(CompilationOptions {
@@ -1176,8 +1176,8 @@ mod tests {
         assert_eq!(circuit.degree_bound(), 4);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
-        let trits = chip
-            .witness(&mut witness, [Scalar::from(value).into()])
+        let trits = witness
+            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|trit| match trit {
                 CellOrUnconstrained::Cell(cell) => witness.get(cell),
@@ -1258,7 +1258,7 @@ mod tests {
     ) {
         let mut builder = CircuitBuilder::default();
         let decomposer_chip = TritDecomposerChip::<N>::default();
-        let trits = decomposer_chip.build(&mut builder, [None]).unwrap();
+        let trits = builder.sub_chip(0, 0, &decomposer_chip, [None]).unwrap();
         let comparator_chip = ConstTritComparatorChip::<N>::new(rhs.into());
         assert_eq!(comparator_chip.width(), N);
         assert_eq!(comparator_chip.height(), 3);
@@ -1278,8 +1278,8 @@ mod tests {
         assert_eq!(circuit.degree_bound(), 8);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
-        let trits = decomposer_chip
-            .witness(&mut witness, [Scalar::from(lhs).into()])
+        let trits = witness
+            .sub_chip(0, 0, &decomposer_chip, [Scalar::from(lhs).into()])
             .unwrap();
         assert!(
             witness
@@ -1335,7 +1335,7 @@ mod tests {
         assert_eq!(chip.width(), 162);
         assert_eq!(chip.height(), 4);
         let mut builder = CircuitBuilder::default();
-        chip.build(&mut builder, [None]).unwrap();
+        assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_rows([0]);
         let circuit = builder
             .build(CompilationOptions {
@@ -1346,8 +1346,8 @@ mod tests {
         assert_eq!(circuit.degree_bound(), 8);
         assert_eq!(circuit.num_columns(), 162);
         let mut witness = circuit.make_witness();
-        let trits = chip
-            .witness(&mut witness, [Scalar::from(value).into()])
+        let trits = witness
+            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|trit| match trit {
                 CellOrUnconstrained::Cell(cell) => witness.get(cell),
