@@ -89,7 +89,7 @@ impl<P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize, const N
         for i in 0..T {
             view.set(
                 view.cell(2, i),
-                view.get(view.cell(0, i)) + view.get(view.cell(1, i)),
+                view.get_at(view.cell(0, i)) + view.get_at(view.cell(1, i)),
             );
         }
         std::array::from_fn(|i| view.cell(2, i).into())

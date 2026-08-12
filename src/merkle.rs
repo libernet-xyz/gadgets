@@ -85,10 +85,7 @@ impl<const H: usize, const L: usize> BinaryChip<H, L> {
         i: usize,
     ) {
         let bit = bits[i];
-        let bit_value = match bit {
-            CellOrUnconstrained::Cell(cell) => view.get(cell),
-            CellOrUnconstrained::Unconstrained(value) => value,
-        };
+        let bit_value = view.get(bit);
         if bit_value != Scalar::ZERO {
             view.set(view.cell(0, 0), self.path[i][1]);
             view.set(view.cell(0, 1), self.path[i][0]);
@@ -275,10 +272,7 @@ impl<const H: usize, const L: usize> TernaryChip<H, L> {
         i: usize,
     ) {
         let trit = trits[i];
-        let trit_value = match trit {
-            CellOrUnconstrained::Cell(cell) => view.get(cell),
-            CellOrUnconstrained::Unconstrained(value) => value,
-        };
+        let trit_value = view.get(trit);
         const ZERO: Scalar = from_const(0);
         const ONE: Scalar = from_const(1);
         const TWO: Scalar = from_const(2);
@@ -480,10 +474,7 @@ impl<const L: usize> FullBinaryChip<L> {
         i: usize,
     ) {
         let bit = bits[i];
-        let bit_value = match bit {
-            CellOrUnconstrained::Cell(cell) => view.get(cell),
-            CellOrUnconstrained::Unconstrained(value) => value,
-        };
+        let bit_value = view.get(bit);
         if bit_value != Scalar::ZERO {
             view.set(view.cell(0, 0), self.path[i][1]);
             view.set(view.cell(0, 1), self.path[i][0]);
@@ -672,10 +663,7 @@ impl<const L: usize> FullTernaryChip<L> {
         i: usize,
     ) {
         let trit = trits[i];
-        let trit_value = match trit {
-            CellOrUnconstrained::Cell(cell) => view.get(cell),
-            CellOrUnconstrained::Unconstrained(value) => value,
-        };
+        let trit_value = view.get(trit);
         const ZERO: Scalar = from_const(0);
         const ONE: Scalar = from_const(1);
         const TWO: Scalar = from_const(2);

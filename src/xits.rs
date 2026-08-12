@@ -130,10 +130,7 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 1],
     ) -> Result<[CellOrUnconstrained; N]> {
-        let value = match inputs[0] {
-            CellOrUnconstrained::Cell(cell) => view.get(cell),
-            CellOrUnconstrained::Unconstrained(value) => value,
-        };
+        let value = view.get(inputs[0]);
         decompose_scalar_bits::<N>(value)
             .into_iter()
             .enumerate()
@@ -208,12 +205,12 @@ impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
         }
         view.set(
             view.cell(1, N - 1),
-            view.get(view.cell(0, N - 1)) - self.get_rhs_bit(N - 1),
+            view.get_at(view.cell(0, N - 1)) - self.get_rhs_bit(N - 1),
         );
         for i in (0..(N - 1)).rev() {
             let bit = self.get_rhs_bit(i);
-            let cmp = view.get(view.cell(0, i)) - bit;
-            let prev = view.get(view.cell(1, i + 1));
+            let cmp = view.get_at(view.cell(0, i)) - bit;
+            let prev = view.get_at(view.cell(1, i + 1));
             view.set(
                 view.cell(1, i),
                 prev.cube() + (from_const(1) - prev.square()) * cmp,
@@ -354,10 +351,7 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
         view: &mut impl WitnessView,
         inputs: [CellOrUnconstrained; 1],
     ) -> Result<[CellOrUnconstrained; N]> {
-        let value = match inputs[0] {
-            CellOrUnconstrained::Cell(cell) => view.get(cell),
-            CellOrUnconstrained::Unconstrained(value) => value,
-        };
+        let value = view.get(inputs[0]);
         decompose_scalar_trits::<N>(value)
             .into_iter()
             .enumerate()
@@ -431,7 +425,7 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
     ) -> Result<[CellOrUnconstrained; 1]> {
         for i in 0..N {
             view.copy(inputs[i], view.cell(0, i).into());
-            let diff = view.get(view.cell(0, i)) - self.get_rhs_trit(i);
+            let diff = view.get_at(view.cell(0, i)) - self.get_rhs_trit(i);
             view.set(
                 view.cell(1, i),
                 (diff * from_const(7) - diff.cube()) / from_const(6),
@@ -439,8 +433,8 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
         }
         view.copy(view.cell(1, N - 1).into(), view.cell(2, N - 1));
         for i in (0..(N - 1)).rev() {
-            let cmp = view.get(view.cell(1, i));
-            let prev = view.get(view.cell(2, i + 1));
+            let cmp = view.get_at(view.cell(1, i));
+            let prev = view.get_at(view.cell(2, i + 1));
             view.set(
                 view.cell(2, i),
                 prev + (from_const(1) - prev.square()) * cmp,
@@ -751,7 +745,7 @@ mod tests {
             .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|bit| match bit {
-                CellOrUnconstrained::Cell(cell) => witness.get(cell),
+                CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output bits must be constrained"),
             });
         assert_eq!(bits, decompose_bits::<N>(value.into())[0..N]);
@@ -902,7 +896,7 @@ mod tests {
             .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|bit| match bit {
-                CellOrUnconstrained::Cell(cell) => witness.get(cell),
+                CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output bits must be constrained"),
             });
         assert_eq!(bits, decompose_bits::<256>(value.into())[0..256]);
@@ -1180,7 +1174,7 @@ mod tests {
             .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|trit| match trit {
-                CellOrUnconstrained::Cell(cell) => witness.get(cell),
+                CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output trits must be constrained"),
             });
         assert_eq!(trits, decompose_trits::<N>(value.into())[0..N]);
@@ -1350,7 +1344,7 @@ mod tests {
             .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
             .unwrap()
             .map(|trit| match trit {
-                CellOrUnconstrained::Cell(cell) => witness.get(cell),
+                CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output trits must be constrained"),
             });
         assert_eq!(trits, decompose_trits::<161>(value.into())[0..161]);

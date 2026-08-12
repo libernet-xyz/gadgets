@@ -82,7 +82,7 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T> for RcM
         }
         let c = C::get_round_constants();
         for i in 0..T {
-            let state = view.get(view.cell(0, i));
+            let state = view.get_at(view.cell(0, i));
             view.set(view.cell(1, i), state + c[i]);
         }
     }
@@ -109,7 +109,7 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T> for RcM
             view.set(
                 view.cell(1, i),
                 (0..T)
-                    .map(|j| view.get(view.cell(0, j)) * m[i * T + j])
+                    .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
                     .sum::<Scalar>()
                     + c[(round + 1) * T + i],
             );
@@ -182,7 +182,7 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
         }
         let c = C::get_round_constants();
         for i in 0..T {
-            let state = view.get(view.cell(0, i));
+            let state = view.get_at(view.cell(0, i));
             view.set(view.cell(1, i), state + c[i]);
             view.set(view.cell(1, T + i), c[i]);
         }
@@ -212,7 +212,7 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
             view.set(
                 view.cell(1, i),
                 (0..T)
-                    .map(|j| view.get(view.cell(0, j)) * m[i * T + j])
+                    .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
                     .sum::<Scalar>()
                     + c[(round + 1) * T + i],
             );
@@ -310,7 +310,7 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
         }
         let c = C::get_round_constants();
         for i in 0..T {
-            let state = view.get(view.cell(0, i));
+            let state = view.get_at(view.cell(0, i));
             view.set(view.cell(1, i), state + c[i]);
             view.set(view.cell(1, T + i), c[i]);
         }
@@ -342,7 +342,7 @@ impl<C: poseidon::Config<Scalar, T>, const T: usize> internal::RcMode<T>
             view.set(
                 view.cell(1, i),
                 (0..T)
-                    .map(|j| view.get(view.cell(0, j)) * m[i * T + j])
+                    .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
                     .sum::<Scalar>()
                     + c[(round + 1) * T + i],
             );
@@ -411,7 +411,7 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize>
 
     fn witness_full_sbox(&self, view: &mut impl WitnessView) {
         for i in 0..T {
-            let state = view.get(view.cell(-1, i));
+            let state = view.get_at(view.cell(-1, i));
             view.set(view.cell(0, i), state.cube());
             view.set(view.cell(1, i), state.square().square() * state);
         }
@@ -426,7 +426,7 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize>
     }
 
     fn witness_partial_sbox(&self, view: &mut impl WitnessView) {
-        let state = view.get(view.cell(-1, 0));
+        let state = view.get_at(view.cell(-1, 0));
         view.set(view.cell(0, 0), state.cube());
         view.set(view.cell(1, 0), state.square().square() * state);
         for i in 1..T {
@@ -453,7 +453,7 @@ impl<C: poseidon::Config<Scalar, T>, M: internal::RcMode<T>, const T: usize>
             view.set(
                 view.cell(1, i),
                 (0..T)
-                    .map(|j| view.get(view.cell(0, j)) * m[i * T + j])
+                    .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
                     .sum::<Scalar>(),
             );
         }
