@@ -101,9 +101,17 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
+        let m = C::get_external_matrix();
         let c = C::get_round_constants();
         for i in 0..T {
-            view.add_gate(0, rvar(i, 0) + c[i] - rvar(i, 1));
+            view.add_gate(
+                0,
+                (0..T)
+                    .map(|j| rvar(j, 0) * m[i * T + j])
+                    .sum::<Constraint>()
+                    + c[i]
+                    - rvar(i, 1),
+            );
         }
     }
 
@@ -111,10 +119,16 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
         for i in 0..T {
             view.copy(inputs[i], view.cell(0, i));
         }
+        let m = C::get_external_matrix();
         let c = C::get_round_constants();
         for i in 0..T {
-            let state = view.get_at(view.cell(0, i));
-            view.set(view.cell(1, i), state + c[i]);
+            view.set(
+                view.cell(1, i),
+                (0..T)
+                    .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
+                    .sum::<Scalar>()
+                    + c[i],
+            );
         }
     }
 
