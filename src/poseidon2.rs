@@ -19,8 +19,13 @@ mod internal {
     {
         fn width(&self) -> usize;
 
-        fn build_first_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]);
-        fn witness_first_arc(&self, view: &mut impl WitnessView, inputs: [CellOrUnconstrained; T]);
+        fn build_first_fl_and_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]);
+
+        fn witness_first_fl_and_arc(
+            &self,
+            view: &mut impl WitnessView,
+            inputs: [CellOrUnconstrained; T],
+        );
 
         fn build_linear_and_next_arc(
             &self,
@@ -97,7 +102,7 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
         T
     }
 
-    fn build_first_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
+    fn build_first_fl_and_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
@@ -115,7 +120,11 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
         }
     }
 
-    fn witness_first_arc(&self, view: &mut impl WitnessView, inputs: [CellOrUnconstrained; T]) {
+    fn witness_first_fl_and_arc(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; T],
+    ) {
         for i in 0..T {
             view.copy(inputs[i], view.cell(0, i));
         }
@@ -294,7 +303,7 @@ impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
-        self.rc.build_first_arc(view, inputs);
+        self.rc.build_first_fl_and_arc(view, inputs);
         let mut view = view.sub(
             Self::FIRST_ARC_HEIGHT,
             0,
@@ -344,7 +353,7 @@ impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();
         assert_eq!(num_total_rounds, num_full_rounds * 2 + num_partial_rounds);
-        self.rc.witness_first_arc(view, inputs);
+        self.rc.witness_first_fl_and_arc(view, inputs);
         let mut view = view.sub(
             2,
             0,
