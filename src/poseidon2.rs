@@ -2,7 +2,7 @@ use anyhow::Result;
 use starkom_bluesky::Scalar;
 use starkom_ff::Field;
 use starkom_plonk::{
-    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, rvar,
+    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, rvar, var,
 };
 use starkom_poseidon2 as poseidon2;
 use std::fmt::{Debug, Formatter};
@@ -158,6 +158,125 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
     fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView, round: usize, m: &[Scalar]) {
         let c = C::get_round_constants();
         for i in 0..T {
+            view.set(
+                view.cell(1, i),
+                (0..T)
+                    .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
+                    .sum::<Scalar>()
+                    + c[(round + 1) * T + i],
+            );
+        }
+    }
+}
+
+/// Internal ROM mode for the [`PermutationChip`].
+///
+/// In this mode the Poseidon2 round constants are stored in separate columns so that we can reuse
+/// the same gate constraints for the round themselves. By contrast, [`RcModeHardWired`] causes the
+/// gates of all rounds to be different from each other due to the hard-wired constants, and that
+/// results in an elevated number of gates and increased proving cost.
+///
+/// NOTE: the overall number of gates instantiated by this mode is comparable to the hard-wired mode
+/// because we still need to constrain the cells of the ROM area to have the correct values, but the
+/// advantage of this mode is that you can subsequently instantiate an arbitrary number of cheap,
+/// external ROM mode chips (see [`RcModeExternalRom`]). In other words: N hard-wired permutation
+/// chips pay the gate cost of the round constants N times, whereas 1 IR chip + (N-1) ER chips pay
+/// that cost only once (but still achieve N permutations).
+pub struct RcModeInternalRom<C: poseidon2::Config<Scalar, T>, const T: usize> {
+    _data: PhantomData<C>,
+}
+
+impl<C: poseidon2::Config<Scalar, T>, const T: usize> Debug for RcModeInternalRom<C, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RcModeInternalRom").finish()
+    }
+}
+
+impl<C: poseidon2::Config<Scalar, T>, const T: usize> Default for RcModeInternalRom<C, T> {
+    fn default() -> Self {
+        Self {
+            _data: Default::default(),
+        }
+    }
+}
+
+impl<C: poseidon2::Config<Scalar, T>, const T: usize> Copy for RcModeInternalRom<C, T> {}
+
+impl<C: poseidon2::Config<Scalar, T>, const T: usize> Clone for RcModeInternalRom<C, T> {
+    fn clone(&self) -> Self {
+        Self {
+            _data: self._data.clone(),
+        }
+    }
+}
+
+impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
+    for RcModeInternalRom<C, T>
+{
+    fn width(&self) -> usize {
+        T * 2
+    }
+
+    fn build_first_fl_and_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
+        for i in 0..T {
+            view.connect(inputs[i], Some(view.cell(0, i)));
+        }
+        let m = C::get_external_matrix();
+        let c = C::get_round_constants();
+        for i in 0..T {
+            view.add_gate(1, var(T + i) - c[i]);
+            view.add_gate(
+                0,
+                (0..T)
+                    .map(|j| rvar(j, 0) * m[i * T + j])
+                    .sum::<Constraint>()
+                    + rvar(T + i, 1)
+                    - rvar(i, 1),
+            );
+        }
+    }
+
+    fn witness_first_fl_and_arc(
+        &self,
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; T],
+    ) {
+        for i in 0..T {
+            view.copy(inputs[i], view.cell(0, i));
+        }
+        let m = C::get_external_matrix();
+        let c = C::get_round_constants();
+        for i in 0..T {
+            view.set(
+                view.cell(1, i),
+                (0..T)
+                    .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
+                    .sum::<Scalar>()
+                    + c[i],
+            );
+            view.set(view.cell(1, T + i), c[i]);
+        }
+    }
+
+    fn build_linear_and_next_arc(&self, view: &mut impl CircuitView, round: usize, m: &[Scalar]) {
+        let c = C::get_round_constants();
+        for i in 0..T {
+            view.add_gate(1, var(T + i) - c[(round + 1) * T + i]);
+            view.add_gate(
+                0,
+                (0..T)
+                    .map(|j| rvar(j, 0) * m[i * T + j])
+                    .sum::<Constraint>()
+                    + rvar(T + i, 1)
+                    - rvar(i, 1),
+            );
+        }
+    }
+
+    fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView, round: usize, m: &[Scalar]) {
+        let c = C::get_round_constants();
+        for i in 0..T {
+            view.set(view.cell(1, T + i), c[(round + 1) * T + i]);
             view.set(
                 view.cell(1, i),
                 (0..T)
@@ -400,7 +519,7 @@ impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
 pub type PermutationChipHW<C, const T: usize> = PermutationChip<C, RcModeHardWired<C, T>, T>;
 
 /// Poseidon2 permutation chip with [internal ROM storage for round constants](`RcModeInternalRom`).
-// pub type PermutationChipIR<C, const T: usize> = PermutationChip<C, RcModeInternalRom<C, T>, T>;
+pub type PermutationChipIR<C, const T: usize> = PermutationChip<C, RcModeInternalRom<C, T>, T>;
 
 /// Poseidon2 permutation chip with [internal ROM storage for round constants](`RcModeExternalRom`).
 // pub type PermutationChipER<C, const T: usize> = PermutationChip<C, RcModeExternalRom<C, T>, T>;
@@ -552,6 +671,103 @@ mod tests {
                 outputs,
                 3,
                 parse_hash("0x2371fd1d96c3e9ff6d6a0cb0bf4b5e82f9c48a1a503fa3eaffebb0e56d342498")
+            )
+            .is_ok()
+        );
+    }
+
+    fn test_perm_ir<
+        Cfg: poseidon2::Config<Scalar, T>,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+    >(
+        inputs: [Scalar; T],
+        expected_output: [Scalar; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChipIR::<Cfg, T>::default();
+        assert_eq!(chip.width(), T * 2);
+        test_permutation_impl::<T>(
+            &chip,
+            inputs,
+            expected_output,
+            blowup_log2,
+            circuit_commitment,
+        )
+    }
+
+    #[test]
+    fn test_permutation_t3_ir() {
+        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let outputs = [
+            parse_scalar("0x6f30582cde48a25b26015b7f718ba2fb359e93029caf04d8d0b3e66b1d46b941"),
+            parse_scalar("0x5de8159372063ce76403529bb1a9725461b96467035d906400ff48d0937f9db6"),
+            parse_scalar("0x3c88b37dc6d14d08960b6fe58344e09194d11a930ce9f60cc90294683fac4b9f"),
+        ];
+        assert!(
+            test_perm_ir::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                1,
+                parse_hash("0x068d62a5c2772b353ab5d5fa68175fbde0583aa83e9bf4b9ac01fc37b661f565")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_ir::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                2,
+                parse_hash("0x80683e60d6c01ecb352e66d04509c10a5ab17b0b01ab3c2a7b238719c8c9933f")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_ir::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                3,
+                parse_hash("0x83a9a9d4fce7a821e763a7d8fa05724952586efe0e6f193013c75696abfcade2")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_permutation_t4_ir() {
+        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let outputs = [
+            parse_scalar("0x775049834d9decb40ec5a109116a27527fa9105a3521cee8a42777788fda1501"),
+            parse_scalar("0x630ded08b39ceac4859c9ab6d14b548f48d01164ce1efada3a7a868f7d9248cb"),
+            parse_scalar("0x14b47f414dececb9936dcbb89e2fdd8511c44acb30439d1d23e48119b1c03b4f"),
+            parse_scalar("0x72de70292ce1ac7f30b859d04bbb6de5377288c1192a08863c34e11bc9269c4c"),
+        ];
+        assert!(
+            test_perm_ir::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                1,
+                parse_hash("0xff432e4f6af66723bd76dd61676367a1c403e291c80478662ece1971d43e7551")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_ir::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                2,
+                parse_hash("0x6d69d24edddae3b2ca17a690e48edef60e9d645ac2ba1411169869ece1a977bc")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_ir::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                3,
+                parse_hash("0xf588bf93caeadebc8e4db49654fa36d2720b246c46c815d096f4851c30951918")
             )
             .is_ok()
         );
