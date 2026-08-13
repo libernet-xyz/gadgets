@@ -3,6 +3,7 @@ use crate::poseidon1::{
     PermutationChipHW as Poseidon1PermutationChipHW,
     PermutationChipIR as Poseidon1PermutationChipIR,
 };
+use crate::poseidon2::PermutationChipHW as Poseidon2PermutationChipHW;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
 use starkom_ff::Field;
@@ -10,6 +11,7 @@ use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, rvar, var,
 };
 use starkom_poseidon as poseidon1;
+use starkom_poseidon2 as poseidon2;
 
 /// A hash with sponge construction.
 ///
@@ -96,10 +98,27 @@ impl<P: PlonkChip<T, T>, const T: usize, const R: usize, const C: usize, const N
     }
 }
 
-impl<const T: usize, const R: usize, const C: usize, const N: usize> PlonkChip<N, R>
-    for Chip<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig<T>, T>, T, R, C, N>
-where
-    poseidon1::BlueSkyConfig<T>: poseidon1::Config<Scalar, T>,
+/// Marker trait for self-contained PRP chips such as [`crate::poseidon1::PermutationChipHW`] and
+/// [`crate::poseidon2::PermutationChipHW`].
+pub trait SelfContainedPermutationChip {}
+
+impl<Cfg: poseidon1::Config<Scalar, T>, const T: usize> SelfContainedPermutationChip
+    for Poseidon1PermutationChipHW<Cfg, T>
+{
+}
+
+impl<Cfg: poseidon2::Config<Scalar, T>, const T: usize> SelfContainedPermutationChip
+    for Poseidon2PermutationChipHW<Cfg, T>
+{
+}
+
+impl<
+    P: PlonkChip<T, T> + SelfContainedPermutationChip,
+    const T: usize,
+    const R: usize,
+    const C: usize,
+    const N: usize,
+> PlonkChip<N, R> for Chip<P, T, R, C, N>
 {
     fn width(&self) -> usize {
         self.permutation.width() * Self::num_chunks()
@@ -303,6 +322,14 @@ pub type Poseidon1ChipT3HW<const N: usize> =
 pub type Poseidon1ChipT4HW<const N: usize> =
     Chip<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1, N>;
 
+/// T=3 Poseidon2 hash with [hard-wired round constants](`crate::poseidon2::RcModeHardWired`).
+pub type Poseidon2ChipT3HW<const N: usize> =
+    Chip<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3, 2, 1, N>;
+
+/// T=4 Poseidon2 hash with [hard-wired round constants](`crate::poseidon2::RcModeHardWired`).
+pub type Poseidon2ChipT4HW<const N: usize> =
+    Chip<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4, 3, 1, N>;
+
 /// T=3 Poseidon hash with
 /// [internal ROM storage for round constants](`crate::poseidon1::RcModeInternalRom`).
 ///
@@ -348,7 +375,7 @@ mod tests {
 
     const BLOWUP_LOG2: usize = 3;
 
-    fn test_hash_v1<
+    fn test_hash<
         P: PlonkChip<T, T> + Default,
         const T: usize,
         const R: usize,
@@ -408,7 +435,7 @@ mod tests {
             parse_scalar("0x05bf595cdacac4f9eba8679b69dcde4eeeca6db242005bf6b923fde28ea88a46"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<P, 3, 2, 1, 1>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 3, 2, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -419,7 +446,7 @@ mod tests {
             parse_scalar("0x339d0e485d8fdfb8c3391182d457fa3e73f043f566af1463ab05e57045122519"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<P, 3, 2, 1, 2>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 3, 2, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -430,7 +457,7 @@ mod tests {
             parse_scalar("0x5e7468521c84b23259b813d193017a2b3c7813ce82e94ce4cc74a8c527db0923"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<P, 3, 2, 1, 3>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 3, 2, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -441,7 +468,7 @@ mod tests {
             parse_scalar("0x0bc4c477fdeee23bf2f139b12c2ea927d145f298e6204255cbad8461af9150c6"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<P, 3, 2, 1, 4>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 3, 2, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -458,7 +485,7 @@ mod tests {
             parse_scalar("0x67de663ef4d5db733c68cae13b6bb28aa97d0fc904dccdfa80f4c9fae36f51d0"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>;
-        assert!(test_hash_v1::<P, 3, 2, 1, 5>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 3, 2, 1, 5>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -470,7 +497,7 @@ mod tests {
             parse_scalar("0x24c8327a61a3bd811e04b11107609bd91b8916ab5cf53fe927edaa27a9e8d5da"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<P, 4, 3, 1, 1>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 4, 3, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -482,7 +509,7 @@ mod tests {
             parse_scalar("0x3f972105e69fcceafe6ce580dab417c50a34316d2de43d73a79f861ef55ca87a"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<P, 4, 3, 1, 2>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 4, 3, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -494,7 +521,7 @@ mod tests {
             parse_scalar("0x38ef442cd0ce47da5e7fdd912edfc2a95a36409b142fd0f94545267af135bcfa"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<P, 4, 3, 1, 3>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 4, 3, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -506,7 +533,7 @@ mod tests {
             parse_scalar("0x1d14218c5f5ae32b4fc20b250b52ad8ec96a77627a6c103c8ecf3919290d6239"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<P, 4, 3, 1, 4>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 4, 3, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -524,6 +551,133 @@ mod tests {
             parse_scalar("0x1cc1f59d0c8b31f60c5b10478b28db466bdcdefda0e8da296d96d5529177d621"),
         ];
         type P = Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>;
-        assert!(test_hash_v1::<P, 4, 3, 1, 5>(inputs, outputs).is_ok());
+        assert!(test_hash::<P, 4, 3, 1, 5>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t3_1() {
+        let inputs = [from_const(42)];
+        let outputs = [
+            parse_scalar("0x302e6d6d782c1367974698e051d9b55e18060b19393a4f0ac4b66f992bd5a5eb"),
+            parse_scalar("0x26f778c0f82ffe3d4409ebb9d7e4611556ca89c6a3e1a77cf8b80528eb344777"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>;
+        assert!(test_hash::<P, 3, 2, 1, 1>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t3_2() {
+        let inputs = [from_const(1), from_const(2)];
+        let outputs = [
+            parse_scalar("0x2a24882111b586a835203bdeb7a97d8489e410eadf12a495624f49b729528873"),
+            parse_scalar("0x69233d2461effb6b25dbec14086d466f3bf668ef2a38759fa5cb433bedf25778"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>;
+        assert!(test_hash::<P, 3, 2, 1, 2>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t3_3() {
+        let inputs = [from_const(3), from_const(4), from_const(5)];
+        let outputs = [
+            parse_scalar("0x160be03feff499f1256ce2404ff9ee026fc378b6a91d434746bab98aafaecb63"),
+            parse_scalar("0x14a259b91d964d8263af60fc1325c4874c68e8fd9caef509cc07622fc17718fe"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>;
+        assert!(test_hash::<P, 3, 2, 1, 3>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t3_4() {
+        let inputs = [from_const(6), from_const(7), from_const(8), from_const(9)];
+        let outputs = [
+            parse_scalar("0x63d491b523ae737f62f117ef5affb8353996b67034ddaeb8586b574678ab440a"),
+            parse_scalar("0x531109ee099551ccea55a61f6f7cab781bf0d3d0d0c4ba032476b65d1ebb9867"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>;
+        assert!(test_hash::<P, 3, 2, 1, 4>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t3_5() {
+        let inputs = [
+            from_const(10),
+            from_const(11),
+            from_const(12),
+            from_const(13),
+            from_const(14),
+        ];
+        let outputs = [
+            parse_scalar("0x329255ad3db8a69a50a2a1f63fb4046d06d5bc6de30bf79bfe4138f4c93201df"),
+            parse_scalar("0x6968c301186d76def97ee0d7bcc1f426b34df8f2e04a3afdeaa1acd8f9070d76"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>;
+        assert!(test_hash::<P, 3, 2, 1, 5>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t4_1() {
+        let inputs = [from_const(42)];
+        let outputs = [
+            parse_scalar("0x109a9fd885b0047b036489dad6d0ca97749f6a9b21d9fc2c1cb7d25952e453a0"),
+            parse_scalar("0x203e5346a31efe538f826a34e87c285ef6cfe0ce12a0316a25cbd4e2326abd29"),
+            parse_scalar("0x4c53083849aedf3e11959d1dad010d2f1d2951adfdcce95f6a480666e63c5834"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>;
+        assert!(test_hash::<P, 4, 3, 1, 1>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t4_2() {
+        let inputs = [from_const(1), from_const(2)];
+        let outputs = [
+            parse_scalar("0x7c4e380d8a3935c0e8073420573f5b6aaf9ed2c727afc4da64f12401ab355faf"),
+            parse_scalar("0x14b0dda71f3fb062cc99121629f080541891b8be0e65ba858906cf0b648042ac"),
+            parse_scalar("0x5218f71044490008f3713824dfa6be57a708ad295ca8df9fb4176340d61fb681"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>;
+        assert!(test_hash::<P, 4, 3, 1, 2>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t4_3() {
+        let inputs = [from_const(3), from_const(4), from_const(5)];
+        let outputs = [
+            parse_scalar("0x2582eca7bed4bca9d4326a9e2ca601e0b3779582bb5173318a4e19ab005e7495"),
+            parse_scalar("0x0307db21c6063767f309fb09afcc4f250cbaed3f1d0870cd56d3276b18ced8d5"),
+            parse_scalar("0x3024913685a18187c7ae50f1dcabe3ea2acb407fc3abd5d107bd79f3dbd2e90c"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>;
+        assert!(test_hash::<P, 4, 3, 1, 3>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t4_4() {
+        let inputs = [from_const(6), from_const(7), from_const(8), from_const(9)];
+        let outputs = [
+            parse_scalar("0x6b13720a0ebd34f13327023c0232a3a3421f88d50b627bacfd114491ae48bfaa"),
+            parse_scalar("0x235d36a318fbc8175bce6613d8b8812a1d8ab17c56a70565f8eb1253a248f5d0"),
+            parse_scalar("0x379747ade21215413ccf1e1d91c7f367e1d5d8cd3e52b24da10e080dc8b25c43"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>;
+        assert!(test_hash::<P, 4, 3, 1, 4>(inputs, outputs).is_ok());
+    }
+
+    #[test]
+    fn test_hash_v2_t4_5() {
+        let inputs = [
+            from_const(10),
+            from_const(11),
+            from_const(12),
+            from_const(13),
+            from_const(14),
+        ];
+        let outputs = [
+            parse_scalar("0x4f07a42cf3cd73f35eeb9b42bff06b11e1c7ebe0fd8f65b7fab0dd5d551f1c6c"),
+            parse_scalar("0x2507a1f641f6bab3bb2cc40cb6d14df149aeede849a53a4590d73b0d29af2d71"),
+            parse_scalar("0x79f1da2d204aa97c4256d321055eac279959efeff119a32e106220ef69699d4f"),
+        ];
+        type P = Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>;
+        assert!(test_hash::<P, 4, 3, 1, 5>(inputs, outputs).is_ok());
     }
 }
