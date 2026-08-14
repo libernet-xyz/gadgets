@@ -5,7 +5,6 @@
 
 mod utils;
 
-// pub mod hmac;
 pub mod merkle;
 pub mod poseidon1;
 pub mod poseidon2;
