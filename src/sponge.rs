@@ -8,7 +8,6 @@ use crate::poseidon2::{
     PermutationChipHW as Poseidon2PermutationChipHW,
     PermutationChipIR as Poseidon2PermutationChipIR,
 };
-use crate::sponge::internal::PrpMode;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
 use starkom_ff::Field;
@@ -552,9 +551,10 @@ mod tests {
     where
         Chip<M, T, R, C, N>: PlonkChip<N, R> + Default,
     {
-        let num_chunks = N.next_multiple_of(R) / R;
         let chip = Chip::<M, T, R, C, N>::default();
-        assert_eq!(chip.width(), T * num_chunks);
+        let chunk_width = chip.mode.prp_width();
+        let num_chunks = N.next_multiple_of(R) / R;
+        assert_eq!(chip.width(), chunk_width * num_chunks);
         assert_eq!(chip.height(), 197);
         let mut builder = CircuitBuilder::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
@@ -564,11 +564,11 @@ mod tests {
         })?;
         assert_eq!(circuit.num_rows(), 197);
         assert_eq!(circuit.degree_bound(), 256);
-        assert_eq!(circuit.num_columns(), T * num_chunks);
+        assert_eq!(circuit.num_columns(), chunk_width * num_chunks);
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 197);
         assert_eq!(witness.degree_bound(), 256);
-        assert_eq!(witness.num_columns(), T * num_chunks);
+        assert_eq!(witness.num_columns(), chunk_width * num_chunks);
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions {
@@ -598,8 +598,15 @@ mod tests {
             parse_scalar("0x73952c443e4710be4a4c01e20046008b477f0d6fef5d87409cdebc4cdff3490c"),
             parse_scalar("0x05bf595cdacac4f9eba8679b69dcde4eeeca6db242005bf6b923fde28ea88a46"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 1>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+            3,
+            1,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 1>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -609,8 +616,15 @@ mod tests {
             parse_scalar("0x28935bd3eba75f7b2d4f62babbd4e907b1ffcc28f73d1cae33654441a8a84023"),
             parse_scalar("0x339d0e485d8fdfb8c3391182d457fa3e73f043f566af1463ab05e57045122519"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 2>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+            3,
+            2,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 2>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -620,8 +634,15 @@ mod tests {
             parse_scalar("0x2bfc323795d99f44817eaa143a7db00103ff1eae1bd67ee3ab3f5a1006c7695d"),
             parse_scalar("0x5e7468521c84b23259b813d193017a2b3c7813ce82e94ce4cc74a8c527db0923"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 3>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+            3,
+            3,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 3>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -631,8 +652,15 @@ mod tests {
             parse_scalar("0x06ea9f66eddb8f036b0d6201dcf6a8c610b8aca9371e2bfc7fbd1deb1e5bb158"),
             parse_scalar("0x0bc4c477fdeee23bf2f139b12c2ea927d145f298e6204255cbad8461af9150c6"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 4>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+            3,
+            4,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 4>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -648,8 +676,15 @@ mod tests {
             parse_scalar("0x05ae2c9b2bdbb5a64d4e838bd96b0b4c2366fc6d3cee4309793e01dfd2a589d1"),
             parse_scalar("0x67de663ef4d5db733c68cae13b6bb28aa97d0fc904dccdfa80f4c9fae36f51d0"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 5>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+            3,
+            5,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 5>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 5>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -660,8 +695,15 @@ mod tests {
             parse_scalar("0x732f901b286e0f3575ab52e19494406c38f3db3e06169143f4c0369b3ba58ed9"),
             parse_scalar("0x24c8327a61a3bd811e04b11107609bd91b8916ab5cf53fe927edaa27a9e8d5da"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 1>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+            4,
+            1,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 1>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -672,8 +714,15 @@ mod tests {
             parse_scalar("0x292ad2994473be89dbfec5185888d85924bfa0f64b3be556609bbde3bad4360c"),
             parse_scalar("0x3f972105e69fcceafe6ce580dab417c50a34316d2de43d73a79f861ef55ca87a"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 2>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+            4,
+            2,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 2>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -684,8 +733,15 @@ mod tests {
             parse_scalar("0x664ca128f4f6f225f282a671b522c267389f30f01d858757a1f029941510d8ec"),
             parse_scalar("0x38ef442cd0ce47da5e7fdd912edfc2a95a36409b142fd0f94545267af135bcfa"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 3>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+            4,
+            3,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 3>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -696,8 +752,15 @@ mod tests {
             parse_scalar("0x688cf6e7f2aba6c399bc3253ce3827f7a003f8170fe679cbcc2b37e9ba65211e"),
             parse_scalar("0x1d14218c5f5ae32b4fc20b250b52ad8ec96a77627a6c103c8ecf3919290d6239"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 4>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+            4,
+            4,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 4>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -714,8 +777,15 @@ mod tests {
             parse_scalar("0x0bb3130cba6d1aa9cd4ac577dd503905305ce7ccc08d04ec15d9a9700eb747a1"),
             parse_scalar("0x1cc1f59d0c8b31f60c5b10478b28db466bdcdefda0e8da296d96d5529177d621"),
         ];
-        type M = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 5>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+            4,
+            5,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 5>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 5>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -725,8 +795,15 @@ mod tests {
             parse_scalar("0x302e6d6d782c1367974698e051d9b55e18060b19393a4f0ac4b66f992bd5a5eb"),
             parse_scalar("0x26f778c0f82ffe3d4409ebb9d7e4611556ca89c6a3e1a77cf8b80528eb344777"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 1>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+            3,
+            1,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 1>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -736,8 +813,15 @@ mod tests {
             parse_scalar("0x2a24882111b586a835203bdeb7a97d8489e410eadf12a495624f49b729528873"),
             parse_scalar("0x69233d2461effb6b25dbec14086d466f3bf668ef2a38759fa5cb433bedf25778"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 2>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+            3,
+            2,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 2>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -747,8 +831,15 @@ mod tests {
             parse_scalar("0x160be03feff499f1256ce2404ff9ee026fc378b6a91d434746bab98aafaecb63"),
             parse_scalar("0x14a259b91d964d8263af60fc1325c4874c68e8fd9caef509cc07622fc17718fe"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 3>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+            3,
+            3,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 3>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -758,8 +849,15 @@ mod tests {
             parse_scalar("0x63d491b523ae737f62f117ef5affb8353996b67034ddaeb8586b574678ab440a"),
             parse_scalar("0x531109ee099551ccea55a61f6f7cab781bf0d3d0d0c4ba032476b65d1ebb9867"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 4>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+            3,
+            4,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 4>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -775,8 +873,15 @@ mod tests {
             parse_scalar("0x329255ad3db8a69a50a2a1f63fb4046d06d5bc6de30bf79bfe4138f4c93201df"),
             parse_scalar("0x6968c301186d76def97ee0d7bcc1f426b34df8f2e04a3afdeaa1acd8f9070d76"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        assert!(test_hash::<M, 3, 2, 1, 5>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+            3,
+            5,
+        >;
+        assert!(test_hash::<M1, 3, 2, 1, 5>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 3, 2, 1, 5>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -787,8 +892,15 @@ mod tests {
             parse_scalar("0x203e5346a31efe538f826a34e87c285ef6cfe0ce12a0316a25cbd4e2326abd29"),
             parse_scalar("0x4c53083849aedf3e11959d1dad010d2f1d2951adfdcce95f6a480666e63c5834"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 1>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+            4,
+            1,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 1>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 1>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -799,8 +911,15 @@ mod tests {
             parse_scalar("0x14b0dda71f3fb062cc99121629f080541891b8be0e65ba858906cf0b648042ac"),
             parse_scalar("0x5218f71044490008f3713824dfa6be57a708ad295ca8df9fb4176340d61fb681"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 2>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+            4,
+            2,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 2>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 2>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -811,8 +930,15 @@ mod tests {
             parse_scalar("0x0307db21c6063767f309fb09afcc4f250cbaed3f1d0870cd56d3276b18ced8d5"),
             parse_scalar("0x3024913685a18187c7ae50f1dcabe3ea2acb407fc3abd5d107bd79f3dbd2e90c"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 3>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+            4,
+            3,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 3>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 3>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -823,8 +949,15 @@ mod tests {
             parse_scalar("0x235d36a318fbc8175bce6613d8b8812a1d8ab17c56a70565f8eb1253a248f5d0"),
             parse_scalar("0x379747ade21215413ccf1e1d91c7f367e1d5d8cd3e52b24da10e080dc8b25c43"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 4>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+            4,
+            4,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 4>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 4>(inputs, outputs).is_ok());
     }
 
     #[test]
@@ -841,7 +974,14 @@ mod tests {
             parse_scalar("0x2507a1f641f6bab3bb2cc40cb6d14df149aeede849a53a4590d73b0d29af2d71"),
             parse_scalar("0x79f1da2d204aa97c4256d321055eac279959efeff119a32e106220ef69699d4f"),
         ];
-        type M = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        assert!(test_hash::<M, 4, 3, 1, 5>(inputs, outputs).is_ok());
+        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
+        type M2 = PrpModeInternalRom<
+            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+            4,
+            5,
+        >;
+        assert!(test_hash::<M1, 4, 3, 1, 5>(inputs, outputs).is_ok());
+        assert!(test_hash::<M2, 4, 3, 1, 5>(inputs, outputs).is_ok());
     }
 }
