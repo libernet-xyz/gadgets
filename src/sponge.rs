@@ -71,12 +71,11 @@ impl<Cfg: poseidon2::Config<Scalar, T>, const T: usize> SelfContainedPermutation
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-pub struct PrpModeSelfContained<P: PlonkChip<T, T> + Debug + Default + Copy + Clone, const T: usize>
-{
+pub struct PrpModeSelfContained<P: SelfContainedPermutationChip<T>, const T: usize> {
     permutation: P,
 }
 
-impl<P: PlonkChip<T, T> + Debug + Default + Copy + Clone, const T: usize> internal::PrpMode<T>
+impl<P: SelfContainedPermutationChip<T>, const T: usize> internal::PrpMode<T>
     for PrpModeSelfContained<P, T>
 {
     fn prp_width(&self) -> usize {
@@ -221,6 +220,49 @@ impl<
         } else {
             view.sub_chip(0, 0, &self.ir_chip, inputs)
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct PrpModeExternalRom<P: PoseidonPermutationChipER<T>, const T: usize> {
+    permutation: P,
+}
+
+impl<P: PoseidonPermutationChipER<T>, const T: usize> PrpModeExternalRom<P, T> {
+    fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
+        Self {
+            permutation: P::make_new(ir_chip_row_offset, ir_chip_column_offset),
+        }
+    }
+}
+
+impl<P: PoseidonPermutationChipER<T>, const T: usize> internal::PrpMode<T>
+    for PrpModeExternalRom<P, T>
+{
+    fn prp_width(&self) -> usize {
+        self.permutation.width()
+    }
+
+    fn prp_height(&self) -> usize {
+        self.permutation.height()
+    }
+
+    fn build_permute(
+        &self,
+        view: &mut impl CircuitView,
+        _index: usize,
+        inputs: [Option<Cell>; T],
+    ) -> Result<[Option<Cell>; T]> {
+        view.sub_chip(0, 0, &self.permutation, inputs)
+    }
+
+    fn witness_permute(
+        &self,
+        view: &mut impl WitnessView,
+        _index: usize,
+        inputs: [CellOrUnconstrained; T],
+    ) -> Result<[CellOrUnconstrained; T]> {
+        view.sub_chip(0, 0, &self.permutation, inputs)
     }
 }
 
@@ -511,23 +553,53 @@ pub type Poseidon2ChipT4IR<const N: usize> = Chip<
     N,
 >;
 
-// /// T=3 Poseidon hash with
-// /// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
-// ///
-// /// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
-// /// user-specified ROM area for the round constants, so a `Poseidon1ChipT3ER` can only be placed in
-// /// the circuit if a [`Poseidon1ChipT3IR`] is also present.
-// pub type Poseidon1ChipT3ER<const N: usize> =
-//     Chip<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3, 2, 1, N>;
+/// T=3 Poseidon hash with
+/// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
+///
+/// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
+/// user-specified ROM area for the round constants, so a `Poseidon1ChipT3ER` can only be placed in
+/// the circuit if a [`Poseidon1ChipT3IR`] is also present.
+pub type Poseidon1ChipT3ER<const N: usize> = Chip<
+    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3>,
+    3,
+    2,
+    1,
+    N,
+>;
 
-// /// T=4 Poseidon hash with
-// /// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
-// ///
-// /// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
-// /// user-specified ROM area for the round constants, so a `Poseidon1ChipT4ER` can only be placed in
-// /// the circuit if a [`Poseidon1ChipT4IR`] is also present.
-// pub type Poseidon1ChipT4ER<const N: usize> =
-//     Chip<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>, 4, 3, 1, N>;
+/// T=4 Poseidon hash with
+/// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
+///
+/// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
+/// user-specified ROM area for the round constants, so a `Poseidon1ChipT4ER` can only be placed in
+/// the circuit if a [`Poseidon1ChipT4IR`] is also present.
+pub type Poseidon1ChipT4ER<const N: usize> = Chip<
+    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3>,
+    4,
+    3,
+    1,
+    N,
+>;
+
+/// T=3 Poseidon2 hash with
+/// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
+pub type Poseidon2ChipT3ER<const N: usize> = Chip<
+    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>, 3>,
+    3,
+    2,
+    1,
+    N,
+>;
+
+/// T=4 Poseidon2 hash with
+/// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
+pub type Poseidon2ChipT4ER<const N: usize> = Chip<
+    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>, 4>,
+    4,
+    3,
+    1,
+    N,
+>;
 
 #[cfg(test)]
 mod tests {
