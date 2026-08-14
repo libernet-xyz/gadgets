@@ -223,46 +223,62 @@ impl<
     }
 }
 
+/// NOTE: [`Chip::ABSORB_HEIGHT`] is just this value re-exported as an associated constant.
+const SPONGE_ABSORB_HEIGHT: usize = 3;
+
 #[derive(Debug, Copy, Clone)]
-pub struct PrpModeExternalRom<P: PoseidonPermutationChipER<T>, const T: usize> {
-    permutation: P,
+pub struct PrpModeExternalRom<P: PoseidonPermutationChipER<T>, const T: usize, const N: usize> {
+    /// One ER chip per chunk, each borrowing the same external IR chip's ROM. We need `N` of them,
+    /// as opposed to a single shared instance, because each chunk's permutation lands in a
+    /// different place in the circuit, so each one needs its own offset to the shared external ROM.
+    er_chips: [P; N],
 }
 
-impl<P: PoseidonPermutationChipER<T>, const T: usize> PrpModeExternalRom<P, T> {
+impl<P: PoseidonPermutationChipER<T>, const T: usize, const N: usize> PrpModeExternalRom<P, T, N> {
+    /// Constructs a `PrpModeExternalRom` that borrows its round constant ROM from an IR chip
+    /// located at the given row/column offsets relative to wherever this sponge chip itself is
+    /// later built or witnessed (i.e. the IR chip's coordinates are this sponge's own root
+    /// coordinates plus the given offsets).
     fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
+        let stage_width = P::make_new(0, 0).width() as isize;
         Self {
-            permutation: P::make_new(ir_chip_row_offset, ir_chip_column_offset),
+            er_chips: std::array::from_fn(|i| {
+                P::make_new(
+                    ir_chip_row_offset - SPONGE_ABSORB_HEIGHT as isize,
+                    ir_chip_column_offset - i as isize * stage_width,
+                )
+            }),
         }
     }
 }
 
-impl<P: PoseidonPermutationChipER<T>, const T: usize> internal::PrpMode<T>
-    for PrpModeExternalRom<P, T>
+impl<P: PoseidonPermutationChipER<T>, const T: usize, const N: usize> internal::PrpMode<T>
+    for PrpModeExternalRom<P, T, N>
 {
     fn prp_width(&self) -> usize {
-        self.permutation.width()
+        self.er_chips[0].width()
     }
 
     fn prp_height(&self) -> usize {
-        self.permutation.height()
+        self.er_chips[0].height()
     }
 
     fn build_permute(
         &self,
         view: &mut impl CircuitView,
-        _index: usize,
+        index: usize,
         inputs: [Option<Cell>; T],
     ) -> Result<[Option<Cell>; T]> {
-        view.sub_chip(0, 0, &self.permutation, inputs)
+        view.sub_chip(0, 0, &self.er_chips[index], inputs)
     }
 
     fn witness_permute(
         &self,
         view: &mut impl WitnessView,
-        _index: usize,
+        index: usize,
         inputs: [CellOrUnconstrained; T],
     ) -> Result<[CellOrUnconstrained; T]> {
-        view.sub_chip(0, 0, &self.permutation, inputs)
+        view.sub_chip(0, 0, &self.er_chips[index], inputs)
     }
 }
 
@@ -290,7 +306,7 @@ pub struct Chip<
 impl<M: internal::PrpMode<T>, const T: usize, const R: usize, const C: usize, const N: usize>
     Chip<M, T, R, C, N>
 {
-    pub const ABSORB_HEIGHT: usize = 3;
+    pub const ABSORB_HEIGHT: usize = SPONGE_ABSORB_HEIGHT;
 
     pub fn num_chunks() -> usize {
         N.next_multiple_of(R) / R
@@ -560,7 +576,7 @@ pub type Poseidon2ChipT4IR<const N: usize> = Chip<
 /// user-specified ROM area for the round constants, so a `Poseidon1ChipT3ER` can only be placed in
 /// the circuit if a [`Poseidon1ChipT3IR`] is also present.
 pub type Poseidon1ChipT3ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3>,
+    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3, N>,
     3,
     2,
     1,
@@ -574,7 +590,7 @@ pub type Poseidon1ChipT3ER<const N: usize> = Chip<
 /// user-specified ROM area for the round constants, so a `Poseidon1ChipT4ER` can only be placed in
 /// the circuit if a [`Poseidon1ChipT4IR`] is also present.
 pub type Poseidon1ChipT4ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3>,
+    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>, 4, N>,
     4,
     3,
     1,
@@ -584,7 +600,7 @@ pub type Poseidon1ChipT4ER<const N: usize> = Chip<
 /// T=3 Poseidon2 hash with
 /// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
 pub type Poseidon2ChipT3ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>, 3>,
+    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>, 3, N>,
     3,
     2,
     1,
@@ -594,7 +610,7 @@ pub type Poseidon2ChipT3ER<const N: usize> = Chip<
 /// T=4 Poseidon2 hash with
 /// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
 pub type Poseidon2ChipT4ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>, 4>,
+    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>, 4, N>,
     4,
     3,
     1,
@@ -663,6 +679,85 @@ mod tests {
         Ok(())
     }
 
+    /// Tests a sponge chip in [external ROM mode](`PrpModeExternalRom`) against a sponge chip in
+    /// [internal ROM mode](`PrpModeInternalRom`) with the same parameters.
+    ///
+    /// The ER sponge doesn't embed a ROM of its own, so it can only be placed in the circuit
+    /// alongside another chip that does, in this case the IR sponge built here. Both sponges are
+    /// wired to the same shared input cells and their outputs are constrained to be equal, so this
+    /// test also checks that the two modes compute the same hash.
+    fn test_hash_er<
+        IR: PoseidonPermutationChipIR<T>,
+        ER: PoseidonPermutationChipER<T>,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+        const N: usize,
+    >(
+        inputs: [Scalar; N],
+        expected_output: [Scalar; R],
+    ) -> Result<()>
+    where
+        Chip<PrpModeInternalRom<IR, ER, T, N>, T, R, C, N>: PlonkChip<N, R> + Default,
+        Chip<PrpModeExternalRom<ER, T, N>, T, R, C, N>: PlonkChip<N, R>,
+    {
+        let chip_ir = Chip::<PrpModeInternalRom<IR, ER, T, N>, T, R, C, N>::default();
+        assert_eq!(chip_ir.height(), 197);
+        let ir_width = chip_ir.width();
+
+        let chip_er: Chip<PrpModeExternalRom<ER, T, N>, T, R, C, N> = Chip {
+            mode: PrpModeExternalRom::new(SPONGE_ABSORB_HEIGHT as isize, -(ir_width as isize)),
+        };
+        assert_eq!(chip_er.height(), 197);
+        let er_width = chip_er.width();
+
+        let mut builder = CircuitBuilder::default();
+        let shared_inputs: [Cell; N] =
+            std::array::from_fn(|i| Cell::new(0, ir_width + er_width + i));
+
+        let ir_output = builder.sub_chip(0, 0, &chip_ir, shared_inputs.map(Some))?;
+        let er_output = builder.sub_chip(0, ir_width, &chip_er, shared_inputs.map(Some))?;
+        for i in 0..R {
+            builder.connect(ir_output[i], er_output[i]);
+        }
+        builder.declare_public_rows([ir_output[0].unwrap().row()]);
+
+        let circuit = builder.build(CompilationOptions {
+            canonicalize_constraints: false,
+        })?;
+        assert_eq!(circuit.num_rows(), 197);
+        assert_eq!(circuit.degree_bound(), 256);
+        assert_eq!(circuit.num_columns(), ir_width + er_width + N);
+
+        let mut witness = circuit.make_witness();
+        for (cell, value) in shared_inputs.into_iter().zip(inputs) {
+            witness.set(cell, value);
+        }
+        let shared_inputs = shared_inputs.map(CellOrUnconstrained::from);
+        let ir_output = witness.sub_chip(0, 0, &chip_ir, shared_inputs)?;
+        let er_output = witness.sub_chip(0, ir_width, &chip_er, shared_inputs)?;
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        assert_eq!(proof.degree_bound(), 256);
+        assert_eq!(proof.blowup_log2(), BLOWUP_LOG2);
+        assert_eq!(proof.extended_domain_size(), 256 << BLOWUP_LOG2);
+        let public_inputs = circuit.verify(&proof, options)?;
+
+        let get_value = |output: CellOrUnconstrained| match output {
+            CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
+            CellOrUnconstrained::Unconstrained(value) => value,
+        };
+        assert!(ir_output.into_iter().zip(er_output).enumerate().all(
+            |(i, (ir_output, er_output))| get_value(ir_output) == expected_output[i]
+                && get_value(er_output) == expected_output[i]
+        ));
+        Ok(())
+    }
+
     #[test]
     fn test_hash_v1_t3_1() {
         let inputs = [from_const(42)];
@@ -679,6 +774,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 1>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 1>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                1,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -697,6 +803,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 2>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 2>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                2,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -715,6 +832,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 3>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 3>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                3,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -733,6 +861,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 4>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 4>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                4,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -757,6 +896,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 5>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 5>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                5,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -776,6 +926,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 1>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 1>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                1,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -795,6 +956,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 2>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 2>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                2,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -814,6 +986,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 3>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 3>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                3,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -833,6 +1016,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 4>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 4>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                4,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -858,6 +1052,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 5>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 5>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
+                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                5,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -876,6 +1081,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 1>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 1>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                1,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -894,6 +1110,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 2>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 2>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                2,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -912,6 +1139,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 3>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 3>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                3,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -930,6 +1168,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 4>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 4>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                4,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -954,6 +1203,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 3, 2, 1, 5>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 3, 2, 1, 5>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
+                3,
+                2,
+                1,
+                5,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -973,6 +1233,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 1>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 1>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                1,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -992,6 +1263,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 2>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 2>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                2,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1011,6 +1293,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 3>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 3>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                3,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1030,6 +1323,17 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 4>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 4>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                4,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1055,5 +1359,16 @@ mod tests {
         >;
         assert!(test_hash::<M1, 4, 3, 1, 5>(inputs, outputs).is_ok());
         assert!(test_hash::<M2, 4, 3, 1, 5>(inputs, outputs).is_ok());
+        assert!(
+            test_hash_er::<
+                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
+                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
+                4,
+                3,
+                1,
+                5,
+            >(inputs, outputs)
+            .is_ok()
+        );
     }
 }
