@@ -315,13 +315,8 @@ impl<M: internal::PrpMode<T>, const T: usize, const R: usize, const C: usize, co
     }
 }
 
-impl<
-    P: SelfContainedPermutationChip<T>,
-    const T: usize,
-    const R: usize,
-    const C: usize,
-    const N: usize,
-> PlonkChip<N, R> for Chip<PrpModeSelfContained<P, T>, T, R, C, N>
+impl<M: internal::PrpMode<T>, const T: usize, const R: usize, const C: usize, const N: usize>
+    PlonkChip<N, R> for Chip<M, T, R, C, N>
 {
     fn width(&self) -> usize {
         self.mode.prp_width() * Self::num_chunks()
@@ -404,42 +399,6 @@ impl<
         }
 
         Ok(std::array::from_fn(|i| state[i]))
-    }
-}
-
-impl<
-    IR: PoseidonPermutationChipIR<T>,
-    ER: PoseidonPermutationChipER<T>,
-    const T: usize,
-    const R: usize,
-    const C: usize,
-    const N: usize,
-> PlonkChip<N, R> for Chip<PrpModeInternalRom<IR, ER, T, N>, T, R, C, N>
-{
-    fn width(&self) -> usize {
-        self.mode.prp_width() * Self::num_chunks()
-    }
-
-    fn height(&self) -> usize {
-        Self::ABSORB_HEIGHT + self.mode.prp_height()
-    }
-
-    fn build(
-        &self,
-        view: &mut impl CircuitView,
-        inputs: [Option<Cell>; N],
-    ) -> Result<[Option<Cell>; R]> {
-        // TODO
-        todo!()
-    }
-
-    fn witness(
-        &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; N],
-    ) -> Result<[CellOrUnconstrained; R]> {
-        // TODO
-        todo!()
     }
 }
 
