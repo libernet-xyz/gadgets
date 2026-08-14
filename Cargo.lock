@@ -606,9 +606,7 @@ dependencies = [
 
 [[package]]
 name = "starkom-plonk"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e381664f6c8f86ff6f25a24399d76c9ff896deb6a2a1daa4fcc1dc23a8f94ff"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "primitive-types",

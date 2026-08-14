@@ -17,6 +17,6 @@ sha3 = "0.12.0"
 starkom-bluesky = "3.2.0"
 starkom-ff = "2.3.0"
 starkom-pcs = "4.2.2"
-starkom-plonk = "5.0.0"
+starkom-plonk = { path = "../plonk" }
 starkom-poseidon = "3.1.1"
 starkom-poseidon2 = "6.1.0"
