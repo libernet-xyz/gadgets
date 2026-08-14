@@ -3,10 +3,19 @@
 version = 4
 
 [[package]]
-name = "anyhow"
-version = "1.0.103"
+name = "aho-corasick"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
+checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "arrayvec"
@@ -431,6 +440,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
+name = "regex"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "regex-automata"
+version = "0.4.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fcfdb36bda0c880c5931cdc7a2bcdc8ba4556847b9d912bca70bc94708711ad"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-syntax",
+]
+
+[[package]]
+name = "regex-syntax"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
 name = "rustc-hex"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -536,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "starkom-gadgets"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "primitive-types",
@@ -545,14 +583,15 @@ dependencies = [
  "starkom-ff",
  "starkom-pcs",
  "starkom-plonk",
+ "starkom-poseidon",
  "starkom-poseidon2",
 ]
 
 [[package]]
 name = "starkom-pcs"
-version = "2.0.1"
+version = "4.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38d4d6f2fa400d99d61435161ea1077cdd46e18b57707c3e01087ece2d2ce5f8"
+checksum = "dd11d21b48c1fb9359814c2a29da2544c76a3614408a4ef754d91b7bb3eb763e"
 dependencies = [
  "anyhow",
  "primitive-types",
@@ -561,17 +600,19 @@ dependencies = [
  "starkom-bluesky",
  "starkom-ff",
  "starkom-poly",
+ "starkom-poseidon",
  "starkom-poseidon2",
 ]
 
 [[package]]
 name = "starkom-plonk"
-version = "2.0.1"
+version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80609beb2254c591d06b7395e86d05ea4bdd721c3e97df75997645362ae2e1fd"
+checksum = "f30ea06dc8b8ed24a1df3fd5cb35f0b6887733bbb043732aeb9a20d9cd506e85"
 dependencies = [
  "anyhow",
  "primitive-types",
+ "regex",
  "sha3",
  "starkom-bluesky",
  "starkom-ff",
@@ -581,9 +622,9 @@ dependencies = [
 
 [[package]]
 name = "starkom-poly"
-version = "3.0.1"
+version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a97b19f4725dd1d3b97730018970fcc6708d462a113b7315249e3db1a43fcd40"
+checksum = "b9bb4206485f3c57649db37a4e751b31f3d03a1086e1c87612dac53a2d76d992"
 dependencies = [
  "anyhow",
  "starkom-bluesky",
@@ -591,11 +632,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "starkom-poseidon2"
-version = "3.0.4"
+name = "starkom-poseidon"
+version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8736446c535c865de26c99e6083fdcbeb6020c1fa5cdc594d41f61544b66d815"
+checksum = "1cdc98375f8c10e8d0244f6bae4ca0b9e3ce53b072eed0f47c3d08331d3697ce"
 dependencies = [
+ "anyhow",
+ "primitive-types",
+ "starkom-bluesky",
+ "starkom-ff",
+]
+
+[[package]]
+name = "starkom-poseidon2"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c23f529cd64d9c036bb10470f3be730b052e0493675b19d2849854f79473e61a"
+dependencies = [
+ "anyhow",
+ "primitive-types",
  "starkom-bluesky",
  "starkom-ff",
 ]

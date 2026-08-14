@@ -1,269 +1,193 @@
-use crate::poseidon2;
+use crate::poseidon1;
 use crate::xits;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
-use starkom_ff::{Field, PrimeField};
-use starkom_plonk::{Chip as PlonkChip, CircuitBuilder, Wire, WireOrUnconstrained, Witness};
-
-/// Returns a boolean signal indicating whether an input trit is equal to 0.
-///
-/// For internal use by ternary SMTs.
-///
-/// The implementation uses the formula:
-///
-///   x^2 / 2 + 1 - 3x
-///
-/// derived from the Lagrange basis that activates on 0 and remains 0 on 1 and 2.
-#[derive(Debug, Default, Clone)]
-struct TernarySelector0 {}
-
-impl PlonkChip<1, 1> for TernarySelector0 {
-    fn build(
-        &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 1],
-    ) -> Result<[Option<Wire>; 1]> {
-        let [x] = inputs;
-        let y = builder.add_unary_gate(
-            -Scalar::from_const(3) * Scalar::TWO_INV,
-            Scalar::from_const(0),
-            -Scalar::from_const(1),
-            Scalar::TWO_INV,
-            Scalar::from_const(1),
-            x,
-        );
-        Ok([y.into()])
-    }
-
-    fn witness(
-        &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 1],
-    ) -> Result<[WireOrUnconstrained; 1]> {
-        let [x] = inputs;
-        let gate = witness.pop_gate();
-        let lhs = Wire::LeftIn(gate);
-        let rhs = Wire::RightIn(gate);
-        let out = Wire::Out(gate);
-        witness.copy(x, lhs);
-        witness.copy(x, rhs);
-        let trit = witness.get(lhs).try_to_u8().unwrap() as usize;
-        let value: u64 = [1, 0, 0][trit];
-        witness.set(out, value.into());
-        Ok([out.into()])
-    }
-}
-
-/// Returns a boolean signal indicating whether an input trit is equal to 1.
-///
-/// For internal use by ternary SMTs.
-///
-/// The implementation uses the formula:
-///
-///   2x - x^2
-///
-/// derived from the Lagrange basis that activates on 1 and remains 0 on 0 and 2.
-#[derive(Debug, Default, Clone)]
-struct TernarySelector1 {}
-
-impl PlonkChip<1, 1> for TernarySelector1 {
-    fn build(
-        &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 1],
-    ) -> Result<[Option<Wire>; 1]> {
-        let [x] = inputs;
-        let y = builder.add_unary_gate(
-            Scalar::from_const(2),
-            Scalar::from_const(0),
-            -Scalar::from_const(1),
-            -Scalar::from_const(1),
-            Scalar::from_const(0),
-            x,
-        );
-        Ok([y.into()])
-    }
-
-    fn witness(
-        &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 1],
-    ) -> Result<[WireOrUnconstrained; 1]> {
-        let [x] = inputs;
-        let gate = witness.pop_gate();
-        let lhs = Wire::LeftIn(gate);
-        let rhs = Wire::RightIn(gate);
-        let out = Wire::Out(gate);
-        witness.copy(x, lhs);
-        witness.copy(x, rhs);
-        let trit = witness.get(lhs).try_to_u8().unwrap() as usize;
-        let value: u64 = [0, 1, 0][trit];
-        witness.set(out, value.into());
-        Ok([out.into()])
-    }
-}
-
-/// Returns a boolean signal indicating whether an input trit is equal to 2.
-///
-/// For internal use by ternary SMTs.
-///
-/// The implementation uses the formula:
-///
-///   (x^2 - x) / 2
-///
-/// derived from the Lagrange basis that activates on 2 and remains 0 on 0 and 1.
-#[derive(Debug, Default, Clone)]
-struct TernarySelector2 {}
-
-impl PlonkChip<1, 1> for TernarySelector2 {
-    fn build(
-        &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 1],
-    ) -> Result<[Option<Wire>; 1]> {
-        let [x] = inputs;
-        let y = builder.add_unary_gate(
-            -Scalar::TWO_INV,
-            Scalar::from_const(0),
-            -Scalar::from_const(1),
-            Scalar::TWO_INV,
-            Scalar::from_const(0),
-            x,
-        );
-        Ok([y.into()])
-    }
-
-    fn witness(
-        &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 1],
-    ) -> Result<[WireOrUnconstrained; 1]> {
-        let [x] = inputs;
-        let gate = witness.pop_gate();
-        let lhs = Wire::LeftIn(gate);
-        let rhs = Wire::RightIn(gate);
-        let out = Wire::Out(gate);
-        witness.copy(x, lhs);
-        witness.copy(x, rhs);
-        let trit = witness.get(lhs).try_to_u8().unwrap() as usize;
-        let value: u64 = [0, 0, 1][trit];
-        witness.set(out, value.into());
-        Ok([out.into()])
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-struct ThreeWayDemux {
-    selector0: TernarySelector0,
-    selector1: TernarySelector1,
-    selector2: TernarySelector2,
-}
-
-impl PlonkChip<1, 3> for ThreeWayDemux {
-    fn build(
-        &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 1],
-    ) -> Result<[Option<Wire>; 3]> {
-        let [out0] = self.selector0.build(builder, inputs)?;
-        let [out1] = self.selector1.build(builder, inputs)?;
-        let [out2] = self.selector2.build(builder, inputs)?;
-        Ok([out0, out1, out2])
-    }
-
-    fn witness(
-        &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 1],
-    ) -> Result<[WireOrUnconstrained; 3]> {
-        let [out0] = self.selector0.witness(witness, inputs)?;
-        let [out1] = self.selector1.witness(witness, inputs)?;
-        let [out2] = self.selector2.witness(witness, inputs)?;
-        Ok([out0, out1, out2])
-    }
-}
+use starkom_bluesky::from_const;
+use starkom_ff::Field;
+use starkom_plonk::{
+    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
+};
+use starkom_poseidon::{BlueSkyConfig3, BlueSkyConfig4};
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
 /// WARNING: `H` must be strictly less than 255. Do NOT use this chip if `H` spans the full BlueSky
 /// range, as in that case the bit decomposition of the key would be UNSAFE! Use the
 /// [`FullBinaryChip`] below instead.
+///
+/// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
-pub struct BinaryChip<const H: usize> {
+pub struct BinaryChip<const H: usize, const L: usize> {
     decomposer: xits::BitDecomposerChip<H>,
-    hasher: poseidon2::Chip<3, 2>,
+    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig3, 3>,
+    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig3, 3>; H],
     path: [[Scalar; 2]; H],
 }
 
-impl<const H: usize> BinaryChip<H> {
+impl<const H: usize, const L: usize> Default for BinaryChip<H, L> {
+    fn default() -> Self {
+        Self::new([[Scalar::ZERO; 2]; H])
+    }
+}
+
+impl<const H: usize, const L: usize> BinaryChip<H, L> {
+    const SELECTOR_HEIGHT: usize = 2;
+
     pub fn new(path: [[Scalar; 2]; H]) -> Self {
+        assert!(L > 0, "need at least one lane");
+        assert!(L <= H, "too many lanes");
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
             decomposer: xits::BitDecomposerChip::default(),
-            hasher: poseidon2::Chip::default(),
+            hasher_ir,
+            hasher_er: std::array::from_fn(|i| {
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
+            }),
             path,
         }
     }
-}
 
-impl<const H: usize> Default for BinaryChip<H> {
-    fn default() -> Self {
-        Self {
-            decomposer: xits::BitDecomposerChip::default(),
-            hasher: poseidon2::Chip::default(),
-            path: [[Scalar::ZERO; 2]; H],
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
+    }
+
+    fn build_input_selector(
+        &self,
+        view: &mut impl CircuitView,
+        hash: Option<Cell>,
+        bit: Option<Cell>,
+    ) {
+        view.connect(hash, view.cell(0, 0).into());
+        view.connect(bit, view.cell(0, 2).into());
+        view.add_gate(
+            0,
+            rvar(2, 0) * rvar(1, 0) + (make_const(1) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
+        );
+        view.add_gate(
+            0,
+            rvar(2, 0) * rvar(0, 0) + (make_const(1) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
+        );
+    }
+
+    fn witness_input_selector(
+        &self,
+        view: &mut impl WitnessView,
+        bits: &[CellOrUnconstrained],
+        i: usize,
+    ) {
+        let bit = bits[i];
+        let bit_value = view.get(bit);
+        if bit_value != Scalar::ZERO {
+            view.set(view.cell(0, 0), self.path[i][1]);
+            view.set(view.cell(0, 1), self.path[i][0]);
+        } else {
+            view.set(view.cell(0, 0), self.path[i][0]);
+            view.set(view.cell(0, 1), self.path[i][1]);
         }
+        view.copy(bits[i], view.cell(0, 2));
+        view.set(view.cell(1, 0), self.path[i][0]);
+        view.set(view.cell(1, 1), self.path[i][1]);
     }
 }
 
-impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
+impl<const H: usize, const L: usize> PlonkChip<2, 1> for BinaryChip<H, L> {
+    fn width(&self) -> usize {
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
+    }
+
+    fn height(&self) -> usize {
+        self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
+    }
+
     fn build(
         &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 2],
-    ) -> Result<[Option<Wire>; 1]> {
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 2],
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
-        let bits = self.decomposer.build(builder, [key])?;
+        let bits = self.decomposer.build(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
         let mut hash = value;
-        for i in 0..H {
+        {
+            let bit = bits[0];
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, bit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..H {
             let bit = bits[i];
-            let not = builder.add_not_gate(bit).into();
-            let lhs = {
-                let lhs = builder.add_mul_gate(bit, None);
-                let rhs = builder.add_mul_gate(not, hash.into());
-                builder.add_sum_gate(lhs.into(), rhs.into())
-            };
-            let rhs = {
-                let lhs = builder.add_mul_gate(bit, hash.into());
-                let rhs = builder.add_mul_gate(not, None);
-                builder.add_sum_gate(lhs.into(), rhs.into())
-            };
-            [hash, _, _] = self.hasher.build(builder, [lhs.into(), rhs.into()])?;
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, bit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
 
     fn witness(
         &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 2],
-    ) -> Result<[WireOrUnconstrained; 1]> {
-        let [key, value] = inputs;
-        let bits = self.decomposer.witness(witness, [key])?;
-        let mut hash = value;
-        for i in 0..H {
-            let bit = bits[i];
-            let not = witness.not(bit).into();
-            let lhs = {
-                let lhs = witness.mul(bit, self.path[i][0].into());
-                let rhs = witness.mul(not, hash);
-                witness.add(lhs.into(), rhs.into())
-            };
-            let rhs = {
-                let lhs = witness.mul(bit, hash);
-                let rhs = witness.mul(not, self.path[i][1].into());
-                witness.add(lhs.into(), rhs.into())
-            };
-            [hash, _, _] = self.hasher.witness(witness, [lhs.into(), rhs.into()])?;
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 2],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        let [key, _] = inputs;
+        let bits = self.decomposer.witness(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        let mut hash;
+        {
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &bits, 0)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..H {
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &bits, i)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -275,100 +199,198 @@ impl<const H: usize> PlonkChip<2, 1> for BinaryChip<H> {
 /// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
 /// [`FullTernaryChip`] below instead.
 #[derive(Debug, Clone)]
-pub struct TernaryChip<const H: usize> {
+pub struct TernaryChip<const H: usize, const L: usize> {
     decomposer: xits::TritDecomposerChip<H>,
-    demux: ThreeWayDemux,
-    hasher: poseidon2::Chip<4, 3>,
+    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig4, 4>,
+    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig4, 4>; H],
     path: [[Scalar; 3]; H],
 }
 
-impl<const H: usize> TernaryChip<H> {
+impl<const H: usize, const L: usize> Default for TernaryChip<H, L> {
+    fn default() -> Self {
+        Self::new([[Scalar::ZERO; 3]; H])
+    }
+}
+
+impl<const H: usize, const L: usize> TernaryChip<H, L> {
+    const SELECTOR_HEIGHT: usize = 2;
+
     pub fn new(path: [[Scalar; 3]; H]) -> Self {
+        assert!(L > 0, "need at least one lane");
+        assert!(L <= H, "too many lanes");
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
             decomposer: xits::TritDecomposerChip::default(),
-            demux: ThreeWayDemux::default(),
-            hasher: poseidon2::Chip::default(),
+            hasher_ir,
+            hasher_er: std::array::from_fn(|i| {
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
+            }),
             path,
         }
     }
-}
 
-impl<const H: usize> Default for TernaryChip<H> {
-    fn default() -> Self {
-        Self {
-            decomposer: xits::TritDecomposerChip::default(),
-            demux: ThreeWayDemux::default(),
-            hasher: poseidon2::Chip::default(),
-            path: [[Scalar::ZERO; 3]; H],
-        }
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
+    }
+
+    fn build_input_selector(
+        &self,
+        view: &mut impl CircuitView,
+        hash: Option<Cell>,
+        trit: Option<Cell>,
+    ) {
+        view.connect(hash, view.cell(0, 0).into());
+        view.connect(trit, view.cell(0, 3).into());
+        let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
+        let l1 = var(3) * 2 - (var(3) ^ 2);
+        let l2 = ((var(3) ^ 2) - var(3)) / 2;
+        view.add_gate(
+            0,
+            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - rvar(0, 1),
+        );
+        view.add_gate(
+            0,
+            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - rvar(1, 1),
+        );
+        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - rvar(2, 1));
+        view.add_gate(1, var(3));
+    }
+
+    fn witness_input_selector(
+        &self,
+        view: &mut impl WitnessView,
+        trits: &[CellOrUnconstrained],
+        i: usize,
+    ) {
+        let trit = trits[i];
+        let trit_value = view.get(trit);
+        const ZERO: Scalar = from_const(0);
+        const ONE: Scalar = from_const(1);
+        const TWO: Scalar = from_const(2);
+        match trit_value {
+            ZERO => {
+                view.set(view.cell(0, 0), self.path[i][0]);
+                view.set(view.cell(0, 1), self.path[i][1]);
+                view.set(view.cell(0, 2), self.path[i][2]);
+            }
+            ONE => {
+                view.set(view.cell(0, 0), self.path[i][1]);
+                view.set(view.cell(0, 1), self.path[i][0]);
+                view.set(view.cell(0, 2), self.path[i][2]);
+            }
+            TWO => {
+                view.set(view.cell(0, 0), self.path[i][2]);
+                view.set(view.cell(0, 1), self.path[i][0]);
+                view.set(view.cell(0, 2), self.path[i][1]);
+            }
+            _ => panic!("invalid trit value {}", trit_value),
+        };
+        view.copy(trit, view.cell(0, 3).into());
+        view.set(view.cell(1, 0), self.path[i][0]);
+        view.set(view.cell(1, 1), self.path[i][1]);
+        view.set(view.cell(1, 2), self.path[i][2]);
+        view.set(view.cell(1, 3), Scalar::ZERO);
     }
 }
 
-impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
+impl<const H: usize, const L: usize> PlonkChip<2, 1> for TernaryChip<H, L> {
+    fn width(&self) -> usize {
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
+    }
+
+    fn height(&self) -> usize {
+        self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
+    }
+
     fn build(
         &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 2],
-    ) -> Result<[Option<Wire>; 1]> {
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 2],
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
-        let trits = self.decomposer.build(builder, [key])?;
+        let trits = self.decomposer.build(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
         let mut hash = value;
-        for i in 0..H {
+        {
+            let trit = trits[0];
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, trit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..H {
             let trit = trits[i];
-            let [selector0, selector1, selector2] = self.demux.build(builder, [trit])?;
-            let inverted0 = builder.add_not_gate(selector0).into();
-            let inverted1 = builder.add_not_gate(selector1).into();
-            let inverted2 = builder.add_not_gate(selector2).into();
-            let input0 = {
-                let lhs = builder.add_mul_gate(selector0, hash.into());
-                let rhs = builder.add_mul_gate(inverted0, None);
-                builder.add_sum_gate(lhs.into(), rhs.into()).into()
-            };
-            let input1 = {
-                let lhs = builder.add_mul_gate(selector1, hash.into());
-                let rhs = builder.add_mul_gate(inverted1, None);
-                builder.add_sum_gate(lhs.into(), rhs.into()).into()
-            };
-            let input2 = {
-                let lhs = builder.add_mul_gate(selector2, hash.into());
-                let rhs = builder.add_mul_gate(inverted2, None);
-                builder.add_sum_gate(lhs.into(), rhs.into()).into()
-            };
-            [hash, _, _, _] = self.hasher.build(builder, [input0, input1, input2])?;
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, trit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
 
     fn witness(
         &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 2],
-    ) -> Result<[WireOrUnconstrained; 1]> {
-        let [key, value] = inputs;
-        let trits = self.decomposer.witness(witness, [key])?;
-        let mut hash = value;
-        for i in 0..H {
-            let trit = trits[i];
-            let [selector0, selector1, selector2] = self.demux.witness(witness, [trit])?;
-            let inverted0 = witness.not(selector0).into();
-            let inverted1 = witness.not(selector1).into();
-            let inverted2 = witness.not(selector2).into();
-            let input0 = {
-                let lhs = witness.mul(selector0, hash);
-                let rhs = witness.mul(inverted0, self.path[i][0].into());
-                witness.add(lhs.into(), rhs.into()).into()
-            };
-            let input1 = {
-                let lhs = witness.mul(selector1, hash);
-                let rhs = witness.mul(inverted1, self.path[i][1].into());
-                witness.add(lhs.into(), rhs.into()).into()
-            };
-            let input2 = {
-                let lhs = witness.mul(selector2, hash);
-                let rhs = witness.mul(inverted2, self.path[i][2].into());
-                witness.add(lhs.into(), rhs.into()).into()
-            };
-            [hash, _, _, _] = self.hasher.witness(witness, [input0, input1, input2])?;
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 2],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        let [key, _] = inputs;
+        let trits = self.decomposer.witness(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        let mut hash;
+        {
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &trits, 0)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..H {
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &trits, i)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -381,82 +403,181 @@ impl<const H: usize> PlonkChip<2, 1> for TernaryChip<H> {
 /// constraints.
 ///
 /// If you don't need 256- or 255-bit keys use [`BinaryChip`].
+///
+/// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
-pub struct FullBinaryChip {
+pub struct FullBinaryChip<const L: usize> {
     decomposer: xits::FullBitDecomposerChip,
-    hasher: poseidon2::Chip<3, 2>,
+    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig3, 3>,
+    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig3, 3>; 255],
     path: [[Scalar; 2]; 256],
 }
 
-impl FullBinaryChip {
+impl<const L: usize> Default for FullBinaryChip<L> {
+    fn default() -> Self {
+        Self::new([[Scalar::ZERO; 2]; 256])
+    }
+}
+
+impl<const L: usize> FullBinaryChip<L> {
+    const SELECTOR_HEIGHT: usize = 2;
+
     pub fn new(path: [[Scalar; 2]; 256]) -> Self {
+        assert!(L > 0, "need at least one lane");
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
             decomposer: xits::FullBitDecomposerChip::default(),
-            hasher: poseidon2::Chip::default(),
+            hasher_ir,
+            hasher_er: std::array::from_fn(|i| {
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
+            }),
             path,
         }
     }
-}
 
-impl Default for FullBinaryChip {
-    fn default() -> Self {
-        Self {
-            decomposer: xits::FullBitDecomposerChip::default(),
-            hasher: poseidon2::Chip::default(),
-            path: [[Scalar::ZERO; 2]; 256],
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
+    }
+
+    fn build_input_selector(
+        &self,
+        view: &mut impl CircuitView,
+        hash: Option<Cell>,
+        bit: Option<Cell>,
+    ) {
+        view.connect(hash, view.cell(0, 0).into());
+        view.connect(bit, view.cell(0, 2).into());
+        view.add_gate(
+            0,
+            rvar(2, 0) * rvar(1, 0) + (make_const(1) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
+        );
+        view.add_gate(
+            0,
+            rvar(2, 0) * rvar(0, 0) + (make_const(1) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
+        );
+        view.add_gate(1, var(2));
+    }
+
+    fn witness_input_selector(
+        &self,
+        view: &mut impl WitnessView,
+        bits: &[CellOrUnconstrained],
+        i: usize,
+    ) {
+        let bit = bits[i];
+        let bit_value = view.get(bit);
+        if bit_value != Scalar::ZERO {
+            view.set(view.cell(0, 0), self.path[i][1]);
+            view.set(view.cell(0, 1), self.path[i][0]);
+        } else {
+            view.set(view.cell(0, 0), self.path[i][0]);
+            view.set(view.cell(0, 1), self.path[i][1]);
         }
+        view.copy(bits[i], view.cell(0, 2));
+        view.set(view.cell(1, 0), self.path[i][0]);
+        view.set(view.cell(1, 1), self.path[i][1]);
+        view.set(view.cell(1, 2), Scalar::ZERO);
     }
 }
 
-impl PlonkChip<2, 1> for FullBinaryChip {
+impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
+    fn width(&self) -> usize {
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
+    }
+
+    fn height(&self) -> usize {
+        self.decomposer.height() + self.stage_height() * 256usize.next_multiple_of(L) / L
+    }
+
     fn build(
         &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 2],
-    ) -> Result<[Option<Wire>; 1]> {
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 2],
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
-        let bits = self.decomposer.build(builder, [key])?;
+        let bits = self.decomposer.build(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
         let mut hash = value;
-        for i in 0..256 {
+        {
+            let bit = bits[0];
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, bit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..256 {
             let bit = bits[i];
-            let not = builder.add_not_gate(bit).into();
-            let lhs = {
-                let lhs = builder.add_mul_gate(bit, None);
-                let rhs = builder.add_mul_gate(not, hash.into());
-                builder.add_sum_gate(lhs.into(), rhs.into())
-            };
-            let rhs = {
-                let lhs = builder.add_mul_gate(bit, hash.into());
-                let rhs = builder.add_mul_gate(not, None);
-                builder.add_sum_gate(lhs.into(), rhs.into())
-            };
-            [hash, _, _] = self.hasher.build(builder, [lhs.into(), rhs.into()])?;
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, bit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
 
     fn witness(
         &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 2],
-    ) -> Result<[WireOrUnconstrained; 1]> {
-        let [key, value] = inputs;
-        let bits = self.decomposer.witness(witness, [key])?;
-        let mut hash = value;
-        for i in 0..256 {
-            let bit = bits[i];
-            let not = witness.not(bit).into();
-            let lhs = {
-                let lhs = witness.mul(bit, self.path[i][0].into());
-                let rhs = witness.mul(not, hash);
-                witness.add(lhs.into(), rhs.into())
-            };
-            let rhs = {
-                let lhs = witness.mul(bit, hash);
-                let rhs = witness.mul(not, self.path[i][1].into());
-                witness.add(lhs.into(), rhs.into())
-            };
-            [hash, _, _] = self.hasher.witness(witness, [lhs.into(), rhs.into()])?;
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 2],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        let [key, _] = inputs;
+        let bits = self.decomposer.witness(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        let mut hash;
+        {
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &bits, 0)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..256 {
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &bits, i)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -468,102 +589,199 @@ impl PlonkChip<2, 1> for FullBinaryChip {
 /// [`xits::FullTritDecomposerChip`], making the 161-trit decomposition safe at the cost of some
 /// extra constraints.
 ///
-/// If you don't need full keys use [`TernaryChip`].
+/// If you don't need 161-trit keys use [`TernaryChip`].
 #[derive(Debug, Clone)]
-pub struct FullTernaryChip {
+pub struct FullTernaryChip<const L: usize> {
     decomposer: xits::FullTritDecomposerChip,
-    demux: ThreeWayDemux,
-    hasher: poseidon2::Chip<4, 3>,
+    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig4, 4>,
+    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig4, 4>; 160],
     path: [[Scalar; 3]; 161],
 }
 
-impl FullTernaryChip {
+impl<const L: usize> Default for FullTernaryChip<L> {
+    fn default() -> Self {
+        Self::new([[Scalar::ZERO; 3]; 161])
+    }
+}
+
+impl<const L: usize> FullTernaryChip<L> {
+    const SELECTOR_HEIGHT: usize = 2;
+
     pub fn new(path: [[Scalar; 3]; 161]) -> Self {
+        assert!(L > 0, "need at least one lane");
+        let hasher_ir = poseidon1::PermutationChipIR::default();
+        let stage_width = hasher_ir.width() as isize;
+        let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
             decomposer: xits::FullTritDecomposerChip::default(),
-            demux: ThreeWayDemux::default(),
-            hasher: poseidon2::Chip::default(),
+            hasher_ir,
+            hasher_er: std::array::from_fn(|i| {
+                poseidon1::PermutationChipER::new(
+                    ((i + 1) / L) as isize * -stage_height,
+                    ((i + 1) % L) as isize * -stage_width,
+                )
+            }),
             path,
         }
     }
-}
 
-impl Default for FullTernaryChip {
-    fn default() -> Self {
-        Self {
-            decomposer: xits::FullTritDecomposerChip::default(),
-            demux: ThreeWayDemux::default(),
-            hasher: poseidon2::Chip::default(),
-            path: [[Scalar::ZERO; 3]; 161],
-        }
+    fn stage_width(&self) -> usize {
+        self.hasher_ir.width()
+    }
+
+    fn stage_height(&self) -> usize {
+        Self::SELECTOR_HEIGHT + self.hasher_ir.height()
+    }
+
+    fn build_input_selector(
+        &self,
+        view: &mut impl CircuitView,
+        hash: Option<Cell>,
+        trit: Option<Cell>,
+    ) {
+        view.connect(hash, view.cell(0, 0).into());
+        view.connect(trit, view.cell(0, 3).into());
+        let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
+        let l1 = var(3) * 2 - (var(3) ^ 2);
+        let l2 = ((var(3) ^ 2) - var(3)) / 2;
+        view.add_gate(
+            0,
+            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - rvar(0, 1),
+        );
+        view.add_gate(
+            0,
+            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - rvar(1, 1),
+        );
+        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - rvar(2, 1));
+        view.add_gate(1, var(3));
+    }
+
+    fn witness_input_selector(
+        &self,
+        view: &mut impl WitnessView,
+        trits: &[CellOrUnconstrained],
+        i: usize,
+    ) {
+        let trit = trits[i];
+        let trit_value = view.get(trit);
+        const ZERO: Scalar = from_const(0);
+        const ONE: Scalar = from_const(1);
+        const TWO: Scalar = from_const(2);
+        match trit_value {
+            ZERO => {
+                view.set(view.cell(0, 0), self.path[i][0]);
+                view.set(view.cell(0, 1), self.path[i][1]);
+                view.set(view.cell(0, 2), self.path[i][2]);
+            }
+            ONE => {
+                view.set(view.cell(0, 0), self.path[i][1]);
+                view.set(view.cell(0, 1), self.path[i][0]);
+                view.set(view.cell(0, 2), self.path[i][2]);
+            }
+            TWO => {
+                view.set(view.cell(0, 0), self.path[i][2]);
+                view.set(view.cell(0, 1), self.path[i][0]);
+                view.set(view.cell(0, 2), self.path[i][1]);
+            }
+            _ => panic!("invalid trit value {}", trit_value),
+        };
+        view.copy(trit, view.cell(0, 3).into());
+        view.set(view.cell(1, 0), self.path[i][0]);
+        view.set(view.cell(1, 1), self.path[i][1]);
+        view.set(view.cell(1, 2), self.path[i][2]);
+        view.set(view.cell(1, 3), Scalar::ZERO);
     }
 }
 
-impl PlonkChip<2, 1> for FullTernaryChip {
+impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
+    fn width(&self) -> usize {
+        std::cmp::max(self.decomposer.width(), self.stage_width() * L)
+    }
+
+    fn height(&self) -> usize {
+        self.decomposer.height() + self.stage_height() * 161usize.next_multiple_of(L) / L
+    }
+
     fn build(
         &self,
-        builder: &mut CircuitBuilder,
-        inputs: [Option<Wire>; 2],
-    ) -> Result<[Option<Wire>; 1]> {
+        view: &mut impl CircuitView,
+        inputs: [Option<Cell>; 2],
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
-        let trits = self.decomposer.build(builder, [key])?;
+        let trits = self.decomposer.build(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
         let mut hash = value;
-        for i in 0..161 {
+        {
+            let trit = trits[0];
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, trit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..161 {
             let trit = trits[i];
-            let [selector0, selector1, selector2] = self.demux.build(builder, [trit])?;
-            let inverted0 = builder.add_not_gate(selector0).into();
-            let inverted1 = builder.add_not_gate(selector1).into();
-            let inverted2 = builder.add_not_gate(selector2).into();
-            let input0 = {
-                let lhs = builder.add_mul_gate(selector0, hash.into());
-                let rhs = builder.add_mul_gate(inverted0, None);
-                builder.add_sum_gate(lhs.into(), rhs.into()).into()
-            };
-            let input1 = {
-                let lhs = builder.add_mul_gate(selector1, hash.into());
-                let rhs = builder.add_mul_gate(inverted1, None);
-                builder.add_sum_gate(lhs.into(), rhs.into()).into()
-            };
-            let input2 = {
-                let lhs = builder.add_mul_gate(selector2, hash.into());
-                let rhs = builder.add_mul_gate(inverted2, None);
-                builder.add_sum_gate(lhs.into(), rhs.into()).into()
-            };
-            [hash, _, _, _] = self.hasher.build(builder, [input0, input1, input2])?;
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.build_input_selector(view, hash, trit)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
 
     fn witness(
         &self,
-        witness: &mut Witness,
-        inputs: [WireOrUnconstrained; 2],
-    ) -> Result<[WireOrUnconstrained; 1]> {
-        let [key, value] = inputs;
-        let trits = self.decomposer.witness(witness, [key])?;
-        let mut hash = value;
-        for i in 0..161 {
-            let trit = trits[i];
-            let [selector0, selector1, selector2] = self.demux.witness(witness, [trit])?;
-            let inverted0 = witness.not(selector0).into();
-            let inverted1 = witness.not(selector1).into();
-            let inverted2 = witness.not(selector2).into();
-            let input0 = {
-                let lhs = witness.mul(selector0, hash);
-                let rhs = witness.mul(inverted0, self.path[i][0].into());
-                witness.add(lhs.into(), rhs.into()).into()
-            };
-            let input1 = {
-                let lhs = witness.mul(selector1, hash);
-                let rhs = witness.mul(inverted1, self.path[i][1].into());
-                witness.add(lhs.into(), rhs.into()).into()
-            };
-            let input2 = {
-                let lhs = witness.mul(selector2, hash);
-                let rhs = witness.mul(inverted2, self.path[i][2].into());
-                witness.add(lhs.into(), rhs.into()).into()
-            };
-            [hash, _, _, _] = self.hasher.witness(witness, [input0, input1, input2])?;
+        view: &mut impl WitnessView,
+        inputs: [CellOrUnconstrained; 2],
+    ) -> Result<[CellOrUnconstrained; 1]> {
+        let [key, _] = inputs;
+        let trits = self.decomposer.witness(view, [key])?;
+        let stage_width = self.stage_width();
+        let stage_height = self.stage_height();
+        let mut hash;
+        {
+            let mut view = view.sub(
+                self.decomposer.height(),
+                0,
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &trits, 0)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_ir, inputs)?;
+        }
+        for i in 1..161 {
+            let mut view = view.sub(
+                self.decomposer.height() + stage_height * (i / L),
+                stage_width * (i % L),
+                stage_width.into(),
+                stage_height.into(),
+            );
+            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            [hash, _, _, _] = view
+                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                    self.witness_input_selector(view, &trits, i)
+                })
+                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher_er[i - 1], inputs)?;
         }
         Ok([hash])
     }
@@ -572,41 +790,61 @@ impl PlonkChip<2, 1> for FullTernaryChip {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use primitive_types::U256;
+    use primitive_types::{H256, U256};
     use starkom_bluesky::{from_const, parse_scalar};
     use starkom_ff::Field256;
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{Circuit, CompressedCircuit};
+    use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use starkom_poseidon as poseidon1;
+    use std::collections::BTreeMap;
     use std::fmt::Debug;
-    use std::sync::{Arc, LazyLock};
+    use std::sync::{Arc, LazyLock, Mutex};
 
-    fn test_binary_smt<const H: usize>(
+    const BLOWUP_LOG2: usize = 3;
+
+    fn parse_hash(s: &'static str) -> H256 {
+        s.parse().unwrap()
+    }
+
+    fn test_binary_smt<const H: usize, const L: usize>(
         key: u64,
         value: u64,
         path: [[Scalar; 2]; H],
         expected_root_hash: Scalar,
+        circuit_commitment: H256,
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
+        let chip = BinaryChip::<H, L>::new(path);
+        assert_eq!(chip.width(), L * 6);
+        assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
-        let inputs = builder.add_nop_gate(None, None, None);
-        let key_wire = Wire::LeftIn(inputs);
-        let value_wire = Wire::RightIn(inputs);
-        let expected_root_hash_wire = Wire::Out(inputs);
-        let chip = BinaryChip::<H>::new(path);
-        let root_hash_wire =
-            chip.build(&mut builder, [key_wire.into(), value_wire.into()])?[0].unwrap();
-        builder.connect(root_hash_wire, expected_root_hash_wire);
-        builder.declare_public_gates([inputs]);
-        let circuit = builder.build();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
         let mut witness = circuit.make_witness();
-        witness.nop(key.into(), value.into(), expected_root_hash.into());
-        chip.witness(&mut witness, [key.into(), value.into()])?;
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
-        let public_inputs = circuit.verify(&proof)?;
-        assert_eq!(public_inputs[&key_wire], key);
-        assert_eq!(public_inputs[&value_wire], value);
-        assert_eq!(public_inputs[&expected_root_hash_wire], expected_root_hash);
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let openings = circuit.verify(&proof)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
         Ok(())
     }
 
@@ -614,155 +852,135 @@ mod tests {
     fn test_binary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34)]];
         let root_hash =
-            parse_scalar("0x165e74be18ef4be6de5e232cd3480dcc38176807ac918b904576964612c5b6de");
-        assert!(test_binary_smt::<1>(0, 12, path, root_hash).is_ok());
-        assert!(test_binary_smt::<1>(1, 34, path, root_hash).is_ok());
+            parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06");
+        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
+        assert!(test_binary_smt::<1, 1>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<1, 1>(1, 34, path, root_hash, c).is_ok());
     }
 
     #[test]
     fn test_binary_smt_height_one_2() {
         let path = [[from_const(34), from_const(12)]];
         let root_hash =
-            parse_scalar("0x5edee3683c6686f34afdcc9bdabd06cc43c2d5a28d6509a6301eceb33e255e72");
-        assert!(test_binary_smt::<1>(0, 34, path, root_hash).is_ok());
-        assert!(test_binary_smt::<1>(1, 12, path, root_hash).is_ok());
+            parse_scalar("0x6a6ca65c7ab651a6e7751e7a23df1d7ff66f745f1b09f4b39df2dfeb4e137422");
+        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
+        assert!(test_binary_smt::<1, 1>(0, 34, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<1, 1>(1, 12, path, root_hash, c).is_ok());
     }
 
     #[test]
     fn test_binary_smt_height_one_3() {
         let path = [[from_const(56), from_const(78)]];
         let root_hash =
-            parse_scalar("0x38e7bb7b6ccae0c74031423877db058f4ab3a284964e2d91bf97497851eca5db");
-        assert!(test_binary_smt::<1>(0, 56, path, root_hash).is_ok());
-        assert!(test_binary_smt::<1>(1, 78, path, root_hash).is_ok());
+            parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe");
+        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
+        assert!(test_binary_smt::<1, 1>(0, 56, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<1, 1>(1, 78, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_binary_smt_height_two_1() {
+    fn test_binary_smt_height_two_one_lane_1() {
         let path = [
             [from_const(12), from_const(34)],
             [
-                parse_scalar("0x165e74be18ef4be6de5e232cd3480dcc38176807ac918b904576964612c5b6de"),
-                parse_scalar("0x38e7bb7b6ccae0c74031423877db058f4ab3a284964e2d91bf97497851eca5db"),
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x2945d8bf64346bb2085bb6ec93520cd641a3c77f1501dba2cbcb8982eb8dbaa1");
-        assert!(test_binary_smt::<2>(0, 12, path, root_hash).is_ok());
-        assert!(test_binary_smt::<2>(1, 34, path, root_hash).is_ok());
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
+        let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
+        assert!(test_binary_smt::<2, 1>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 1>(1, 34, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_binary_smt_height_two_2() {
+    fn test_binary_smt_height_two_one_lane_2() {
         let path = [
             [from_const(56), from_const(78)],
             [
-                parse_scalar("0x165e74be18ef4be6de5e232cd3480dcc38176807ac918b904576964612c5b6de"),
-                parse_scalar("0x38e7bb7b6ccae0c74031423877db058f4ab3a284964e2d91bf97497851eca5db"),
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x2945d8bf64346bb2085bb6ec93520cd641a3c77f1501dba2cbcb8982eb8dbaa1");
-        assert!(test_binary_smt::<2>(2, 56, path, root_hash).is_ok());
-        assert!(test_binary_smt::<2>(3, 78, path, root_hash).is_ok());
-    }
-
-    fn test_ternary_selector_impl<C: Default + PlonkChip<1, 1>>(
-        input: u8,
-        output: u8,
-    ) -> Result<()> {
-        let mut builder = CircuitBuilder::default();
-        let chip = C::default();
-        let trit = builder.add_const_gate(input.into());
-        let out = chip.build(&mut builder, [trit.into()])?[0].unwrap();
-        let out = builder.add_nop_gate(None, None, out.into());
-        builder.declare_public_gates([out]);
-        let circuit = builder.build();
-        let mut witness = circuit.make_witness();
-        let trit = witness.assert_constant(input.into());
-        let out = chip.witness(&mut witness, [trit.into()])?[0];
-        let out = witness.nop(Scalar::ZERO.into(), Scalar::ZERO.into(), out);
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
-        let public_inputs = circuit.verify(&proof)?;
-        assert_eq!(public_inputs[&Wire::Out(out)], output.into());
-        Ok(())
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
+        let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
+        assert!(test_binary_smt::<2, 1>(2, 56, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 1>(3, 78, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_ternary_selector_0() {
-        assert!(test_ternary_selector_impl::<TernarySelector0>(0, 1).is_ok());
-        assert!(test_ternary_selector_impl::<TernarySelector0>(1, 0).is_ok());
-        assert!(test_ternary_selector_impl::<TernarySelector0>(2, 0).is_ok());
+    fn test_binary_smt_height_two_two_lanes_1() {
+        let path = [
+            [from_const(12), from_const(34)],
+            [
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
+        let c = parse_hash("0x98ebdec6c8e987a0e975b9dfcc881a41e6c31af1a96cc34c1b2df7942c24b331");
+        assert!(test_binary_smt::<2, 2>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 2>(1, 34, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_ternary_selector_1() {
-        assert!(test_ternary_selector_impl::<TernarySelector1>(0, 0).is_ok());
-        assert!(test_ternary_selector_impl::<TernarySelector1>(1, 1).is_ok());
-        assert!(test_ternary_selector_impl::<TernarySelector1>(2, 0).is_ok());
+    fn test_binary_smt_height_two_two_lanes_2() {
+        let path = [
+            [from_const(56), from_const(78)],
+            [
+                parse_scalar("0x45470d74563e5e49fe3bd2a161b36116e3c6a6a2f9c105bfe8c2599ff6116b06"),
+                parse_scalar("0x1ba4c686a3529d3bfc13890b2e1438b7adf780e2978cb2cabdd47653f402e8fe"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x3f16169d0163139187336364cda1cac7f97b31dfbdabc4acba221d41792de5de");
+        let c = parse_hash("0x98ebdec6c8e987a0e975b9dfcc881a41e6c31af1a96cc34c1b2df7942c24b331");
+        assert!(test_binary_smt::<2, 2>(2, 56, path, root_hash, c).is_ok());
+        assert!(test_binary_smt::<2, 2>(3, 78, path, root_hash, c).is_ok());
     }
 
-    #[test]
-    fn test_ternary_selector_2() {
-        assert!(test_ternary_selector_impl::<TernarySelector2>(0, 0).is_ok());
-        assert!(test_ternary_selector_impl::<TernarySelector2>(1, 0).is_ok());
-        assert!(test_ternary_selector_impl::<TernarySelector2>(2, 1).is_ok());
-    }
-
-    fn test_three_way_demux_impl(input: u8, expected: [u8; 3]) -> Result<()> {
-        let mut builder = CircuitBuilder::default();
-        let chip = ThreeWayDemux::default();
-        let trit = builder.add_const_gate(input.into());
-        let [out0, out1, out2] = chip.build(&mut builder, [trit.into()])?;
-        let out = builder.add_nop_gate(out0, out1, out2);
-        builder.declare_public_gates([out]);
-        let circuit = builder.build();
-        let mut witness = circuit.make_witness();
-        let trit = witness.assert_constant(input.into());
-        let [out0, out1, out2] = chip.witness(&mut witness, [trit.into()])?;
-        let out = witness.nop(out0, out1, out2);
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
-        let public_inputs = circuit.verify(&proof)?;
-        assert_eq!(public_inputs[&Wire::LeftIn(out)], expected[0].into());
-        assert_eq!(public_inputs[&Wire::RightIn(out)], expected[1].into());
-        assert_eq!(public_inputs[&Wire::Out(out)], expected[2].into());
-        Ok(())
-    }
-
-    #[test]
-    fn test_three_way_demux() {
-        assert!(test_three_way_demux_impl(0, [1, 0, 0]).is_ok());
-        assert!(test_three_way_demux_impl(1, [0, 1, 0]).is_ok());
-        assert!(test_three_way_demux_impl(2, [0, 0, 1]).is_ok());
-    }
-
-    fn test_ternary_smt<const H: usize>(
+    fn test_ternary_smt<const H: usize, const L: usize>(
         key: u64,
         value: u64,
         path: [[Scalar; 3]; H],
         expected_root_hash: Scalar,
+        circuit_commitment: H256,
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
+        let chip = TernaryChip::<H, L>::new(path);
+        assert_eq!(chip.width(), L * 8);
+        assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
-        let inputs = builder.add_nop_gate(None, None, None);
-        let key_wire = Wire::LeftIn(inputs);
-        let value_wire = Wire::RightIn(inputs);
-        let expected_root_hash_wire = Wire::Out(inputs);
-        let chip = TernaryChip::<H>::new(path);
-        let root_hash_wire =
-            chip.build(&mut builder, [key_wire.into(), value_wire.into()])?[0].unwrap();
-        builder.connect(root_hash_wire, expected_root_hash_wire);
-        builder.declare_public_gates([inputs]);
-        let circuit = builder.build();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
         let mut witness = circuit.make_witness();
-        witness.nop(key.into(), value.into(), expected_root_hash.into());
-        chip.witness(&mut witness, [key.into(), value.into()])?;
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, 2)?;
-        let public_inputs = circuit.verify(&proof)?;
-        assert_eq!(public_inputs[&key_wire], key);
-        assert_eq!(public_inputs[&value_wire], value);
-        assert_eq!(public_inputs[&expected_root_hash_wire], expected_root_hash);
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let openings = circuit.verify(&proof)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
         Ok(())
     }
 
@@ -770,81 +988,141 @@ mod tests {
     fn test_ternary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34), from_const(56)]];
         let root_hash =
-            parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd");
-        assert!(test_ternary_smt::<1>(0, 12, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<1>(1, 34, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<1>(2, 56, path, root_hash).is_ok());
+            parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49");
+        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        assert!(test_ternary_smt::<1, 1>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(1, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(2, 56, path, root_hash, c).is_ok());
     }
 
     #[test]
     fn test_ternary_smt_height_one_2() {
         let path = [[from_const(34), from_const(56), from_const(12)]];
         let root_hash =
-            parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581");
-        assert!(test_ternary_smt::<1>(0, 34, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<1>(1, 56, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<1>(2, 12, path, root_hash).is_ok());
+            parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3");
+        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        assert!(test_ternary_smt::<1, 1>(0, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(1, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(2, 12, path, root_hash, c).is_ok());
     }
 
     #[test]
     fn test_ternary_smt_height_one_3() {
         let path = [[from_const(56), from_const(78), from_const(90)]];
         let root_hash =
-            parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0");
-        assert!(test_ternary_smt::<1>(0, 56, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<1>(1, 78, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<1>(2, 90, path, root_hash).is_ok());
+            parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd");
+        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        assert!(test_ternary_smt::<1, 1>(0, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(1, 78, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<1, 1>(2, 90, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_ternary_smt_height_two_1() {
+    fn test_ternary_smt_height_two_one_lane_1() {
         let path = [
             [from_const(12), from_const(34), from_const(56)],
             [
-                parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd"),
-                parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581"),
-                parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0"),
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x27228a5e7d694f88f1b5643dd325ddcc6497f4afaa807ddb64e197742fee8cb4");
-        assert!(test_ternary_smt::<2>(0, 12, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<2>(1, 34, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<2>(2, 56, path, root_hash).is_ok());
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        assert!(test_ternary_smt::<2, 1>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(1, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(2, 56, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_ternary_smt_height_two_2() {
+    fn test_ternary_smt_height_two_one_lane_2() {
         let path = [
             [from_const(34), from_const(56), from_const(12)],
             [
-                parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd"),
-                parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581"),
-                parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0"),
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x27228a5e7d694f88f1b5643dd325ddcc6497f4afaa807ddb64e197742fee8cb4");
-        assert!(test_ternary_smt::<2>(3, 34, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<2>(4, 56, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<2>(5, 12, path, root_hash).is_ok());
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        assert!(test_ternary_smt::<2, 1>(3, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(4, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(5, 12, path, root_hash, c).is_ok());
     }
 
     #[test]
-    fn test_ternary_smt_height_two_3() {
+    fn test_ternary_smt_height_two_one_lane_3() {
         let path = [
             [from_const(56), from_const(78), from_const(90)],
             [
-                parse_scalar("0x236092ebefc7e6565e0e75414d8fdce1ce2e19bb59002d36b794b9c3111bb9cd"),
-                parse_scalar("0x33c425faba18725cb4ffa039bbd4dade2c5b47a61edbd416cf984541f6956581"),
-                parse_scalar("0x2fa39a3a76d0cf8220bd6f9899b209110ad1cca7b0bdc2b340661fa7063f2ba0"),
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x27228a5e7d694f88f1b5643dd325ddcc6497f4afaa807ddb64e197742fee8cb4");
-        assert!(test_ternary_smt::<2>(6, 56, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<2>(7, 78, path, root_hash).is_ok());
-        assert!(test_ternary_smt::<2>(8, 90, path, root_hash).is_ok());
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        assert!(test_ternary_smt::<2, 1>(6, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(7, 78, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 1>(8, 90, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_two_lanes_1() {
+        let path = [
+            [from_const(12), from_const(34), from_const(56)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0xabeda530f4fc805498b14b12f71239e35e6f4d0f1749aac803db2e76dfad7e4a");
+        assert!(test_ternary_smt::<2, 2>(0, 12, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(1, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(2, 56, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_two_lanes_2() {
+        let path = [
+            [from_const(34), from_const(56), from_const(12)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0xabeda530f4fc805498b14b12f71239e35e6f4d0f1749aac803db2e76dfad7e4a");
+        assert!(test_ternary_smt::<2, 2>(3, 34, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(4, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(5, 12, path, root_hash, c).is_ok());
+    }
+
+    #[test]
+    fn test_ternary_smt_height_two_two_lanes_3() {
+        let path = [
+            [from_const(56), from_const(78), from_const(90)],
+            [
+                parse_scalar("0x1125d1d7bcc64d065695f306f08db087abc90d214fd982461296e607de7d4d49"),
+                parse_scalar("0x082b815a78ff9655cf614728ee7784b92be9d97086ccc0065b37cfa666efc2f3"),
+                parse_scalar("0x516b43041b6e111a7be5670972354589d8686593fbd2a994e14c53e55bb803cd"),
+            ],
+        ];
+        let root_hash =
+            parse_scalar("0x1bc60b83e94bbd9609c01954b66049bd4ba987570f4d5a68d89af45970a3930c");
+        let c = parse_hash("0xabeda530f4fc805498b14b12f71239e35e6f4d0f1749aac803db2e76dfad7e4a");
+        assert!(test_ternary_smt::<2, 2>(6, 56, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(7, 78, path, root_hash, c).is_ok());
+        assert!(test_ternary_smt::<2, 2>(8, 90, path, root_hash, c).is_ok());
     }
 
     trait Node: 'static + Debug + Send + Sync {
@@ -900,8 +1178,10 @@ mod tests {
 
     impl BinaryNode {
         fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
-            use starkom_poseidon2::{bluesky::BlueSkyConfig3, hash0};
-            let hash = hash0::<BlueSkyConfig3, Scalar, 3>(&[left.hash(), right.hash()]);
+            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfig3, Scalar, 3, 2, 1>([
+                left.hash(),
+                right.hash(),
+            ]);
             Arc::new(BinaryNode {
                 level,
                 hash,
@@ -911,7 +1191,7 @@ mod tests {
         }
 
         fn bit_at(&self, key: &U256) -> bool {
-            (key >> self.level) & U256::one() != U256::zero()
+            (key >> (self.level - 1)) & U256::one() != U256::zero()
         }
     }
 
@@ -963,9 +1243,8 @@ mod tests {
     }
 
     impl TernaryNode {
-        fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<Self> {
-            use starkom_poseidon2::{bluesky::BlueSkyConfig4, hash0};
-            let hash = hash0::<BlueSkyConfig4, Scalar, 4>(&[
+        fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<dyn Node> {
+            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfig4, Scalar, 4, 3, 1>([
                 children[0].hash(),
                 children[1].hash(),
                 children[2].hash(),
@@ -978,7 +1257,7 @@ mod tests {
         }
 
         fn trit_at(&self, key: &U256) -> usize {
-            let divisor = U256::from(3).pow(self.level.into());
+            let divisor = U256::from(3).pow((self.level - 1).into());
             ((key / divisor) % 3).try_into().unwrap()
         }
     }
@@ -1019,58 +1298,266 @@ mod tests {
         }
     }
 
-    fn get_empty_binary_tree() -> Arc<dyn Node> {
-        static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
-            let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
-            for i in 0..256 {
-                node = BinaryNode::new(i, node.clone(), node.clone());
+    fn get_empty_binary_tree_locked(
+        nodes_by_level: &mut BTreeMap<usize, Arc<dyn Node>>,
+        level: usize,
+    ) -> Arc<dyn Node> {
+        match nodes_by_level.get_mut(&level) {
+            Some(node) => node.clone(),
+            None => {
+                let node = if level > 0 {
+                    let child = get_empty_binary_tree_locked(nodes_by_level, level - 1);
+                    BinaryNode::new(level, child.clone(), child.clone())
+                } else {
+                    Arc::new(Leaf::default())
+                };
+                nodes_by_level.insert(level, node.clone());
+                node
             }
-            node
-        });
-        TREE.clone()
+        }
     }
 
-    fn get_empty_ternary_tree() -> Arc<dyn Node> {
-        static TREE: LazyLock<Arc<dyn Node>> = LazyLock::new(|| {
-            let mut node: Arc<dyn Node> = Arc::new(Leaf::default());
-            for i in 0..161 {
-                node = TernaryNode::new(i, [node.clone(), node.clone(), node.clone()]);
+    fn get_empty_binary_tree(level: usize) -> Arc<dyn Node> {
+        static NODES_BY_LEVEL: LazyLock<Mutex<BTreeMap<usize, Arc<dyn Node>>>> =
+            LazyLock::new(|| Mutex::new(BTreeMap::default()));
+        let mut nodes_by_level = NODES_BY_LEVEL.lock().unwrap();
+        get_empty_binary_tree_locked(&mut nodes_by_level, level)
+    }
+
+    fn get_empty_ternary_tree_locked(
+        nodes_by_level: &mut BTreeMap<usize, Arc<dyn Node>>,
+        level: usize,
+    ) -> Arc<dyn Node> {
+        match nodes_by_level.get_mut(&level) {
+            Some(node) => node.clone(),
+            None => {
+                let node = if level > 0 {
+                    let child = get_empty_ternary_tree_locked(nodes_by_level, level - 1);
+                    TernaryNode::new(level, [child.clone(), child.clone(), child.clone()])
+                } else {
+                    Arc::new(Leaf::default())
+                };
+                nodes_by_level.insert(level, node.clone());
+                node
             }
-            node
-        });
-        TREE.clone()
+        }
     }
 
-    fn get_full_binary_prover() -> &'static Circuit {
-        static PROVER: LazyLock<Circuit> = LazyLock::new(|| {
-            let chip = FullBinaryChip::default();
-            let mut builder = CircuitBuilder::default();
-            let inputs = builder.add_nop_gate(None, None, None);
-            let key_wire = Wire::LeftIn(inputs);
-            let value_wire = Wire::RightIn(inputs);
-            let expected_root_hash_wire = Wire::Out(inputs);
-            let [root_hash_wire] = chip
-                .build(&mut builder, [key_wire.into(), value_wire.into()])
-                .unwrap();
-            builder.connect(root_hash_wire.unwrap(), expected_root_hash_wire);
-            builder.declare_public_gates([inputs]);
-            builder.build()
-        });
-        &*PROVER
+    fn get_empty_ternary_tree(level: usize) -> Arc<dyn Node> {
+        static NODES_BY_LEVEL: LazyLock<Mutex<BTreeMap<usize, Arc<dyn Node>>>> =
+            LazyLock::new(|| Mutex::new(BTreeMap::default()));
+        let mut nodes_by_level = NODES_BY_LEVEL.lock().unwrap();
+        get_empty_ternary_tree_locked(&mut nodes_by_level, level)
     }
 
-    fn get_full_binary_verifier() -> &'static CompressedCircuit {
-        static VERIFIER: LazyLock<CompressedCircuit> =
-            LazyLock::new(|| get_full_binary_prover().compress::<Sha2Hash<Scalar>>(2));
-        &*VERIFIER
+    fn test_tall_binary_smt_impl<const H: usize, const L: usize>(
+        entries: impl IntoIterator<Item = (u64, u64)>,
+        key: u64,
+    ) -> Result<()> {
+        let tree = {
+            let mut tree = get_empty_binary_tree(H);
+            for (key, value) in entries {
+                tree = tree.put(key.into(), value.into());
+            }
+            tree
+        };
+        let key = key.into();
+        let value = tree.get(key);
+        let path: [[Scalar; 2]; H] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected_root_hash = tree.hash();
+
+        let chip = BinaryChip::<H, L>::new(path);
+        assert_eq!(chip.stage_width(), 6);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(H + 1, 6 * L));
+        assert_eq!(
+            chip.height(),
+            1 + chip.stage_height() * H.next_multiple_of(L) / L
+        );
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let openings = circuit.verify(&proof, options)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tall_binary_smt_empty() {
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 3).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 4).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>([], 5).is_ok());
+    }
+
+    #[test]
+    fn test_tall_binary_smt_one_entry() {
+        let entries = [(12, 34)];
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 11).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 12).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 13).is_ok());
+    }
+
+    #[test]
+    fn test_tall_binary_smt_two_entries() {
+        let entries = [(34, 56), (78, 12)];
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 33).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 34).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 35).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 77).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 78).is_ok());
+        assert!(test_tall_binary_smt_impl::<20, 4>(entries, 79).is_ok());
+    }
+
+    fn test_tall_ternary_smt_impl<const H: usize, const L: usize>(
+        entries: impl IntoIterator<Item = (u64, u64)>,
+        key: u64,
+    ) -> Result<()> {
+        let tree = {
+            let mut tree = get_empty_ternary_tree(H);
+            for (key, value) in entries {
+                tree = tree.put(key.into(), value.into());
+            }
+            tree
+        };
+        let key = key.into();
+        let value = tree.get(key);
+        let path: [[Scalar; 3]; H] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected_root_hash = tree.hash();
+
+        let chip = TernaryChip::<H, L>::new(path);
+        assert_eq!(chip.stage_width(), 8);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(H + 1, 8 * L));
+        assert_eq!(
+            chip.height(),
+            1 + chip.stage_height() * H.next_multiple_of(L) / L
+        );
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let openings = circuit.verify(&proof, options)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tall_ternary_smt_empty() {
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 3).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 4).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>([], 5).is_ok());
+    }
+
+    #[test]
+    fn test_tall_ternary_smt_one_entry() {
+        let entries = [(12, 34)];
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 11).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 12).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 13).is_ok());
+    }
+
+    #[test]
+    fn test_tall_ternary_smt_two_entries() {
+        let entries = [(34, 56), (78, 12)];
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 33).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 34).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 35).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 77).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 78).is_ok());
+        assert!(test_tall_ternary_smt_impl::<13, 3>(entries, 79).is_ok());
     }
 
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
         key: u64,
     ) -> Result<()> {
+        const LANES: usize = 52;
+
         let tree = {
-            let mut tree = get_empty_binary_tree();
+            let mut tree = get_empty_binary_tree(256);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1085,20 +1572,48 @@ mod tests {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let root_hash = tree.hash();
-        let chip = FullBinaryChip::new(path);
-        let prover = get_full_binary_prover();
-        let mut witness = prover.make_witness();
-        let inputs = witness.nop(key.into(), value.into(), root_hash.into());
-        let key_wire = Wire::LeftIn(inputs);
-        let value_wire = Wire::RightIn(inputs);
-        let expected_root_hash_wire = Wire::Out(inputs);
-        chip.witness(&mut witness, [key.into(), value.into()])?;
-        let proof = prover.prove::<Sha2Hash<Scalar>>(witness, 2)?;
-        let public_inputs = get_full_binary_verifier().verify(&proof)?;
-        assert_eq!(public_inputs[&key_wire], key);
-        assert_eq!(public_inputs[&value_wire], value);
-        assert_eq!(public_inputs[&expected_root_hash_wire], root_hash);
+        let expected_root_hash = tree.hash();
+
+        let chip = FullBinaryChip::<LANES>::new(path);
+        assert_eq!(chip.stage_width(), 6);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(257, 6 * LANES));
+        assert_eq!(
+            chip.height(),
+            3 + chip.stage_height() * 256usize.next_multiple_of(LANES) / LANES
+        );
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let openings = circuit.verify(&proof, options)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
+
         Ok(())
     }
 
@@ -1137,36 +1652,14 @@ mod tests {
         assert!(test_full_binary_smt_impl(entries, 79).is_ok());
     }
 
-    fn get_full_ternary_prover() -> &'static Circuit {
-        static PROVER: LazyLock<Circuit> = LazyLock::new(|| {
-            let chip = FullTernaryChip::default();
-            let mut builder = CircuitBuilder::default();
-            let inputs = builder.add_nop_gate(None, None, None);
-            let key_wire = Wire::LeftIn(inputs);
-            let value_wire = Wire::RightIn(inputs);
-            let expected_root_hash_wire = Wire::Out(inputs);
-            let [root_hash_wire] = chip
-                .build(&mut builder, [key_wire.into(), value_wire.into()])
-                .unwrap();
-            builder.connect(root_hash_wire.unwrap(), expected_root_hash_wire);
-            builder.declare_public_gates([inputs]);
-            builder.build()
-        });
-        &*PROVER
-    }
-
-    fn get_full_ternary_verifier() -> &'static CompressedCircuit {
-        static VERIFIER: LazyLock<CompressedCircuit> =
-            LazyLock::new(|| get_full_ternary_prover().compress::<Sha2Hash<Scalar>>(2));
-        &*VERIFIER
-    }
-
     fn test_full_ternary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
         key: u64,
     ) -> Result<()> {
+        const LANES: usize = 33;
+
         let tree = {
-            let mut tree = get_empty_ternary_tree();
+            let mut tree = get_empty_ternary_tree(161);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1181,20 +1674,48 @@ mod tests {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let root_hash = tree.hash();
-        let chip = FullTernaryChip::new(path);
-        let prover = get_full_ternary_prover();
-        let mut witness = prover.make_witness();
-        let inputs = witness.nop(key.into(), value.into(), root_hash.into());
-        let key_wire = Wire::LeftIn(inputs);
-        let value_wire = Wire::RightIn(inputs);
-        let expected_root_hash_wire = Wire::Out(inputs);
-        chip.witness(&mut witness, [key.into(), value.into()])?;
-        let proof = prover.prove::<Sha2Hash<Scalar>>(witness, 2)?;
-        let public_inputs = get_full_ternary_verifier().verify(&proof)?;
-        assert_eq!(public_inputs[&key_wire], key);
-        assert_eq!(public_inputs[&value_wire], value);
-        assert_eq!(public_inputs[&expected_root_hash_wire], root_hash);
+        let expected_root_hash = tree.hash();
+
+        let chip = FullTernaryChip::<LANES>::new(path);
+        assert_eq!(chip.stage_width(), 8);
+        assert_eq!(chip.stage_height(), 196);
+        assert_eq!(chip.width(), std::cmp::max(162, 8 * LANES));
+        assert_eq!(
+            chip.height(),
+            4 + chip.stage_height() * 161usize.next_multiple_of(LANES) / LANES
+        );
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
+        builder.declare_public_rows([root_hash.unwrap().row()]);
+        let circuit = builder
+            .build(CompilationOptions {
+                canonicalize_constraints: false,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions {
+            blowup_log2: BLOWUP_LOG2,
+        };
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let openings = circuit.verify(&proof, options)?;
+        assert_eq!(openings[&root_hash], expected_root_hash);
+
         Ok(())
     }
 
@@ -1206,11 +1727,6 @@ mod tests {
         assert!(test_full_ternary_smt_impl([], 3).is_ok());
         assert!(test_full_ternary_smt_impl([], 4).is_ok());
         assert!(test_full_ternary_smt_impl([], 5).is_ok());
-        assert!(test_full_ternary_smt_impl([], 6).is_ok());
-        assert!(test_full_ternary_smt_impl([], 7).is_ok());
-        assert!(test_full_ternary_smt_impl([], 8).is_ok());
-        assert!(test_full_ternary_smt_impl([], 9).is_ok());
-        assert!(test_full_ternary_smt_impl([], 10).is_ok());
     }
 
     #[test]
