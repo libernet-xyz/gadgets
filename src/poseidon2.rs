@@ -65,7 +65,7 @@ mod internal {
 /// a different gate for every ARC layer. You should use this mode only if the elevated number of
 /// gates is not a concern.
 ///
-/// This mode is best suited for circuits that runs a small number of hashes, such as preimage
+/// This mode is best suited for circuits that run a small number of hashes, such as preimage
 /// knowledge proofs and zkMAC signatures.
 pub struct RcModeHardWired<C: poseidon2::Config<Scalar, T>, const T: usize> {
     _data: PhantomData<C>,
@@ -684,7 +684,7 @@ pub type PermutationChipHW<C, const T: usize> = PermutationChip<C, RcModeHardWir
 /// Poseidon2 permutation chip with [internal ROM storage for round constants](`RcModeInternalRom`).
 pub type PermutationChipIR<C, const T: usize> = PermutationChip<C, RcModeInternalRom<C, T>, T>;
 
-/// Poseidon2 permutation chip with [internal ROM storage for round constants](`RcModeExternalRom`).
+/// Poseidon2 permutation chip with [external ROM storage for round constants](`RcModeExternalRom`).
 pub type PermutationChipER<C, const T: usize> = PermutationChip<C, RcModeExternalRom<C, T>, T>;
 
 #[cfg(test)]

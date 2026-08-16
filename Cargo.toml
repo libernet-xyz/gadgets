@@ -1,6 +1,6 @@
 [package]
 name = "starkom-gadgets"
-version = "3.0.1"
+version = "3.0.2"
 description = "Reusable Starkom chips."
 license = "Apache-2.0"
 repository = "https://github.com/libernet-xyz/gadgets.git"
