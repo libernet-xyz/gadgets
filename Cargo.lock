@@ -581,6 +581,7 @@ dependencies = [
  "sha3",
  "starkom-bluesky",
  "starkom-ff",
+ "starkom-goldilocks",
  "starkom-pcs",
  "starkom-plonk",
  "starkom-poseidon",
