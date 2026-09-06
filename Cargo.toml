@@ -1,22 +1,25 @@
 [package]
 name = "starkom-gadgets"
-version = "3.0.0"
+version = "4.0.0"
 description = "Reusable Starkom chips."
 license = "Apache-2.0"
 repository = "https://github.com/libernet-xyz/gadgets.git"
 readme = "README.md"
 edition = "2024"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lib]
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 primitive-types = "0.14.0"
 sha3 = "0.12.0"
-starkom-bluesky = "3.2.0"
-starkom-ff = "2.3.0"
-starkom-pcs = "4.2.2"
-starkom-plonk = "5.1.0"
-starkom-poseidon = "3.1.1"
-starkom-poseidon2 = "6.1.0"
+starkom-bluesky = "3.5.1"
+starkom-ff = "3.2.0"
+starkom-pcs = "5.0.1"
+starkom-plonk = { path = "../plonk" }
+starkom-poseidon = "3.4.1"
+starkom-poseidon2 = "6.5.1"

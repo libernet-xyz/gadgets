@@ -7,7 +7,7 @@ use starkom_ff::Field256;
 ///
 /// Under the hood this function works by hashing the string with SHA3-512 and converting the
 /// resulting 64 bytes to a BlueSky scalar via modular reduction.
-pub fn hash_to_scalar(message: &[u8]) -> Scalar {
+pub(crate) fn hash_to_scalar(message: &[u8]) -> Scalar {
     let mut hasher = sha3::Sha3_512::new();
     hasher.update(message);
     Scalar::from_h512(H512::from_slice(hasher.finalize().as_slice()))
