@@ -987,11 +987,17 @@ mod tests {
         test_const_bit_comparator_chip::<GL, GL4, 2>(3, 3, c);
     }
 
-    fn test_full_bit_decomposer_chip_impl(value: u64) {
-        let chip = FullBitDecomposerChip::default();
+    fn test_full_bit_decomposer_chip_impl<F: Field, G: Field256 + From<F>>(
+        value: u8,
+        circuit_commitment: H256,
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
+        let chip = FullBitDecomposerChip::<F>::default();
         assert_eq!(chip.width(), 257);
         assert_eq!(chip.height(), 3);
-        let mut builder = CircuitBuilder::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_rows([0]);
         let circuit = builder
@@ -1004,67 +1010,50 @@ mod tests {
         assert_eq!(circuit.num_columns(), 257);
         let mut witness = circuit.make_witness();
         let bits = witness
-            .sub_chip(0, 0, &chip, [BS::from(value).into()])
+            .sub_chip(0, 0, &chip, [F::from(value).into()])
             .unwrap()
             .map(|bit| match bit {
                 CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output bits must be constrained"),
             });
-        assert_eq!(bits, decompose_bits::<BS, 256>(value.into())[0..256]);
+        assert_eq!(bits, decompose_bits::<F, 256>(value.into())[0..256]);
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
         };
         let proof = circuit
-            .prove::<Sha2Hash<BS>>(witness, options.clone())
+            .prove::<Sha2Hash<G>>(witness, options.clone())
             .unwrap();
-        let circuit = circuit.to_compressed::<Sha2Hash<BS>>(options);
-        assert_eq!(
-            circuit.commitment(),
-            parse_hash("0xd438c9dbb9ca22a74bdd931cd796d5b86d3245b7ee2e2d0daa81d0e70f0c9d05")
-        );
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
         assert!((0..256).all(|i| openings[&cell(0, i)] == bits[i]));
     }
 
     #[test]
-    fn test_full_bit_decomposer_chip_0() {
-        test_full_bit_decomposer_chip_impl(0);
+    fn test_full_bit_decomposer_chip_bluesky() {
+        let c = parse_hash("0xd438c9dbb9ca22a74bdd931cd796d5b86d3245b7ee2e2d0daa81d0e70f0c9d05");
+        test_full_bit_decomposer_chip_impl::<BS, BS>(0, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(1, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(2, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(3, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(5, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(6, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(7, c);
     }
 
     #[test]
-    fn test_full_bit_decomposer_chip_1() {
-        test_full_bit_decomposer_chip_impl(1);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_2() {
-        test_full_bit_decomposer_chip_impl(2);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_3() {
-        test_full_bit_decomposer_chip_impl(3);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_4() {
-        test_full_bit_decomposer_chip_impl(4);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_5() {
-        test_full_bit_decomposer_chip_impl(5);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_6() {
-        test_full_bit_decomposer_chip_impl(6);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_7() {
-        test_full_bit_decomposer_chip_impl(7);
+    fn test_full_bit_decomposer_chip_goldilocks() {
+        let c = parse_hash("0x49b42893ab42ac2cd4db39abe163f5f71f68a8f1ccaf64163db50d079ef0c4e7");
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(0, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(1, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(2, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(3, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(5, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(6, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(7, c);
     }
 
     #[test]
