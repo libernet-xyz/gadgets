@@ -710,11 +710,11 @@ pub type PermutationChipIR<F, C, const T: usize> =
 pub type PermutationChipER<F, C, const T: usize> =
     PermutationChip<F, C, RcModeExternalRom<F, C, T>, T>;
 
-#[cfg(all(test, feature = "bluesky"))]
+#[cfg(all(test, feature = "bluesky", feature = "goldilocks"))]
 mod tests {
     use super::*;
     use primitive_types::H256;
-    use starkom_bluesky::{Scalar as BS, from_const, parse_scalar};
+    use starkom_bluesky::{Scalar as BS, parse_scalar};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon as poseidon1;
@@ -800,7 +800,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t3_hw() {
-        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
             parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
             parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
@@ -837,7 +837,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t4_hw() {
-        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
             parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
             parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
@@ -903,7 +903,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t3_ir() {
-        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
             parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
             parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
@@ -940,7 +940,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t4_ir() {
-        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
             parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
             parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
@@ -1047,7 +1047,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t3_er() {
-        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
             parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
             parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
@@ -1084,7 +1084,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t4_er() {
-        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
             parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
             parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),

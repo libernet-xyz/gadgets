@@ -561,10 +561,6 @@ mod tests {
         Cell::new(row, column)
     }
 
-    fn from_u8<F: Field>(value: u8) -> F {
-        F::from(value)
-    }
-
     fn parse_hash(s: &'static str) -> H256 {
         s.parse().unwrap()
     }
@@ -619,10 +615,14 @@ mod tests {
 
     #[test]
     fn test_and1() {
-        assert_eq!(and1(from_u8::<BS>(42)), from_u8(0));
-        assert_eq!(and1(from_u8::<BS>(43)), from_u8(1));
-        assert_eq!(and1(from_u8::<BS>(44)), from_u8(0));
-        assert_eq!(and1(from_u8::<BS>(45)), from_u8(1));
+        assert_eq!(and1(BS::from(42u8)), 0u8.into());
+        assert_eq!(and1(BS::from(43u8)), 1u8.into());
+        assert_eq!(and1(BS::from(44u8)), 0u8.into());
+        assert_eq!(and1(BS::from(45u8)), 1u8.into());
+        assert_eq!(and1(GL::from(42u8)), 0u8.into());
+        assert_eq!(and1(GL::from(43u8)), 1u8.into());
+        assert_eq!(and1(GL::from(44u8)), 0u8.into());
+        assert_eq!(and1(GL::from(45u8)), 1u8.into());
     }
 
     #[test]
@@ -631,25 +631,25 @@ mod tests {
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
             )),
-            from_u8(0)
+            0u8.into()
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
             )),
-            from_u8(1)
+            1u8.into()
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f22"
             )),
-            from_u8(0)
+            0u8.into()
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f23"
             )),
-            from_u8(1)
+            1u8.into()
         );
     }
 
@@ -676,51 +676,51 @@ mod tests {
 
     #[test]
     fn test_decompose_bits_one() {
-        assert_eq!(decompose_bits::<BS, 1>(0.into()), [from_u8(0)]);
-        assert_eq!(decompose_bits::<BS, 1>(1.into()), [from_u8(1)]);
+        assert_eq!(decompose_bits::<BS, 1>(0.into()), [0u8.into()]);
+        assert_eq!(decompose_bits::<BS, 1>(1.into()), [1u8.into()]);
     }
 
     #[test]
     fn test_decompose_bits_two() {
-        assert_eq!(decompose_bits::<BS, 2>(0.into()), [from_u8(0), from_u8(0)]);
-        assert_eq!(decompose_bits::<BS, 2>(1.into()), [from_u8(1), from_u8(0)]);
-        assert_eq!(decompose_bits::<BS, 2>(2.into()), [from_u8(0), from_u8(1)]);
-        assert_eq!(decompose_bits::<BS, 2>(3.into()), [from_u8(1), from_u8(1)]);
+        assert_eq!(decompose_bits::<BS, 2>(0.into()), [0u8.into(), 0u8.into()]);
+        assert_eq!(decompose_bits::<BS, 2>(1.into()), [1u8.into(), 0u8.into()]);
+        assert_eq!(decompose_bits::<BS, 2>(2.into()), [0u8.into(), 1u8.into()]);
+        assert_eq!(decompose_bits::<BS, 2>(3.into()), [1u8.into(), 1u8.into()]);
     }
 
     #[test]
     fn test_decompose_bits_three() {
         assert_eq!(
             decompose_bits::<BS, 3>(0.into()),
-            [from_u8(0), from_u8(0), from_u8(0)]
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_bits::<BS, 3>(1.into()),
-            [from_u8(1), from_u8(0), from_u8(0)]
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_bits::<BS, 3>(2.into()),
-            [from_u8(0), from_u8(1), from_u8(0)]
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_bits::<BS, 3>(3.into()),
-            [from_u8(1), from_u8(1), from_u8(0)]
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_bits::<BS, 3>(4.into()),
-            [from_u8(0), from_u8(0), from_u8(1)]
+            [0u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
             decompose_bits::<BS, 3>(5.into()),
-            [from_u8(1), from_u8(0), from_u8(1)]
+            [1u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
             decompose_bits::<BS, 3>(6.into()),
-            [from_u8(0), from_u8(1), from_u8(1)]
+            [0u8.into(), 1u8.into(), 1u8.into()]
         );
         assert_eq!(
             decompose_bits::<BS, 3>(7.into()),
-            [from_u8(1), from_u8(1), from_u8(1)]
+            [1u8.into(), 1u8.into(), 1u8.into()]
         );
     }
 
@@ -728,43 +728,43 @@ mod tests {
     fn test_decompose_bits_large() {
         assert_eq!(
             decompose_bits::<BS, 64>(0xFFFFFFFFFFFFFFFFu64.into()),
-            [from_u8(1); 64]
+            [1u8.into(); 64]
         );
     }
 
     #[test]
     fn test_decompose_scalar_bits() {
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(0)),
-            [from_u8(0), from_u8(0), from_u8(0)]
+            decompose_scalar_bits::<BS, 3>(0u8.into()),
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(1)),
-            [from_u8(1), from_u8(0), from_u8(0)]
+            decompose_scalar_bits::<BS, 3>(1u8.into()),
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(2)),
-            [from_u8(0), from_u8(1), from_u8(0)]
+            decompose_scalar_bits::<BS, 3>(2u8.into()),
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(3)),
-            [from_u8(1), from_u8(1), from_u8(0)]
+            decompose_scalar_bits::<BS, 3>(3u8.into()),
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(4)),
-            [from_u8(0), from_u8(0), from_u8(1)]
+            decompose_scalar_bits::<BS, 3>(4u8.into()),
+            [0u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(5)),
-            [from_u8(1), from_u8(0), from_u8(1)]
+            decompose_scalar_bits::<BS, 3>(5u8.into()),
+            [1u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(6)),
-            [from_u8(0), from_u8(1), from_u8(1)]
+            decompose_scalar_bits::<BS, 3>(6u8.into()),
+            [0u8.into(), 1u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<BS, 3>(from_u8(7)),
-            [from_u8(1), from_u8(1), from_u8(1)]
+            decompose_scalar_bits::<BS, 3>(7u8.into()),
+            [1u8.into(), 1u8.into(), 1u8.into()]
         );
     }
 
@@ -920,9 +920,9 @@ mod tests {
         assert_eq!(
             openings[&cmp.unwrap()],
             match lhs.cmp(&rhs) {
-                Ordering::Less => -from_u8::<F>(1),
-                Ordering::Equal => from_u8::<F>(0),
-                Ordering::Greater => from_u8::<F>(1),
+                Ordering::Less => -F::from(1u8),
+                Ordering::Equal => F::from(0u8),
+                Ordering::Greater => F::from(1u8),
             }
         );
     }
@@ -1079,12 +1079,18 @@ mod tests {
 
     #[test]
     fn test_mod3() {
-        assert_eq!(mod3(from_u8::<BS>(42)), from_u8(0));
-        assert_eq!(mod3(from_u8::<BS>(43)), from_u8(1));
-        assert_eq!(mod3(from_u8::<BS>(44)), from_u8(2));
-        assert_eq!(mod3(from_u8::<BS>(45)), from_u8(0));
-        assert_eq!(mod3(from_u8::<BS>(46)), from_u8(1));
-        assert_eq!(mod3(from_u8::<BS>(47)), from_u8(2));
+        assert_eq!(mod3(BS::from(42u8)), 0u8.into());
+        assert_eq!(mod3(BS::from(43u8)), 1u8.into());
+        assert_eq!(mod3(BS::from(44u8)), 2u8.into());
+        assert_eq!(mod3(BS::from(45u8)), 0u8.into());
+        assert_eq!(mod3(BS::from(46u8)), 1u8.into());
+        assert_eq!(mod3(BS::from(47u8)), 2u8.into());
+        assert_eq!(mod3(GL::from(42u8)), 0u8.into());
+        assert_eq!(mod3(GL::from(43u8)), 1u8.into());
+        assert_eq!(mod3(GL::from(44u8)), 2u8.into());
+        assert_eq!(mod3(GL::from(45u8)), 0u8.into());
+        assert_eq!(mod3(GL::from(46u8)), 1u8.into());
+        assert_eq!(mod3(GL::from(47u8)), 2u8.into());
     }
 
     #[test]
@@ -1093,137 +1099,137 @@ mod tests {
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
             )),
-            from_u8(0)
+            0u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
             )),
-            from_u8(1)
+            1u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f22"
             )),
-            from_u8(2)
+            2u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f23"
             )),
-            from_u8(0)
+            0u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f24"
             )),
-            from_u8(1)
+            1u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f25"
             )),
-            from_u8(2)
+            2u8.into()
         );
     }
 
     #[test]
     fn test_decompose_trits_one() {
-        assert_eq!(decompose_trits::<BS, 1>(0.into()), [from_u8(0)]);
-        assert_eq!(decompose_trits::<BS, 1>(1.into()), [from_u8(1)]);
-        assert_eq!(decompose_trits::<BS, 1>(2.into()), [from_u8(2)]);
+        assert_eq!(decompose_trits::<BS, 1>(0.into()), [0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 1>(1.into()), [1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 1>(2.into()), [2u8.into()]);
     }
 
     #[test]
     fn test_decompose_trits_two() {
-        assert_eq!(decompose_trits::<BS, 2>(0.into()), [from_u8(0), from_u8(0)]);
-        assert_eq!(decompose_trits::<BS, 2>(1.into()), [from_u8(1), from_u8(0)]);
-        assert_eq!(decompose_trits::<BS, 2>(2.into()), [from_u8(2), from_u8(0)]);
-        assert_eq!(decompose_trits::<BS, 2>(3.into()), [from_u8(0), from_u8(1)]);
-        assert_eq!(decompose_trits::<BS, 2>(4.into()), [from_u8(1), from_u8(1)]);
-        assert_eq!(decompose_trits::<BS, 2>(5.into()), [from_u8(2), from_u8(1)]);
-        assert_eq!(decompose_trits::<BS, 2>(6.into()), [from_u8(0), from_u8(2)]);
-        assert_eq!(decompose_trits::<BS, 2>(7.into()), [from_u8(1), from_u8(2)]);
-        assert_eq!(decompose_trits::<BS, 2>(8.into()), [from_u8(2), from_u8(2)]);
+        assert_eq!(decompose_trits::<BS, 2>(0.into()), [0u8.into(), 0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(1.into()), [1u8.into(), 0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(2.into()), [2u8.into(), 0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(3.into()), [0u8.into(), 1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(4.into()), [1u8.into(), 1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(5.into()), [2u8.into(), 1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(6.into()), [0u8.into(), 2u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(7.into()), [1u8.into(), 2u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(8.into()), [2u8.into(), 2u8.into()]);
     }
 
     #[test]
     fn test_decompose_trits_three() {
         assert_eq!(
             decompose_trits::<BS, 3>(0.into()),
-            [from_u8(0), from_u8(0), from_u8(0)]
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(1.into()),
-            [from_u8(1), from_u8(0), from_u8(0)]
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(2.into()),
-            [from_u8(2), from_u8(0), from_u8(0)]
+            [2u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(3.into()),
-            [from_u8(0), from_u8(1), from_u8(0)]
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(4.into()),
-            [from_u8(1), from_u8(1), from_u8(0)]
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(5.into()),
-            [from_u8(2), from_u8(1), from_u8(0)]
+            [2u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(6.into()),
-            [from_u8(0), from_u8(2), from_u8(0)]
+            [0u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(7.into()),
-            [from_u8(1), from_u8(2), from_u8(0)]
+            [1u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
             decompose_trits::<BS, 3>(8.into()),
-            [from_u8(2), from_u8(2), from_u8(0)]
+            [2u8.into(), 2u8.into(), 0u8.into()]
         );
     }
 
     #[test]
     fn test_decompose_scalar_trits() {
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(0)),
-            [from_u8(0), from_u8(0), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(0u8.into()),
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(1)),
-            [from_u8(1), from_u8(0), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(1u8.into()),
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(2)),
-            [from_u8(2), from_u8(0), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(2u8.into()),
+            [2u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(3)),
-            [from_u8(0), from_u8(1), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(3u8.into()),
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(4)),
-            [from_u8(1), from_u8(1), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(4u8.into()),
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(5)),
-            [from_u8(2), from_u8(1), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(5u8.into()),
+            [2u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(6)),
-            [from_u8(0), from_u8(2), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(6u8.into()),
+            [0u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(7)),
-            [from_u8(1), from_u8(2), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(7u8.into()),
+            [1u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<BS, 3>(from_u8(8)),
-            [from_u8(2), from_u8(2), from_u8(0)]
+            decompose_scalar_trits::<BS, 3>(8u8.into()),
+            [2u8.into(), 2u8.into(), 0u8.into()]
         );
     }
 
@@ -1429,9 +1435,9 @@ mod tests {
         assert_eq!(
             openings[&cmp.unwrap()],
             match lhs.cmp(&rhs) {
-                Ordering::Less => -from_u8::<F>(1),
-                Ordering::Equal => from_u8::<F>(0),
-                Ordering::Greater => from_u8::<F>(1),
+                Ordering::Less => -F::from(1u8),
+                Ordering::Equal => F::from(0u8),
+                Ordering::Greater => F::from(1u8),
             }
         );
     }

@@ -26,7 +26,7 @@ starkom-poseidon = "3.4.1"
 starkom-poseidon2 = "6.5.1"
 
 [features]
-default = ["bluesky"]
+default = ["bluesky", "goldilocks"]
 bluesky = [
   "starkom-bluesky",
   "starkom-pcs/bluesky",
