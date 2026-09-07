@@ -713,28 +713,26 @@ pub type PermutationChipER<F, C, const T: usize> =
 mod tests {
     use super::*;
     use primitive_types::H256;
-    use starkom_bluesky::{Scalar as BS, parse_scalar};
+    use starkom_bluesky::Scalar as BS;
+    use starkom_goldilocks::{GL, GL4, from_const};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon as poseidon1;
+    use std::str::FromStr;
 
-    fn parse_hash(s: &'static str) -> H256 {
+    fn parse<T: FromStr<Err: Debug>>(s: &'static str) -> T {
         s.parse().unwrap()
     }
 
-    fn test_permutation_impl<F: PrimeField, G: Field256 + From<F>, const T: usize>(
-        chip: &impl PlonkChip<F, T, T>,
-        inputs: [F; T],
-        expected_output: [F; T],
+    fn test_permutation_bluesky_impl<const T: usize>(
+        chip: &impl PlonkChip<BS, T, T>,
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
-    ) -> Result<()>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<()> {
         assert_eq!(chip.height(), 194);
-        let mut builder = CircuitBuilder::<F, G>::default();
+        let mut builder = CircuitBuilder::<BS, BS>::default();
         let output = builder.sub_chip(0, 0, chip, std::array::from_fn(|_| None))?;
         builder.declare_public_rows([output[0].unwrap().row()]);
         let circuit = builder.build(CompilationOptions {
@@ -750,11 +748,11 @@ mod tests {
         let output = witness.sub_chip(0, 0, chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
+        let proof = circuit.prove::<Sha2Hash<BS>>(witness, options.clone())?;
         assert_eq!(proof.degree_bound(), 256);
         assert_eq!(proof.blowup_log2(), blowup_log2);
         assert_eq!(proof.extended_domain_size(), 256 << blowup_log2);
-        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<BS>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
         assert!(
@@ -769,26 +767,63 @@ mod tests {
         Ok(())
     }
 
-    fn test_perm_hw<
-        F: PrimeField + Sbox,
-        G: Field256 + From<F>,
-        Cfg: poseidon1::Config<F, T>,
+    fn test_permutation_goldilocks_impl<const T: usize>(
+        chip: &impl PlonkChip<GL, T, T>,
+        inputs: [GL; T],
+        expected_output: [GL; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        assert_eq!(chip.height(), 92);
+        let mut builder = CircuitBuilder::<GL, GL4>::default();
+        let output = builder.sub_chip(0, 0, chip, std::array::from_fn(|_| None))?;
+        builder.declare_public_rows([output[0].unwrap().row()]);
+        let circuit = builder.build(CompilationOptions {
+            canonicalize_constraints: false,
+        })?;
+        assert_eq!(circuit.num_rows(), 92);
+        assert_eq!(circuit.degree_bound(), 128);
+        assert_eq!(circuit.num_columns(), chip.width());
+        let mut witness = circuit.make_witness();
+        assert_eq!(witness.num_rows(), 92);
+        assert_eq!(witness.degree_bound(), 128);
+        assert_eq!(witness.num_columns(), chip.width());
+        let output = witness.sub_chip(0, 0, chip, inputs.map(|input| input.into()))?;
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions { blowup_log2 };
+        let proof = circuit.prove::<Sha2Hash<GL4>>(witness, options.clone())?;
+        assert_eq!(proof.degree_bound(), 128);
+        assert_eq!(proof.blowup_log2(), blowup_log2);
+        assert_eq!(proof.extended_domain_size(), 128 << blowup_log2);
+        let circuit = circuit.to_compressed::<Sha2Hash<GL4>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let public_inputs = circuit.verify(&proof)?;
+        assert!(
+            output
+                .into_iter()
+                .enumerate()
+                .all(|(i, output)| match output {
+                    CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
+                    CellOrUnconstrained::Unconstrained(value) => value,
+                } == expected_output[i])
+        );
+        Ok(())
+    }
+
+    fn test_perm_bluesky_hw<
+        Cfg: poseidon1::Config<BS, T>,
         const T: usize,
         const R: usize,
         const C: usize,
     >(
-        inputs: [F; T],
-        expected_output: [F; T],
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
-    ) -> Result<()>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
-        let chip = PermutationChipHW::<F, Cfg, T>::default();
+    ) -> Result<()> {
+        let chip = PermutationChipHW::<BS, Cfg, T>::default();
         assert_eq!(chip.width(), T);
-        test_permutation_impl::<F, G, T>(
+        test_permutation_bluesky_impl::<T>(
             &chip,
             inputs,
             expected_output,
@@ -801,34 +836,34 @@ mod tests {
     fn test_permutation_t3_hw() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
-            parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
-            parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
-            parse_scalar("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
+            parse("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
+            parse("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
+            parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
         ];
         assert!(
-            test_perm_hw::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_hw::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0xcf0d11b627b09bbbddb45b72cbf61564c9966d4d0cd0392088810c72ef2d40f1")
+                parse("0xcf0d11b627b09bbbddb45b72cbf61564c9966d4d0cd0392088810c72ef2d40f1")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_hw::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x801c8e968c58ef2e247315a2b0cc1cbfdeea10342fe4bec0ec827252b6f65f77")
+                parse("0x801c8e968c58ef2e247315a2b0cc1cbfdeea10342fe4bec0ec827252b6f65f77")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_hw::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0x581224f66337b1f48ae1938117fc8edb5345462614c68675661059a99df3f2ff")
+                parse("0x581224f66337b1f48ae1938117fc8edb5345462614c68675661059a99df3f2ff")
             )
             .is_ok()
         );
@@ -838,60 +873,167 @@ mod tests {
     fn test_permutation_t4_hw() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
-            parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
-            parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
-            parse_scalar("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
-            parse_scalar("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
+            parse("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
+            parse("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
+            parse("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
+            parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
         ];
         assert!(
-            test_perm_hw::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_hw::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0xf1732ed3f90394cc74ad7bb361ff1af683ebe10a18053c1f0b52df417f192edb")
+                parse("0xf1732ed3f90394cc74ad7bb361ff1af683ebe10a18053c1f0b52df417f192edb")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_hw::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x0a0690dd5ee6ca4efa9505601fe3362d638735543e4196d49c0facf59a2b0f0f")
+                parse("0x0a0690dd5ee6ca4efa9505601fe3362d638735543e4196d49c0facf59a2b0f0f")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_hw::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0xff9c71a6794801b96710f41abaf4f2823ba29b153cc04dfddc11f712b167d342")
+                parse("0xff9c71a6794801b96710f41abaf4f2823ba29b153cc04dfddc11f712b167d342")
             )
             .is_ok()
         );
     }
 
-    fn test_perm_ir<
-        F: PrimeField + Sbox,
-        G: Field256 + From<F>,
-        Cfg: poseidon1::Config<F, T>,
+    fn test_perm_goldilocks_hw<Cfg: poseidon1::Config<GL, T>, const T: usize>(
+        inputs: [GL; T],
+        expected_output: [GL; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChipHW::<GL, Cfg, T>::default();
+        assert_eq!(chip.width(), T);
+        test_permutation_goldilocks_impl::<T>(
+            &chip,
+            inputs,
+            expected_output,
+            blowup_log2,
+            circuit_commitment,
+        )
+    }
+
+    #[test]
+    fn test_permutation_t12_hw() {
+        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let outputs = [
+            parse("0x056bda38ad308e78"),
+            parse("0x1f38944238b8ccd0"),
+            parse("0x80bef63a171f3156"),
+            parse("0x27bbc645b2a3198c"),
+            parse("0x9befae3f221509b3"),
+            parse("0xa1cfa54ae2c44c9e"),
+            parse("0xa1c876869f1c52f8"),
+            parse("0x7ffa21471eff65af"),
+            parse("0xdc565450ad52b99e"),
+            parse("0x4b8b1daf8e8ea3c6"),
+            parse("0xf866b42495e61984"),
+            parse("0x7af57b5f91f196fe"),
+        ];
+        assert!(
+            test_perm_goldilocks_hw::<poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                1,
+                parse("0x0000000000000000000000000000000000000000000000000000000000000000")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                2,
+                parse("0x0000000000000000000000000000000000000000000000000000000000000000")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                3,
+                parse("0x0000000000000000000000000000000000000000000000000000000000000000")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_permutation_t16_hw() {
+        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let outputs = [
+            parse("0x6a84bf02be1f328d"),
+            parse("0xec14d274b936a21a"),
+            parse("0xc0539d7bd4eb66de"),
+            parse("0xb317ecf41fa8d55b"),
+            parse("0x80b0d36f66671f8a"),
+            parse("0x74a1592b9a16e832"),
+            parse("0x65e53afadfadc8c3"),
+            parse("0xa0007e5ee96ee4b2"),
+            parse("0x6dd5661a877003a8"),
+            parse("0xc36a09c2dc25cd6e"),
+            parse("0xcbda3d58f7cf85f4"),
+            parse("0x34cb1d63c35596cf"),
+            parse("0x4fcd09b24769e281"),
+            parse("0x6c514f906998c65d"),
+            parse("0xc447035d8d71952b"),
+            parse("0x591863454267826f"),
+        ];
+        assert!(
+            test_perm_goldilocks_hw::<poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                1,
+                parse("0x0000000000000000000000000000000000000000000000000000000000000000")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                2,
+                parse("0x0000000000000000000000000000000000000000000000000000000000000000")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                3,
+                parse("0x0000000000000000000000000000000000000000000000000000000000000000")
+            )
+            .is_ok()
+        );
+    }
+
+    fn test_perm_bluesky_ir<
+        Cfg: poseidon1::Config<BS, T>,
         const T: usize,
         const R: usize,
         const C: usize,
     >(
-        inputs: [F; T],
-        expected_output: [F; T],
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
-    ) -> Result<()>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
-        let chip = PermutationChipIR::<F, Cfg, T>::default();
+    ) -> Result<()> {
+        let chip = PermutationChipIR::<BS, Cfg, T>::default();
         assert_eq!(chip.width(), T * 2);
-        test_permutation_impl::<F, G, T>(
+        test_permutation_bluesky_impl::<T>(
             &chip,
             inputs,
             expected_output,
@@ -904,34 +1046,34 @@ mod tests {
     fn test_permutation_t3_ir() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
-            parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
-            parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
-            parse_scalar("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
+            parse("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
+            parse("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
+            parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
         ];
         assert!(
-            test_perm_ir::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0xe4d769d9800824e77947b4bfc3245b40340160a133514a57b5843b0a205a4e29")
+                parse("0xe4d769d9800824e77947b4bfc3245b40340160a133514a57b5843b0a205a4e29")
             )
             .is_ok()
         );
         assert!(
-            test_perm_ir::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x5b65a04b1aee48eced617acfc78e414b829dc9e6ff90e9964ec8b150387e67f7")
+                parse("0x5b65a04b1aee48eced617acfc78e414b829dc9e6ff90e9964ec8b150387e67f7")
             )
             .is_ok()
         );
         assert!(
-            test_perm_ir::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0xfc6b3292633d8898b39e28633c003db164ee8243628ccef32b3cd43137d94238")
+                parse("0xfc6b3292633d8898b39e28633c003db164ee8243628ccef32b3cd43137d94238")
             )
             .is_ok()
         );
@@ -941,68 +1083,62 @@ mod tests {
     fn test_permutation_t4_ir() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
-            parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
-            parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
-            parse_scalar("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
-            parse_scalar("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
+            parse("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
+            parse("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
+            parse("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
+            parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
         ];
         assert!(
-            test_perm_ir::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0x24cd89be446211981f6968c0370a948c4382a9e8845db545462c6cbd2d2f9392")
+                parse("0x24cd89be446211981f6968c0370a948c4382a9e8845db545462c6cbd2d2f9392")
             )
             .is_ok()
         );
         assert!(
-            test_perm_ir::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x0c80929bd4a4d878f9585c582adce9a7ffb5779afaee7902849e1f670cfe752b")
+                parse("0x0c80929bd4a4d878f9585c582adce9a7ffb5779afaee7902849e1f670cfe752b")
             )
             .is_ok()
         );
         assert!(
-            test_perm_ir::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0xb54ce41a7e8e1a408acb86c6b406c392c8731bb454c64d949c11838b707a28df")
+                parse("0xb54ce41a7e8e1a408acb86c6b406c392c8731bb454c64d949c11838b707a28df")
             )
             .is_ok()
         );
     }
 
-    fn test_perm_er<
-        F: PrimeField + Sbox,
-        G: Field256 + From<F>,
-        Cfg: poseidon1::Config<F, T>,
+    fn test_perm_bluesky_er<
+        Cfg: poseidon1::Config<BS, T>,
         const T: usize,
         const R: usize,
         const C: usize,
     >(
-        inputs: [F; T],
-        expected_output: [F; T],
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
-    ) -> Result<()>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
-        let chip_ir = PermutationChipIR::<F, Cfg, T>::default();
+    ) -> Result<()> {
+        let chip_ir = PermutationChipIR::<BS, Cfg, T>::default();
         assert_eq!(chip_ir.width(), T * 2);
         assert_eq!(chip_ir.height(), 194);
         let ir_width = chip_ir.width();
 
-        let chip_er = PermutationChipER::<F, Cfg, T>::new(0, -(ir_width as isize));
+        let chip_er = PermutationChipER::<BS, Cfg, T>::new(0, -(ir_width as isize));
         assert_eq!(chip_er.width(), T * 2);
         assert_eq!(chip_er.height(), 194);
         let er_width = chip_er.width();
 
-        let mut builder = CircuitBuilder::<F, G>::default();
+        let mut builder = CircuitBuilder::<BS, BS>::default();
         let ir_output = builder.sub_chip(0, 0, &chip_ir, std::array::from_fn(|_| None))?;
         let er_output = builder.sub_chip(0, ir_width, &chip_er, std::array::from_fn(|_| None))?;
 
@@ -1027,13 +1163,13 @@ mod tests {
         circuit.check_witness(&witness).unwrap();
 
         let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
+        let proof = circuit.prove::<Sha2Hash<BS>>(witness, options.clone())?;
 
-        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<BS>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
 
         let public_inputs = circuit.verify(&proof)?;
-        let get_value = |output: CellOrUnconstrained<F>| match output {
+        let get_value = |output: CellOrUnconstrained<BS>| match output {
             CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
             CellOrUnconstrained::Unconstrained(value) => value,
         };
@@ -1048,34 +1184,34 @@ mod tests {
     fn test_permutation_t3_er() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
-            parse_scalar("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
-            parse_scalar("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
-            parse_scalar("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
+            parse("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
+            parse("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
+            parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
         ];
         assert!(
-            test_perm_er::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_er::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0x97c79aee24f7fad057a23dd7b395072029836509b844becaa60512246429b1fc")
+                parse("0x97c79aee24f7fad057a23dd7b395072029836509b844becaa60512246429b1fc")
             )
             .is_ok()
         );
         assert!(
-            test_perm_er::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_er::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0xcefae940640b771aac1f0b5697a406a840f24a1df1b6e9f14dc239ee3932a02d")
+                parse("0xcefae940640b771aac1f0b5697a406a840f24a1df1b6e9f14dc239ee3932a02d")
             )
             .is_ok()
         );
         assert!(
-            test_perm_er::<BS, BS, poseidon1::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_er::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0x6e065aa94c3348d7abb11c78e46b86f3baef0d24275fa78a0b93beeb677f3170")
+                parse("0x6e065aa94c3348d7abb11c78e46b86f3baef0d24275fa78a0b93beeb677f3170")
             )
             .is_ok()
         );
@@ -1085,35 +1221,35 @@ mod tests {
     fn test_permutation_t4_er() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
-            parse_scalar("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
-            parse_scalar("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
-            parse_scalar("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
-            parse_scalar("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
+            parse("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
+            parse("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
+            parse("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
+            parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
         ];
         assert!(
-            test_perm_er::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_er::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0xd47f7c3a05ea2831ea1ad06a845a1cc32a825a5da1ffeab056a15cfd780a6b38")
+                parse("0xd47f7c3a05ea2831ea1ad06a845a1cc32a825a5da1ffeab056a15cfd780a6b38")
             )
             .is_ok()
         );
         assert!(
-            test_perm_er::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_er::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x0f346698864117f6ffceb1773a2c20d8581f3f12386af9c7360895c84ccc3abf")
+                parse("0x0f346698864117f6ffceb1773a2c20d8581f3f12386af9c7360895c84ccc3abf")
             )
             .is_ok()
         );
         assert!(
-            test_perm_er::<BS, BS, poseidon1::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_er::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0xd31a6155467a594029b6882e2c26c375b68116b26c821ad7010ab8324ce50f3c")
+                parse("0xd31a6155467a594029b6882e2c26c375b68116b26c821ad7010ab8324ce50f3c")
             )
             .is_ok()
         );
