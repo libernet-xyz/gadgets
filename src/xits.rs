@@ -928,7 +928,7 @@ mod tests {
     }
 
     #[test]
-    fn test_const_bit_comparator_chip_1() {
+    fn test_const_bit_comparator_chip_bluesky_1() {
         let c = parse_hash("0x84aad7ad79038b71cb58257a5a129e5b114286358604de9baa429920682a487f");
         test_const_bit_comparator_chip::<BS, BS, 1>(0, 0, c);
         test_const_bit_comparator_chip::<BS, BS, 1>(1, 0, c);
@@ -937,7 +937,16 @@ mod tests {
     }
 
     #[test]
-    fn test_const_bit_comparator_chip_2() {
+    fn test_const_bit_comparator_chip_goldilocks_1() {
+        let c = parse_hash("0xc2d91d768eadfddea644bf049af44b520945cadae8303a44a4e1dabac6855f12");
+        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 0, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 0, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 1, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 1, c);
+    }
+
+    #[test]
+    fn test_const_bit_comparator_chip_bluesky_2() {
         let c = parse_hash("0x5acdcc43ef21df21f1f0a419350f2d5510a4804426de782f91dad2873b95a908");
         test_const_bit_comparator_chip::<BS, BS, 2>(0, 0, c);
         test_const_bit_comparator_chip::<BS, BS, 2>(1, 0, c);
@@ -955,6 +964,27 @@ mod tests {
         test_const_bit_comparator_chip::<BS, BS, 2>(1, 3, c);
         test_const_bit_comparator_chip::<BS, BS, 2>(2, 3, c);
         test_const_bit_comparator_chip::<BS, BS, 2>(3, 3, c);
+    }
+
+    #[test]
+    fn test_const_bit_comparator_chip_goldilocks_2() {
+        let c = parse_hash("0x60acf0eab83351b5c3a833fda3d4e4f14ab6c7abe01cbdbd61bc3822c0542cff");
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 0, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 0, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 0, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 0, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 1, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 1, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 1, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 1, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 2, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 2, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 2, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 2, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 3, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 3, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 3, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 3, c);
     }
 
     fn test_full_bit_decomposer_chip_impl(value: u64) {
