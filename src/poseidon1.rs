@@ -1,3 +1,4 @@
+use crate::poseidon::Sbox;
 use anyhow::Result;
 use starkom_ff::{Field256, PrimeField};
 use starkom_plonk::{
@@ -442,7 +443,7 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
 /// You may want to use [`PermutationChipHW`], [`PermutationChipIR`], or [`PermutationChipER`]
 /// rather than referring to this struct directly.
 pub struct PermutationChip<
-    F: PrimeField,
+    F: PrimeField + Sbox,
     C: poseidon::Config<F, T>,
     M: internal::RcMode<F, T>,
     const T: usize,
@@ -451,8 +452,8 @@ pub struct PermutationChip<
     _data: PhantomData<(F, C)>,
 }
 
-impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize> Debug
-    for PermutationChip<F, C, M, T>
+impl<F: PrimeField + Sbox, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize>
+    Debug for PermutationChip<F, C, M, T>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PermutationChip")
@@ -461,8 +462,12 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const 
     }
 }
 
-impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T> + Default, const T: usize>
-    Default for PermutationChip<F, C, M, T>
+impl<
+    F: PrimeField + Sbox,
+    C: poseidon::Config<F, T>,
+    M: internal::RcMode<F, T> + Default,
+    const T: usize,
+> Default for PermutationChip<F, C, M, T>
 {
     fn default() -> Self {
         Self {
@@ -472,13 +477,13 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T> + Defau
     }
 }
 
-impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize> Copy
-    for PermutationChip<F, C, M, T>
+impl<F: PrimeField + Sbox, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize>
+    Copy for PermutationChip<F, C, M, T>
 {
 }
 
-impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize> Clone
-    for PermutationChip<F, C, M, T>
+impl<F: PrimeField + Sbox, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize>
+    Clone for PermutationChip<F, C, M, T>
 {
     fn clone(&self) -> Self {
         Self {
@@ -488,7 +493,7 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const 
     }
 }
 
-impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize>
+impl<F: PrimeField + Sbox, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize>
     PermutationChip<F, C, M, T>
 {
     pub const FIRST_ARC_HEIGHT: usize = 2;
@@ -500,16 +505,13 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const 
         G: Mul<F, Output = G>,
     {
         for i in 0..T {
-            view.add_gate(0, (rvar(i, -1) ^ 3) - rvar(i, 0));
-            view.add_gate(0, (rvar(i, -1) ^ 2) * rvar(i, 0) - rvar(i, 1));
+            view.sub_fn(0, i, Some(1), Some(2), |view| F::build_sbox::<G>(view));
         }
     }
 
     fn witness_full_sbox(&self, view: &mut impl WitnessView<F>) {
         for i in 0..T {
-            let state = view.get_at(view.cell(-1, i));
-            view.set(view.cell(0, i), state.cube());
-            view.set(view.cell(1, i), state.square().square() * state);
+            view.sub_fn(0, i, Some(1), Some(2), |view| F::witness_sbox(view));
         }
     }
 
@@ -518,17 +520,14 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const 
         F: Mul<G, Output = G>,
         G: Mul<F, Output = G>,
     {
-        view.add_gate(0, (rvar(0, -1) ^ 3) - rvar(0, 0));
-        view.add_gate(0, (rvar(0, -1) ^ 2) * rvar(0, 0) - rvar(0, 1));
+        view.sub_fn(0, 0, Some(1), Some(2), |view| F::build_sbox::<G>(view));
         for i in 1..T {
             view.connect(Some(view.cell(-1, i)), Some(view.cell(1, i)));
         }
     }
 
     fn witness_partial_sbox(&self, view: &mut impl WitnessView<F>) {
-        let state = view.get_at(view.cell(-1, 0));
-        view.set(view.cell(0, 0), state.cube());
-        view.set(view.cell(1, 0), state.square().square() * state);
+        view.sub_fn(0, 0, Some(1), Some(2), |view| F::witness_sbox(view));
         for i in 1..T {
             view.copy(view.cell(-1, i).into(), view.cell(1, i));
         }
@@ -564,7 +563,7 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const 
     }
 }
 
-impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize>
+impl<F: PrimeField + Sbox, C: poseidon::Config<F, T>, const T: usize>
     PermutationChip<F, C, RcModeExternalRom<F, C, T>, T>
 {
     /// Constructs a `PermutationChipER` that borrows its round constant ROM from an IR chip located
@@ -581,7 +580,7 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize>
     }
 }
 
-impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize>
+impl<F: PrimeField + Sbox, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const T: usize>
     PlonkChip<F, T, T> for PermutationChip<F, C, M, T>
 {
     fn width(&self) -> usize {
@@ -771,7 +770,7 @@ mod tests {
     }
 
     fn test_perm_hw<
-        F: PrimeField,
+        F: PrimeField + Sbox,
         G: Field256 + From<F>,
         Cfg: poseidon1::Config<F, T>,
         const T: usize,
@@ -874,7 +873,7 @@ mod tests {
     }
 
     fn test_perm_ir<
-        F: PrimeField,
+        F: PrimeField + Sbox,
         G: Field256 + From<F>,
         Cfg: poseidon1::Config<F, T>,
         const T: usize,
@@ -977,7 +976,7 @@ mod tests {
     }
 
     fn test_perm_er<
-        F: PrimeField,
+        F: PrimeField + Sbox,
         G: Field256 + From<F>,
         Cfg: poseidon1::Config<F, T>,
         const T: usize,
