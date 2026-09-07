@@ -544,7 +544,7 @@ impl<F: Field> PlonkChip<F, 1, 161> for FullTritDecomposerChip<F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bluesky", feature = "goldilocks"))]
 mod tests {
     use super::*;
     use primitive_types::H256;

@@ -612,7 +612,9 @@ dependencies = [
  "primitive-types",
  "sha2",
  "sha3",
+ "starkom-bluesky",
  "starkom-ff",
+ "starkom-goldilocks",
  "starkom-poly",
  "starkom-poseidon",
  "starkom-poseidon2",
@@ -651,7 +653,9 @@ checksum = "642f50f983fb15273c47645ad711322b6781c0f4a5087ea12ff6ee8ce3c0a3eb"
 dependencies = [
  "anyhow",
  "primitive-types",
+ "starkom-bluesky",
  "starkom-ff",
+ "starkom-goldilocks",
 ]
 
 [[package]]
@@ -662,7 +666,9 @@ checksum = "9d09f6934c20241ce8764f100665d4c990665596181b4804b964caab0628b6bb"
 dependencies = [
  "anyhow",
  "primitive-types",
+ "starkom-bluesky",
  "starkom-ff",
+ "starkom-goldilocks",
 ]
 
 [[package]]
