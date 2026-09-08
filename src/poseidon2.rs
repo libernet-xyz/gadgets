@@ -1199,6 +1199,119 @@ mod tests {
         );
     }
 
+    fn test_perm_goldilocks_ir<Cfg: poseidon2::Config<GL, T>, const T: usize>(
+        inputs: [GL; T],
+        expected_output: [GL; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChipIR::<GL, Cfg, T>::default();
+        assert_eq!(chip.width(), T * 2);
+        test_permutation_goldilocks_impl::<T>(
+            &chip,
+            inputs,
+            expected_output,
+            blowup_log2,
+            circuit_commitment,
+        )
+    }
+
+    #[test]
+    fn test_permutation_t12_ir() {
+        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let outputs = [
+            parse("0x01eaef96bdf1c0c1"),
+            parse("0x1f0d2cc525b2540c"),
+            parse("0x6282c1dfe1e0358d"),
+            parse("0xe780d721f698e1e6"),
+            parse("0x280c0b6f753d833b"),
+            parse("0x1b942dd5023156ab"),
+            parse("0x43f0df3fcccb8398"),
+            parse("0xe8e8190585489025"),
+            parse("0x56bdbf72f77ada22"),
+            parse("0x7911c32bf9dcd705"),
+            parse("0xec467926508fbe67"),
+            parse("0x6a50450ddf85a6ed"),
+        ];
+        assert!(
+            test_perm_goldilocks_ir::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                1,
+                parse("0xbeba3ab4a7b8178ac8ff17ab46925410bc7d0ff34c5bc97100660232edf7dee1")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                2,
+                parse("0x458f384f3b657e41b0a137e3781c53ed15d8bab9fdea925a0fa66434ab64ca34")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                3,
+                parse("0xa29d50a9b4126058e22df9fb9d30b9d4b0db0f910dc95bd0590be0ff5c7dda84")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_permutation_t16_ir() {
+        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let outputs = [
+            parse("0x85c54702470d9756"),
+            parse("0xaa53c7a7d52d9898"),
+            parse("0x285128096efb0dd7"),
+            parse("0xf3fde5edd3050ac8"),
+            parse("0xc7b65efd040df908"),
+            parse("0x4be3f6c467f57ae9"),
+            parse("0x274e9a67b41754fb"),
+            parse("0x0f7d39cd5de94dac"),
+            parse("0xd0224b9794d0b78c"),
+            parse("0x372f6139570042e1"),
+            parse("0xce6e8a93dc4ec26c"),
+            parse("0xace65e30a4daf7af"),
+            parse("0x016f2824cc1ba3db"),
+            parse("0x2e8f3af37c434dec"),
+            parse("0xc80831bb6e09da01"),
+            parse("0x3a7d670bf1a86ee8"),
+        ];
+        assert!(
+            test_perm_goldilocks_ir::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                1,
+                parse("0x4df0d20d9b9f254dcdd6f10fc4817444c9b6aa898dcd8b265afbd9f36d082cf5")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                2,
+                parse("0x5098a63b4e0eb6a1f5f177e7322c4759ca438b24d9cf2b121ca243506602cfa1")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                3,
+                parse("0x99c5a91b05ad2c0ffc49df015d325ba1907cd91399a735115fc37ac3381ae2e0")
+            )
+            .is_ok()
+        );
+    }
+
     fn test_perm_bluesky_er<
         Cfg: poseidon2::Config<BS, T>,
         const T: usize,
