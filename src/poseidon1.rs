@@ -714,7 +714,7 @@ mod tests {
     use super::*;
     use primitive_types::H256;
     use starkom_bluesky::Scalar as BS;
-    use starkom_goldilocks::{GL, GL4, from_const};
+    use starkom_goldilocks::{GL, GL4};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon as poseidon1;
@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t12_hw() {
-        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x056bda38ad308e78"),
             parse("0x1f38944238b8ccd0"),
@@ -972,7 +972,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t16_hw() {
-        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x6a84bf02be1f328d"),
             parse("0xec14d274b936a21a"),
@@ -1136,7 +1136,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t12_ir() {
-        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x056bda38ad308e78"),
             parse("0x1f38944238b8ccd0"),
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t16_ir() {
-        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x6a84bf02be1f328d"),
             parse("0xec14d274b936a21a"),
@@ -1428,7 +1428,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t12_er() {
-        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x056bda38ad308e78"),
             parse("0x1f38944238b8ccd0"),
@@ -1474,7 +1474,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t16_er() {
-        let inputs = std::array::from_fn(|i| from_const(i as u64));
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x6a84bf02be1f328d"),
             parse("0xec14d274b936a21a"),

@@ -1008,7 +1008,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t12_hw() {
-        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x01eaef96bdf1c0c1"),
             parse("0x1f0d2cc525b2540c"),
@@ -1054,7 +1054,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t16_hw() {
-        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x85c54702470d9756"),
             parse("0xaa53c7a7d52d9898"),
@@ -1218,7 +1218,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t12_ir() {
-        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x01eaef96bdf1c0c1"),
             parse("0x1f0d2cc525b2540c"),
@@ -1264,7 +1264,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t16_ir() {
-        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             parse("0x85c54702470d9756"),
             parse("0xaa53c7a7d52d9898"),
