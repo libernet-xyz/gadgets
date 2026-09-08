@@ -1449,4 +1449,158 @@ mod tests {
             .is_ok()
         );
     }
+
+    fn test_perm_goldilocks_er<Cfg: poseidon2::Config<GL, T>, const T: usize>(
+        inputs: [GL; T],
+        expected_output: [GL; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip_ir = PermutationChipIR::<GL, Cfg, T>::default();
+        assert_eq!(chip_ir.width(), T * 2);
+        assert_eq!(chip_ir.height(), 92);
+        let ir_width = chip_ir.width();
+        let ir_height = chip_ir.height();
+
+        let chip_er = PermutationChipER::<GL, Cfg, T>::new(-(ir_height as isize), 0);
+        assert_eq!(chip_er.width(), T * 2);
+        assert_eq!(chip_er.height(), 92);
+
+        let mut builder = CircuitBuilder::<GL, GL4>::default();
+        let ir_output = builder.sub_chip(0, 0, &chip_ir, std::array::from_fn(|_| None))?;
+        let er_output = builder.sub_chip(ir_height, 0, &chip_er, std::array::from_fn(|_| None))?;
+
+        for i in 0..T {
+            builder.connect(ir_output[i], er_output[i]);
+        }
+        builder.declare_public_rows([ir_output[0].unwrap().row(), er_output[0].unwrap().row()]);
+
+        let circuit = builder.build(CompilationOptions {
+            canonicalize_constraints: false,
+        })?;
+        assert_eq!(circuit.num_rows(), 184);
+        assert_eq!(circuit.num_columns(), ir_width);
+
+        let mut witness = circuit.make_witness();
+        assert_eq!(witness.num_rows(), 184);
+        assert_eq!(witness.num_columns(), ir_width);
+        let ir_output = witness.sub_chip(0, 0, &chip_ir, inputs.map(|input| input.into()))?;
+        let er_output =
+            witness.sub_chip(ir_height, 0, &chip_er, inputs.map(|input| input.into()))?;
+
+        circuit.check_witness(&witness).unwrap();
+
+        let options = ProvingOptions { blowup_log2 };
+        let proof = circuit.prove::<Sha2Hash<GL4>>(witness, options.clone())?;
+
+        let circuit = circuit.to_compressed::<Sha2Hash<GL4>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+
+        let public_inputs = circuit.verify(&proof)?;
+        let get_value = |output: CellOrUnconstrained<GL>| match output {
+            CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
+            CellOrUnconstrained::Unconstrained(value) => value,
+        };
+        assert!(ir_output.into_iter().zip(er_output).enumerate().all(
+            |(i, (ir_output, er_output))| get_value(ir_output) == expected_output[i]
+                && get_value(er_output) == expected_output[i]
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_permutation_t12_er() {
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
+        let outputs = [
+            parse("0x01eaef96bdf1c0c1"),
+            parse("0x1f0d2cc525b2540c"),
+            parse("0x6282c1dfe1e0358d"),
+            parse("0xe780d721f698e1e6"),
+            parse("0x280c0b6f753d833b"),
+            parse("0x1b942dd5023156ab"),
+            parse("0x43f0df3fcccb8398"),
+            parse("0xe8e8190585489025"),
+            parse("0x56bdbf72f77ada22"),
+            parse("0x7911c32bf9dcd705"),
+            parse("0xec467926508fbe67"),
+            parse("0x6a50450ddf85a6ed"),
+        ];
+        assert!(
+            test_perm_goldilocks_er::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                1,
+                parse("0xc9edb3e5ccec821067b07a5d3e4c4ad179b9126ac92386d765e652bbc973e908")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_er::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                2,
+                parse("0xd5f3b0bb936785a95dfac752ea9b10ce9ebbfbbbfb3ce413bfc75dda0f043ef4")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_er::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                3,
+                parse("0x0674e4232369bc2d4bf879287dcce962f33cee86d6723e5256e29f188c969ae1")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_permutation_t16_er() {
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
+        let outputs = [
+            parse("0x85c54702470d9756"),
+            parse("0xaa53c7a7d52d9898"),
+            parse("0x285128096efb0dd7"),
+            parse("0xf3fde5edd3050ac8"),
+            parse("0xc7b65efd040df908"),
+            parse("0x4be3f6c467f57ae9"),
+            parse("0x274e9a67b41754fb"),
+            parse("0x0f7d39cd5de94dac"),
+            parse("0xd0224b9794d0b78c"),
+            parse("0x372f6139570042e1"),
+            parse("0xce6e8a93dc4ec26c"),
+            parse("0xace65e30a4daf7af"),
+            parse("0x016f2824cc1ba3db"),
+            parse("0x2e8f3af37c434dec"),
+            parse("0xc80831bb6e09da01"),
+            parse("0x3a7d670bf1a86ee8"),
+        ];
+        assert!(
+            test_perm_goldilocks_er::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                1,
+                parse("0xb734ab201e5fa4483c562451d8dfa7b17e9ca075af2683f53d6d918a0d30b501")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_er::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                2,
+                parse("0x50c4821afa3c364e52d0ee1cca95fcb73889e0db46246cb6e7e3f3a816936364")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_er::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                3,
+                parse("0xabee5decc962b1df99bdd2c80ca93d58ef73e93e6e1f0c954277f65e08da3407")
+            )
+            .is_ok()
+        );
+    }
 }
