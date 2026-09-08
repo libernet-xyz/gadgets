@@ -792,19 +792,21 @@ pub type PermutationChipIR<F, C, const T: usize> =
 pub type PermutationChipER<F, C, const T: usize> =
     PermutationChip<F, C, RcModeExternalRom<F, C, T>, T>;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bluesky", feature = "goldilocks"))]
 mod tests {
     use super::*;
     use primitive_types::H256;
-    use starkom_bluesky::{Scalar as BS, from_const, parse_scalar};
+    use starkom_bluesky::{Scalar as BS, parse_scalar};
+    use starkom_goldilocks::{GL, GL4};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use std::str::FromStr;
 
-    fn parse_hash(s: &'static str) -> H256 {
+    fn parse<T: FromStr<Err: Debug>>(s: &'static str) -> T {
         s.parse().unwrap()
     }
 
-    fn test_permutation_impl<const T: usize>(
+    fn test_permutation_bluesky_impl<const T: usize>(
         chip: &impl PlonkChip<BS, T, T>,
         inputs: [BS; T],
         expected_output: [BS; T],
@@ -812,7 +814,7 @@ mod tests {
         circuit_commitment: H256,
     ) -> Result<()> {
         assert_eq!(chip.height(), 194);
-        let mut builder = CircuitBuilder::default();
+        let mut builder = CircuitBuilder::<BS, BS>::default();
         let output = builder.sub_chip(0, 0, chip, std::array::from_fn(|_| None))?;
         builder.declare_public_rows([output[0].unwrap().row()]);
         let circuit = builder.build(CompilationOptions {
@@ -847,7 +849,50 @@ mod tests {
         Ok(())
     }
 
-    fn test_perm_hw<
+    fn test_permutation_goldilocks_impl<const T: usize>(
+        chip: &impl PlonkChip<GL, T, T>,
+        inputs: [GL; T],
+        expected_output: [GL; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        assert_eq!(chip.height(), 92);
+        let mut builder = CircuitBuilder::<GL, GL4>::default();
+        let output = builder.sub_chip(0, 0, chip, std::array::from_fn(|_| None))?;
+        builder.declare_public_rows([output[0].unwrap().row()]);
+        let circuit = builder.build(CompilationOptions {
+            canonicalize_constraints: false,
+        })?;
+        assert_eq!(circuit.num_rows(), 92);
+        assert_eq!(circuit.degree_bound(), 128);
+        assert_eq!(circuit.num_columns(), chip.width());
+        let mut witness = circuit.make_witness();
+        assert_eq!(witness.num_rows(), 92);
+        assert_eq!(witness.degree_bound(), 128);
+        assert_eq!(witness.num_columns(), chip.width());
+        let output = witness.sub_chip(0, 0, chip, inputs.map(|input| input.into()))?;
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions { blowup_log2 };
+        let proof = circuit.prove::<Sha2Hash<GL4>>(witness, options.clone())?;
+        assert_eq!(proof.degree_bound(), 128);
+        assert_eq!(proof.blowup_log2(), blowup_log2);
+        assert_eq!(proof.extended_domain_size(), 128 << blowup_log2);
+        let circuit = circuit.to_compressed::<Sha2Hash<GL4>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let public_inputs = circuit.verify(&proof)?;
+        assert!(
+            output
+                .into_iter()
+                .enumerate()
+                .all(|(i, output)| match output {
+                    CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
+                    CellOrUnconstrained::Unconstrained(value) => value,
+                } == expected_output[i])
+        );
+        Ok(())
+    }
+
+    fn test_perm_bluesky_hw<
         Cfg: poseidon2::Config<BS, T>,
         const T: usize,
         const R: usize,
@@ -860,7 +905,24 @@ mod tests {
     ) -> Result<()> {
         let chip = PermutationChipHW::<BS, Cfg, T>::default();
         assert_eq!(chip.width(), T);
-        test_permutation_impl::<T>(
+        test_permutation_bluesky_impl::<T>(
+            &chip,
+            inputs,
+            expected_output,
+            blowup_log2,
+            circuit_commitment,
+        )
+    }
+
+    fn test_perm_goldilocks_hw<Cfg: poseidon2::Config<GL, T>, const T: usize>(
+        inputs: [GL; T],
+        expected_output: [GL; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChipHW::<GL, Cfg, T>::default();
+        assert_eq!(chip.width(), T);
+        test_permutation_goldilocks_impl::<T>(
             &chip,
             inputs,
             expected_output,
@@ -871,36 +933,36 @@ mod tests {
 
     #[test]
     fn test_permutation_t3_hw() {
-        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
             parse_scalar("0x6f30582cde48a25b26015b7f718ba2fb359e93029caf04d8d0b3e66b1d46b941"),
             parse_scalar("0x5de8159372063ce76403529bb1a9725461b96467035d906400ff48d0937f9db6"),
             parse_scalar("0x3c88b37dc6d14d08960b6fe58344e09194d11a930ce9f60cc90294683fac4b9f"),
         ];
         assert!(
-            test_perm_hw::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_hw::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0x469e99663f620884b2749346c83e523a3ccc726718618ff752257c8761b6be3d")
+                parse("0x469e99663f620884b2749346c83e523a3ccc726718618ff752257c8761b6be3d")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_hw::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0xef9bd00db1232aff06bf42592ecc6a494bdb0e9c0e159735112af67ac7699994")
+                parse("0xef9bd00db1232aff06bf42592ecc6a494bdb0e9c0e159735112af67ac7699994")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
+            test_perm_bluesky_hw::<poseidon2::BlueSkyConfig3, 3, 2, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0xdf8e644ab3c7a89b596539436071b75a11eb5a3dd7f196cf137e7580eb50b03c")
+                parse("0xdf8e644ab3c7a89b596539436071b75a11eb5a3dd7f196cf137e7580eb50b03c")
             )
             .is_ok()
         );
@@ -908,7 +970,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t4_hw() {
-        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
             parse_scalar("0x775049834d9decb40ec5a109116a27527fa9105a3521cee8a42777788fda1501"),
             parse_scalar("0x630ded08b39ceac4859c9ab6d14b548f48d01164ce1efada3a7a868f7d9248cb"),
@@ -916,29 +978,125 @@ mod tests {
             parse_scalar("0x72de70292ce1ac7f30b859d04bbb6de5377288c1192a08863c34e11bc9269c4c"),
         ];
         assert!(
-            test_perm_hw::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_hw::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 1,
-                parse_hash("0x27024531ca1f9f33e2c5985bfc0c5267b264ebc568e5aa498e93ebaf70f4ce1e")
+                parse("0x27024531ca1f9f33e2c5985bfc0c5267b264ebc568e5aa498e93ebaf70f4ce1e")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_hw::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 2,
-                parse_hash("0xc5abc7a6f03c29acfbef015ad9fa00fb6c501cec83da197ef7f6f9521aec275b")
+                parse("0xc5abc7a6f03c29acfbef015ad9fa00fb6c501cec83da197ef7f6f9521aec275b")
             )
             .is_ok()
         );
         assert!(
-            test_perm_hw::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
+            test_perm_bluesky_hw::<poseidon2::BlueSkyConfig4, 4, 3, 1>(
                 inputs,
                 outputs,
                 3,
-                parse_hash("0x2371fd1d96c3e9ff6d6a0cb0bf4b5e82f9c48a1a503fa3eaffebb0e56d342498")
+                parse("0x2371fd1d96c3e9ff6d6a0cb0bf4b5e82f9c48a1a503fa3eaffebb0e56d342498")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_permutation_t12_hw() {
+        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let outputs = [
+            parse("0x01eaef96bdf1c0c1"),
+            parse("0x1f0d2cc525b2540c"),
+            parse("0x6282c1dfe1e0358d"),
+            parse("0xe780d721f698e1e6"),
+            parse("0x280c0b6f753d833b"),
+            parse("0x1b942dd5023156ab"),
+            parse("0x43f0df3fcccb8398"),
+            parse("0xe8e8190585489025"),
+            parse("0x56bdbf72f77ada22"),
+            parse("0x7911c32bf9dcd705"),
+            parse("0xec467926508fbe67"),
+            parse("0x6a50450ddf85a6ed"),
+        ];
+        assert!(
+            test_perm_goldilocks_hw::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                1,
+                parse("0xe7064221328b6e21c3f6b7c58e592c5586a8b07e880953d8307fba8dd9214d7c")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                2,
+                parse("0xaba597b79c8f296df20b5d28fc8ab29a12f51b15b70d2d586697c86bef34053d")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon2::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                3,
+                parse("0x4d16d1d13a3b363f9c31181dea37071df9728dae25974b15cb0085df43a6eec2")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_permutation_t16_hw() {
+        let inputs = std::array::from_fn(|i| (i as u8).into());
+        let outputs = [
+            parse("0x85c54702470d9756"),
+            parse("0xaa53c7a7d52d9898"),
+            parse("0x285128096efb0dd7"),
+            parse("0xf3fde5edd3050ac8"),
+            parse("0xc7b65efd040df908"),
+            parse("0x4be3f6c467f57ae9"),
+            parse("0x274e9a67b41754fb"),
+            parse("0x0f7d39cd5de94dac"),
+            parse("0xd0224b9794d0b78c"),
+            parse("0x372f6139570042e1"),
+            parse("0xce6e8a93dc4ec26c"),
+            parse("0xace65e30a4daf7af"),
+            parse("0x016f2824cc1ba3db"),
+            parse("0x2e8f3af37c434dec"),
+            parse("0xc80831bb6e09da01"),
+            parse("0x3a7d670bf1a86ee8"),
+        ];
+        assert!(
+            test_perm_goldilocks_hw::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                1,
+                parse("0xaeb83d4adb1e07391ded255c19d3d5a6b076eb0fe9e4c23a05abb0281159c7f0")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                2,
+                parse("0x8d93bdc9452413f667db7560af6f64e00c809a945d4eb3544b80eab9f6d73e8f")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_hw::<poseidon2::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                3,
+                parse("0x42f8ff8580d419db8626cf0893f4c79d0d4243315b2ed984830967c88d6badae")
             )
             .is_ok()
         );
@@ -957,7 +1115,7 @@ mod tests {
     ) -> Result<()> {
         let chip = PermutationChipIR::<BS, Cfg, T>::default();
         assert_eq!(chip.width(), T * 2);
-        test_permutation_impl::<T>(
+        test_permutation_bluesky_impl::<T>(
             &chip,
             inputs,
             expected_output,
@@ -968,7 +1126,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t3_ir() {
-        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
             parse_scalar("0x6f30582cde48a25b26015b7f718ba2fb359e93029caf04d8d0b3e66b1d46b941"),
             parse_scalar("0x5de8159372063ce76403529bb1a9725461b96467035d906400ff48d0937f9db6"),
@@ -979,7 +1137,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse_hash("0x068d62a5c2772b353ab5d5fa68175fbde0583aa83e9bf4b9ac01fc37b661f565")
+                parse("0x068d62a5c2772b353ab5d5fa68175fbde0583aa83e9bf4b9ac01fc37b661f565")
             )
             .is_ok()
         );
@@ -988,7 +1146,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x80683e60d6c01ecb352e66d04509c10a5ab17b0b01ab3c2a7b238719c8c9933f")
+                parse("0x80683e60d6c01ecb352e66d04509c10a5ab17b0b01ab3c2a7b238719c8c9933f")
             )
             .is_ok()
         );
@@ -997,7 +1155,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse_hash("0x83a9a9d4fce7a821e763a7d8fa05724952586efe0e6f193013c75696abfcade2")
+                parse("0x83a9a9d4fce7a821e763a7d8fa05724952586efe0e6f193013c75696abfcade2")
             )
             .is_ok()
         );
@@ -1005,7 +1163,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t4_ir() {
-        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
             parse_scalar("0x775049834d9decb40ec5a109116a27527fa9105a3521cee8a42777788fda1501"),
             parse_scalar("0x630ded08b39ceac4859c9ab6d14b548f48d01164ce1efada3a7a868f7d9248cb"),
@@ -1017,7 +1175,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse_hash("0xff432e4f6af66723bd76dd61676367a1c403e291c80478662ece1971d43e7551")
+                parse("0xff432e4f6af66723bd76dd61676367a1c403e291c80478662ece1971d43e7551")
             )
             .is_ok()
         );
@@ -1026,7 +1184,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x6d69d24edddae3b2ca17a690e48edef60e9d645ac2ba1411169869ece1a977bc")
+                parse("0x6d69d24edddae3b2ca17a690e48edef60e9d645ac2ba1411169869ece1a977bc")
             )
             .is_ok()
         );
@@ -1035,7 +1193,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse_hash("0xf588bf93caeadebc8e4db49654fa36d2720b246c46c815d096f4851c30951918")
+                parse("0xf588bf93caeadebc8e4db49654fa36d2720b246c46c815d096f4851c30951918")
             )
             .is_ok()
         );
@@ -1106,7 +1264,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t3_er() {
-        let inputs = [from_const(0), from_const(1), from_const(2)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
             parse_scalar("0x6f30582cde48a25b26015b7f718ba2fb359e93029caf04d8d0b3e66b1d46b941"),
             parse_scalar("0x5de8159372063ce76403529bb1a9725461b96467035d906400ff48d0937f9db6"),
@@ -1117,7 +1275,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse_hash("0xa85862db285e33a3f81876151ba4fa97a5df904030f64f90b6abf40299271549")
+                parse("0xa85862db285e33a3f81876151ba4fa97a5df904030f64f90b6abf40299271549")
             )
             .is_ok()
         );
@@ -1126,7 +1284,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse_hash("0xf68a8d79c16fc97cdbc79e3fede5f99b6e1dba598b1b3ecdf228b4ac5846da99")
+                parse("0xf68a8d79c16fc97cdbc79e3fede5f99b6e1dba598b1b3ecdf228b4ac5846da99")
             )
             .is_ok()
         );
@@ -1135,7 +1293,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse_hash("0xa87740b722f7a353a0a7a14681be872e97acae0409bf6a64fe7c8b92984ecc0c")
+                parse("0xa87740b722f7a353a0a7a14681be872e97acae0409bf6a64fe7c8b92984ecc0c")
             )
             .is_ok()
         );
@@ -1143,7 +1301,7 @@ mod tests {
 
     #[test]
     fn test_permutation_t4_er() {
-        let inputs = [from_const(0), from_const(1), from_const(2), from_const(3)];
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
             parse_scalar("0x775049834d9decb40ec5a109116a27527fa9105a3521cee8a42777788fda1501"),
             parse_scalar("0x630ded08b39ceac4859c9ab6d14b548f48d01164ce1efada3a7a868f7d9248cb"),
@@ -1155,7 +1313,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse_hash("0x4bf1b953329fba8611cc69fca7b7843c64149edc8b52f0089111fda90cdd84b6")
+                parse("0x4bf1b953329fba8611cc69fca7b7843c64149edc8b52f0089111fda90cdd84b6")
             )
             .is_ok()
         );
@@ -1164,7 +1322,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse_hash("0x412ce8a695f4fdbaa36c1f1cd7ba866a7bce77f1d1b6be0a752d538c8c8c904f")
+                parse("0x412ce8a695f4fdbaa36c1f1cd7ba866a7bce77f1d1b6be0a752d538c8c8c904f")
             )
             .is_ok()
         );
@@ -1173,7 +1331,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse_hash("0x74e40b6c9f5527f604ccd1641c128217f4790f5634ec5c466185a88622958059")
+                parse("0x74e40b6c9f5527f604ccd1641c128217f4790f5634ec5c466185a88622958059")
             )
             .is_ok()
         );
