@@ -1378,33 +1378,33 @@ mod tests {
         assert_eq!(chip_ir.width(), T * 2);
         assert_eq!(chip_ir.height(), 92);
         let ir_width = chip_ir.width();
+        let ir_height = chip_ir.height();
 
-        let chip_er = PermutationChipER::<GL, Cfg, T>::new(0, -(ir_width as isize));
+        let chip_er = PermutationChipER::<GL, Cfg, T>::new(-(ir_height as isize), 0);
         assert_eq!(chip_er.width(), T * 2);
         assert_eq!(chip_er.height(), 92);
-        let er_width = chip_er.width();
 
         let mut builder = CircuitBuilder::<GL, GL4>::default();
         let ir_output = builder.sub_chip(0, 0, &chip_ir, std::array::from_fn(|_| None))?;
-        let er_output = builder.sub_chip(0, ir_width, &chip_er, std::array::from_fn(|_| None))?;
+        let er_output = builder.sub_chip(ir_height, 0, &chip_er, std::array::from_fn(|_| None))?;
 
         for i in 0..T {
             builder.connect(ir_output[i], er_output[i]);
         }
-        builder.declare_public_rows([ir_output[0].unwrap().row()]);
+        builder.declare_public_rows([ir_output[0].unwrap().row(), er_output[0].unwrap().row()]);
 
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
         })?;
-        assert_eq!(circuit.num_rows(), 92);
-        assert_eq!(circuit.num_columns(), ir_width + er_width);
+        assert_eq!(circuit.num_rows(), 184);
+        assert_eq!(circuit.num_columns(), ir_width);
 
         let mut witness = circuit.make_witness();
-        assert_eq!(witness.num_rows(), 92);
-        assert_eq!(witness.num_columns(), ir_width + er_width);
+        assert_eq!(witness.num_rows(), 184);
+        assert_eq!(witness.num_columns(), ir_width);
         let ir_output = witness.sub_chip(0, 0, &chip_ir, inputs.map(|input| input.into()))?;
         let er_output =
-            witness.sub_chip(0, ir_width, &chip_er, inputs.map(|input| input.into()))?;
+            witness.sub_chip(ir_height, 0, &chip_er, inputs.map(|input| input.into()))?;
 
         circuit.check_witness(&witness).unwrap();
 
@@ -1448,7 +1448,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x96d011ec1d620702853891a921ec6f14ec173ad3cf9afc4210e4ab097e57e6eb")
+                parse("0xb3a98d4e2070a6c457f5fc881ae8d6f8ce0aae5d1873b16e82453f0d4657525a")
             )
             .is_ok()
         );
@@ -1457,7 +1457,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xbfbfeefafa68d8b5377f1109a0892a2f4c7e3e0d4d5be7ebd0f9e3775176e31c")
+                parse("0x0f7c814ed244108a1e8a7f16765c45bbf7d569b9d24d75d783d5aeebcf638f38")
             )
             .is_ok()
         );
@@ -1466,7 +1466,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x32ad2105e5f4f221a1c4e06865b53950e66b3a069e00efcdd818f9eead1b3bb1")
+                parse("0xbf92bd63d9c5150ee34b3ad6994719bc268a32c2c732106aec60b23e19994781")
             )
             .is_ok()
         );
@@ -1498,7 +1498,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x600e58e59bf0e664ac22446efbc4cadf712fd6cfc713cfaff4d9edfbd5ba2e6e")
+                parse("0x9cc132a28ceaaf3a8df78baf7dc7e22451f8b112da27f281f9a022f70298ea57")
             )
             .is_ok()
         );
@@ -1507,7 +1507,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xd8f1b019ef5be35ddb0d44a24beb0fdac33a553ff118f95179499c41009a0dc0")
+                parse("0x08fa687a51679f130817b6dbae9bda427495a3a204800f57cef09570c1758dfe")
             )
             .is_ok()
         );
@@ -1516,7 +1516,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xebdb10fd8afcbf09701e3bb9586d93b670de4b4c92a22c6d280fd2d621d1f5e1")
+                parse("0x8a319c689b701e34c7e98956de3a1c52b4b597e093502414dcee449378e0c531")
             )
             .is_ok()
         );
