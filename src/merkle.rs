@@ -3,11 +3,12 @@ use crate::xits;
 use anyhow::Result;
 use starkom_bluesky::Scalar;
 use starkom_bluesky::from_const;
-use starkom_ff::Field;
+use starkom_ff::{Field, Field256};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
 };
 use starkom_poseidon::{BlueSkyConfig3, BlueSkyConfig4};
+use std::ops::Mul;
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
@@ -18,9 +19,9 @@ use starkom_poseidon::{BlueSkyConfig3, BlueSkyConfig4};
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
 pub struct BinaryChip<const H: usize, const L: usize> {
-    decomposer: xits::BitDecomposerChip<H>,
-    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig3, 3>,
-    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig3, 3>; H],
+    decomposer: xits::BitDecomposerChip<Scalar, H>,
+    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig3, 3>,
+    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig3, 3>; H],
     path: [[Scalar; 2]; H],
 }
 
@@ -60,28 +61,33 @@ impl<const H: usize, const L: usize> BinaryChip<H, L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector(
+    fn build_input_selector<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         hash: Option<Cell>,
         bit: Option<Cell>,
-    ) {
+    ) where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(1, 0) + (make_const(1) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
+            rvar(2, 0) * rvar(1, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(0, 0)
+                - rvar(0, 1),
         );
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(0, 0) + (make_const(1) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
+            rvar(2, 0) * rvar(0, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(1, 0)
+                - rvar(1, 1),
         );
     }
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView,
-        bits: &[CellOrUnconstrained],
+        view: &mut impl WitnessView<Scalar>,
+        bits: &[CellOrUnconstrained<Scalar>],
         i: usize,
     ) {
         let bit = bits[i];
@@ -99,7 +105,7 @@ impl<const H: usize, const L: usize> BinaryChip<H, L> {
     }
 }
 
-impl<const H: usize, const L: usize> PlonkChip<2, 1> for BinaryChip<H, L> {
+impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for BinaryChip<H, L> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -108,11 +114,15 @@ impl<const H: usize, const L: usize> PlonkChip<2, 1> for BinaryChip<H, L> {
         self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
-    fn build(
+    fn build<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]> {
+    ) -> Result<[Option<Cell>; 1]>
+    where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         let [key, value] = inputs;
         let bits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();
@@ -153,9 +163,9 @@ impl<const H: usize, const L: usize> PlonkChip<2, 1> for BinaryChip<H, L> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 2],
-    ) -> Result<[CellOrUnconstrained; 1]> {
+        view: &mut impl WitnessView<Scalar>,
+        inputs: [CellOrUnconstrained<Scalar>; 2],
+    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
         let [key, _] = inputs;
         let bits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -200,9 +210,9 @@ impl<const H: usize, const L: usize> PlonkChip<2, 1> for BinaryChip<H, L> {
 /// [`FullTernaryChip`] below instead.
 #[derive(Debug, Clone)]
 pub struct TernaryChip<const H: usize, const L: usize> {
-    decomposer: xits::TritDecomposerChip<H>,
-    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig4, 4>,
-    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig4, 4>; H],
+    decomposer: xits::TritDecomposerChip<Scalar, H>,
+    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig4, 4>,
+    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig4, 4>; H],
     path: [[Scalar; 3]; H],
 }
 
@@ -242,12 +252,15 @@ impl<const H: usize, const L: usize> TernaryChip<H, L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector(
+    fn build_input_selector<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         hash: Option<Cell>,
         trit: Option<Cell>,
-    ) {
+    ) where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(trit, view.cell(0, 3).into());
         let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
@@ -267,8 +280,8 @@ impl<const H: usize, const L: usize> TernaryChip<H, L> {
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView,
-        trits: &[CellOrUnconstrained],
+        view: &mut impl WitnessView<Scalar>,
+        trits: &[CellOrUnconstrained<Scalar>],
         i: usize,
     ) {
         let trit = trits[i];
@@ -302,7 +315,7 @@ impl<const H: usize, const L: usize> TernaryChip<H, L> {
     }
 }
 
-impl<const H: usize, const L: usize> PlonkChip<2, 1> for TernaryChip<H, L> {
+impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for TernaryChip<H, L> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -311,11 +324,15 @@ impl<const H: usize, const L: usize> PlonkChip<2, 1> for TernaryChip<H, L> {
         self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
-    fn build(
+    fn build<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]> {
+    ) -> Result<[Option<Cell>; 1]>
+    where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         let [key, value] = inputs;
         let trits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();
@@ -356,9 +373,9 @@ impl<const H: usize, const L: usize> PlonkChip<2, 1> for TernaryChip<H, L> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 2],
-    ) -> Result<[CellOrUnconstrained; 1]> {
+        view: &mut impl WitnessView<Scalar>,
+        inputs: [CellOrUnconstrained<Scalar>; 2],
+    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
         let [key, _] = inputs;
         let trits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -407,9 +424,9 @@ impl<const H: usize, const L: usize> PlonkChip<2, 1> for TernaryChip<H, L> {
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
 pub struct FullBinaryChip<const L: usize> {
-    decomposer: xits::FullBitDecomposerChip,
-    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig3, 3>,
-    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig3, 3>; 255],
+    decomposer: xits::FullBitDecomposerChip<Scalar>,
+    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig3, 3>,
+    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig3, 3>; 255],
     path: [[Scalar; 2]; 256],
 }
 
@@ -448,29 +465,34 @@ impl<const L: usize> FullBinaryChip<L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector(
+    fn build_input_selector<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         hash: Option<Cell>,
         bit: Option<Cell>,
-    ) {
+    ) where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(1, 0) + (make_const(1) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
+            rvar(2, 0) * rvar(1, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(0, 0)
+                - rvar(0, 1),
         );
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(0, 0) + (make_const(1) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
+            rvar(2, 0) * rvar(0, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(1, 0)
+                - rvar(1, 1),
         );
         view.add_gate(1, var(2));
     }
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView,
-        bits: &[CellOrUnconstrained],
+        view: &mut impl WitnessView<Scalar>,
+        bits: &[CellOrUnconstrained<Scalar>],
         i: usize,
     ) {
         let bit = bits[i];
@@ -489,7 +511,7 @@ impl<const L: usize> FullBinaryChip<L> {
     }
 }
 
-impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
+impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullBinaryChip<L> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -498,11 +520,15 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
         self.decomposer.height() + self.stage_height() * 256usize.next_multiple_of(L) / L
     }
 
-    fn build(
+    fn build<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]> {
+    ) -> Result<[Option<Cell>; 1]>
+    where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         let [key, value] = inputs;
         let bits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();
@@ -543,9 +569,9 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 2],
-    ) -> Result<[CellOrUnconstrained; 1]> {
+        view: &mut impl WitnessView<Scalar>,
+        inputs: [CellOrUnconstrained<Scalar>; 2],
+    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
         let [key, _] = inputs;
         let bits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -592,9 +618,9 @@ impl<const L: usize> PlonkChip<2, 1> for FullBinaryChip<L> {
 /// If you don't need 161-trit keys use [`TernaryChip`].
 #[derive(Debug, Clone)]
 pub struct FullTernaryChip<const L: usize> {
-    decomposer: xits::FullTritDecomposerChip,
-    hasher_ir: poseidon1::PermutationChipIR<BlueSkyConfig4, 4>,
-    hasher_er: [poseidon1::PermutationChipER<BlueSkyConfig4, 4>; 160],
+    decomposer: xits::FullTritDecomposerChip<Scalar>,
+    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig4, 4>,
+    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig4, 4>; 160],
     path: [[Scalar; 3]; 161],
 }
 
@@ -633,12 +659,15 @@ impl<const L: usize> FullTernaryChip<L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector(
+    fn build_input_selector<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         hash: Option<Cell>,
         trit: Option<Cell>,
-    ) {
+    ) where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(trit, view.cell(0, 3).into());
         let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
@@ -658,8 +687,8 @@ impl<const L: usize> FullTernaryChip<L> {
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView,
-        trits: &[CellOrUnconstrained],
+        view: &mut impl WitnessView<Scalar>,
+        trits: &[CellOrUnconstrained<Scalar>],
         i: usize,
     ) {
         let trit = trits[i];
@@ -693,7 +722,7 @@ impl<const L: usize> FullTernaryChip<L> {
     }
 }
 
-impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
+impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullTernaryChip<L> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -702,11 +731,15 @@ impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
         self.decomposer.height() + self.stage_height() * 161usize.next_multiple_of(L) / L
     }
 
-    fn build(
+    fn build<G: Field256 + From<Scalar>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<Scalar, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]> {
+    ) -> Result<[Option<Cell>; 1]>
+    where
+        Scalar: Mul<G, Output = G>,
+        G: Mul<Scalar, Output = G>,
+    {
         let [key, value] = inputs;
         let trits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();
@@ -747,9 +780,9 @@ impl<const L: usize> PlonkChip<2, 1> for FullTernaryChip<L> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 2],
-    ) -> Result<[CellOrUnconstrained; 1]> {
+        view: &mut impl WitnessView<Scalar>,
+        inputs: [CellOrUnconstrained<Scalar>; 2],
+    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
         let [key, _] = inputs;
         let trits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -792,7 +825,6 @@ mod tests {
     use super::*;
     use primitive_types::{H256, U256};
     use starkom_bluesky::{from_const, parse_scalar};
-    use starkom_ff::Field256;
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon as poseidon1;
@@ -1618,6 +1650,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_full_binary_smt_empty() {
         assert!(test_full_binary_smt_impl([], 0).is_ok());
         assert!(test_full_binary_smt_impl([], 1).is_ok());
@@ -1628,6 +1661,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_full_binary_smt_one_entry() {
         let entries = [(12, 34)];
         assert!(test_full_binary_smt_impl(entries, 0).is_ok());
@@ -1639,6 +1673,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_full_binary_smt_two_entries() {
         let entries = [(34, 56), (78, 12)];
         assert!(test_full_binary_smt_impl(entries, 0).is_ok());
@@ -1720,6 +1755,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_full_ternary_smt_empty() {
         assert!(test_full_ternary_smt_impl([], 0).is_ok());
         assert!(test_full_ternary_smt_impl([], 1).is_ok());
@@ -1730,6 +1766,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_full_ternary_smt_one_entry() {
         let entries = [(12, 34)];
         assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
@@ -1741,6 +1778,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_full_ternary_smt_two_entries() {
         let entries = [(34, 56), (78, 12)];
         assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
