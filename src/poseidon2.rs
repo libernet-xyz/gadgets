@@ -1,12 +1,14 @@
+use crate::poseidon::Sbox;
 use anyhow::Result;
-use starkom_bluesky::Scalar;
-use starkom_ff::Field;
+use starkom_ff::{Field256, PrimeField};
 use starkom_plonk::{
-    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, rvar, var,
+    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, make_const,
+    rvar, var,
 };
 use starkom_poseidon2 as poseidon2;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::ops::Mul;
 
 mod internal {
     use super::*;
@@ -14,46 +16,68 @@ mod internal {
     /// Encodes the operations that differ between round constant modes
     /// ([hard-wired](`RcModeHardWired`), [internal ROM](`RcModeInternalRom`),
     /// [external ROM](`RcModeExternalRom`)).
-    pub trait RcMode<C: poseidon2::Config<Scalar, T>, const T: usize>:
+    pub trait RcMode<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize>:
         Debug + Copy + Clone
     {
         fn width(&self) -> usize;
 
-        fn build_first_fl_and_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]);
+        fn build_first_fl_and_arc<G: Field256 + From<F>>(
+            &self,
+            view: &mut impl CircuitView<F, G>,
+            inputs: [Option<Cell>; T],
+        ) where
+            F: Mul<G, Output = G>,
+            G: Mul<F, Output = G>;
 
         fn witness_first_fl_and_arc(
             &self,
-            view: &mut impl WitnessView,
-            inputs: [CellOrUnconstrained; T],
+            view: &mut impl WitnessView<F>,
+            inputs: [CellOrUnconstrained<F>; T],
         );
 
-        fn build_linear_and_next_arc(
+        fn build_linear_and_next_arc<G: Field256 + From<F>>(
             &self,
-            view: &mut impl CircuitView,
+            view: &mut impl CircuitView<F, G>,
             round: usize,
-            matrix: &[Scalar],
-        );
+            matrix: &[F],
+        ) where
+            F: Mul<G, Output = G>,
+            G: Mul<F, Output = G>;
 
         fn witness_linear_and_next_arc(
             &self,
-            view: &mut impl WitnessView,
+            view: &mut impl WitnessView<F>,
             round: usize,
-            matrix: &[Scalar],
+            matrix: &[F],
         );
 
-        fn build_fl_and_next_arc(&self, view: &mut impl CircuitView, round: usize) {
+        fn build_fl_and_next_arc<G: Field256 + From<F>>(
+            &self,
+            view: &mut impl CircuitView<F, G>,
+            round: usize,
+        ) where
+            F: Mul<G, Output = G>,
+            G: Mul<F, Output = G>,
+        {
             self.build_linear_and_next_arc(view, round, C::get_external_matrix());
         }
 
-        fn witness_fl_and_next_arc(&self, view: &mut impl WitnessView, round: usize) {
+        fn witness_fl_and_next_arc(&self, view: &mut impl WitnessView<F>, round: usize) {
             self.witness_linear_and_next_arc(view, round, C::get_external_matrix());
         }
 
-        fn build_pl_and_next_arc(&self, view: &mut impl CircuitView, round: usize) {
+        fn build_pl_and_next_arc<G: Field256 + From<F>>(
+            &self,
+            view: &mut impl CircuitView<F, G>,
+            round: usize,
+        ) where
+            F: Mul<G, Output = G>,
+            G: Mul<F, Output = G>,
+        {
             self.build_linear_and_next_arc(view, round, C::get_internal_matrix());
         }
 
-        fn witness_pl_and_next_arc(&self, view: &mut impl WitnessView, round: usize) {
+        fn witness_pl_and_next_arc(&self, view: &mut impl WitnessView<F>, round: usize) {
             self.witness_linear_and_next_arc(view, round, C::get_internal_matrix());
         }
     }
@@ -67,42 +91,47 @@ mod internal {
 ///
 /// This mode is best suited for circuits that runs a small number of hashes, such as preimage
 /// knowledge proofs and zkMAC signatures.
-pub struct RcModeHardWired<C: poseidon2::Config<Scalar, T>, const T: usize> {
-    _data: PhantomData<C>,
+pub struct RcModeHardWired<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> {
+    _data: PhantomData<(F, C)>,
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Debug for RcModeHardWired<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Debug for RcModeHardWired<F, C, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RcModeHardWired").finish()
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Default for RcModeHardWired<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Default
+    for RcModeHardWired<F, C, T>
+{
     fn default() -> Self {
-        Self {
-            _data: Default::default(),
-        }
+        Self { _data: PhantomData }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Copy for RcModeHardWired<C, T> {}
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Copy for RcModeHardWired<F, C, T> {}
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Clone for RcModeHardWired<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Clone for RcModeHardWired<F, C, T> {
     fn clone(&self) -> Self {
-        Self {
-            _data: self._data.clone(),
-        }
+        Self { _data: PhantomData }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
-    for RcModeHardWired<C, T>
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode<F, C, T>
+    for RcModeHardWired<F, C, T>
 {
     fn width(&self) -> usize {
         T
     }
 
-    fn build_first_fl_and_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
+    fn build_first_fl_and_arc<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; T],
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
@@ -112,9 +141,9 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
             view.add_gate(
                 0,
                 (0..T)
-                    .map(|j| rvar(j, 0) * m[i * T + j])
-                    .sum::<Constraint>()
-                    + c[i]
+                    .map(|j| rvar(j, 0) * make_const(m[i * T + j]))
+                    .sum::<Constraint<F>>()
+                    + make_const(c[i])
                     - rvar(i, 1),
             );
         }
@@ -122,8 +151,8 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
 
     fn witness_first_fl_and_arc(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; T],
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; T],
     ) {
         for i in 0..T {
             view.copy(inputs[i], view.cell(0, i));
@@ -135,34 +164,42 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
                 view.cell(1, i),
                 (0..T)
                     .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
-                    .sum::<Scalar>()
+                    .sum::<F>()
                     + c[i],
             );
         }
     }
 
-    fn build_linear_and_next_arc(&self, view: &mut impl CircuitView, round: usize, m: &[Scalar]) {
+    fn build_linear_and_next_arc<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        round: usize,
+        m: &[F],
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         let c = C::get_round_constants();
         for i in 0..T {
             view.add_gate(
                 0,
                 (0..T)
-                    .map(|j| rvar(j, 0) * m[i * T + j])
-                    .sum::<Constraint>()
-                    + c[(round + 1) * T + i]
+                    .map(|j| rvar(j, 0) * make_const(m[i * T + j]))
+                    .sum::<Constraint<F>>()
+                    + make_const(c[(round + 1) * T + i])
                     - rvar(i, 1),
             );
         }
     }
 
-    fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView, round: usize, m: &[Scalar]) {
+    fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView<F>, round: usize, m: &[F]) {
         let c = C::get_round_constants();
         for i in 0..T {
             view.set(
                 view.cell(1, i),
                 (0..T)
                     .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
-                    .sum::<Scalar>()
+                    .sum::<F>()
                     + c[(round + 1) * T + i],
             );
         }
@@ -182,54 +219,66 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
 /// external ROM mode chips (see [`RcModeExternalRom`]). In other words: N hard-wired permutation
 /// chips pay the gate cost of the round constants N times, whereas 1 IR chip + (N-1) ER chips pay
 /// that cost only once (but still achieve N permutations).
-pub struct RcModeInternalRom<C: poseidon2::Config<Scalar, T>, const T: usize> {
-    _data: PhantomData<C>,
+pub struct RcModeInternalRom<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> {
+    _data: PhantomData<(F, C)>,
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Debug for RcModeInternalRom<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Debug
+    for RcModeInternalRom<F, C, T>
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RcModeInternalRom").finish()
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Default for RcModeInternalRom<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Default
+    for RcModeInternalRom<F, C, T>
+{
     fn default() -> Self {
-        Self {
-            _data: Default::default(),
-        }
+        Self { _data: PhantomData }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Copy for RcModeInternalRom<C, T> {}
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Copy
+    for RcModeInternalRom<F, C, T>
+{
+}
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Clone for RcModeInternalRom<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Clone
+    for RcModeInternalRom<F, C, T>
+{
     fn clone(&self) -> Self {
-        Self {
-            _data: self._data.clone(),
-        }
+        Self { _data: PhantomData }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
-    for RcModeInternalRom<C, T>
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode<F, C, T>
+    for RcModeInternalRom<F, C, T>
 {
     fn width(&self) -> usize {
         T * 2
     }
 
-    fn build_first_fl_and_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
+    fn build_first_fl_and_arc<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; T],
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
         let m = C::get_external_matrix();
         let c = C::get_round_constants();
         for i in 0..T {
-            view.add_gate(1, var(T + i) - c[i]);
+            view.add_gate(1, var(T + i) - make_const(c[i]));
             view.add_gate(
                 0,
                 (0..T)
-                    .map(|j| rvar(j, 0) * m[i * T + j])
-                    .sum::<Constraint>()
+                    .map(|j| rvar(j, 0) * make_const(m[i * T + j]))
+                    .sum::<Constraint<F>>()
                     + rvar(T + i, 1)
                     - rvar(i, 1),
             );
@@ -238,8 +287,8 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
 
     fn witness_first_fl_and_arc(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; T],
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; T],
     ) {
         for i in 0..T {
             view.copy(inputs[i], view.cell(0, i));
@@ -251,29 +300,37 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
                 view.cell(1, i),
                 (0..T)
                     .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
-                    .sum::<Scalar>()
+                    .sum::<F>()
                     + c[i],
             );
             view.set(view.cell(1, T + i), c[i]);
         }
     }
 
-    fn build_linear_and_next_arc(&self, view: &mut impl CircuitView, round: usize, m: &[Scalar]) {
+    fn build_linear_and_next_arc<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        round: usize,
+        m: &[F],
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         let c = C::get_round_constants();
         for i in 0..T {
-            view.add_gate(1, var(T + i) - c[(round + 1) * T + i]);
+            view.add_gate(1, var(T + i) - make_const(c[(round + 1) * T + i]));
             view.add_gate(
                 0,
                 (0..T)
-                    .map(|j| rvar(j, 0) * m[i * T + j])
-                    .sum::<Constraint>()
+                    .map(|j| rvar(j, 0) * make_const(m[i * T + j]))
+                    .sum::<Constraint<F>>()
                     + rvar(T + i, 1)
                     - rvar(i, 1),
             );
         }
     }
 
-    fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView, round: usize, m: &[Scalar]) {
+    fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView<F>, round: usize, m: &[F]) {
         let c = C::get_round_constants();
         for i in 0..T {
             view.set(view.cell(1, T + i), c[(round + 1) * T + i]);
@@ -281,7 +338,7 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
                 view.cell(1, i),
                 (0..T)
                     .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
-                    .sum::<Scalar>()
+                    .sum::<F>()
                     + c[(round + 1) * T + i],
             );
         }
@@ -291,7 +348,7 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
 /// External ROM mode for the [`PermutationChip`].
 ///
 /// See [`RcModeInternalRom`] for more information about internal and external ROM modes.
-pub struct RcModeExternalRom<C: poseidon2::Config<Scalar, T>, const T: usize> {
+pub struct RcModeExternalRom<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> {
     /// Row offset of the IR chip (ROM lender), relative to wherever this ER chip (ROM borrower)
     /// itself lands when it's built/witnessed. Added to this ER chip's own row to get the IR chip's
     /// row.
@@ -302,10 +359,12 @@ pub struct RcModeExternalRom<C: poseidon2::Config<Scalar, T>, const T: usize> {
     /// chip's column.
     ir_chip_column_offset: isize,
 
-    _data: PhantomData<C>,
+    _data: PhantomData<(F, C)>,
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Debug for RcModeExternalRom<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Debug
+    for RcModeExternalRom<F, C, T>
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RcModeExternalRom")
             .field("ir_chip_row_offset", &self.ir_chip_row_offset)
@@ -315,24 +374,29 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> Debug for RcModeExternalRo
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Copy for RcModeExternalRom<C, T> {}
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Copy
+    for RcModeExternalRom<F, C, T>
+{
+}
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> Clone for RcModeExternalRom<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> Clone
+    for RcModeExternalRom<F, C, T>
+{
     fn clone(&self) -> Self {
         Self {
             ir_chip_row_offset: self.ir_chip_row_offset,
             ir_chip_column_offset: self.ir_chip_column_offset,
-            _data: self._data.clone(),
+            _data: PhantomData,
         }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> RcModeExternalRom<C, T> {
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> RcModeExternalRom<F, C, T> {
     fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
         Self {
             ir_chip_row_offset,
             ir_chip_column_offset,
-            _data: PhantomData::default(),
+            _data: PhantomData,
         }
     }
 
@@ -344,7 +408,15 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> RcModeExternalRom<C, T> {
     /// `.sub_fn()` calls, the IR chip's corresponding cell always sits at the same `(1, T + i)`
     /// local offset from `view`'s current position, shifted only by the constant offset between the
     /// two chips' own roots.
-    fn remote_rom_cell(&self, view: &impl CircuitView, i: usize) -> Cell {
+    fn remote_rom_cell<G: Field256 + From<F>>(
+        &self,
+        view: &impl CircuitView<F, G>,
+        i: usize,
+    ) -> Cell
+    where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         view.cell(
             self.ir_chip_row_offset + 1,
             self.ir_chip_column_offset + (T + i) as isize,
@@ -352,14 +424,21 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> RcModeExternalRom<C, T> {
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
-    for RcModeExternalRom<C, T>
+impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode<F, C, T>
+    for RcModeExternalRom<F, C, T>
 {
     fn width(&self) -> usize {
         T * 2
     }
 
-    fn build_first_fl_and_arc(&self, view: &mut impl CircuitView, inputs: [Option<Cell>; T]) {
+    fn build_first_fl_and_arc<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; T],
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
@@ -372,8 +451,8 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
             view.add_gate(
                 0,
                 (0..T)
-                    .map(|j| rvar(j, 0) * m[i * T + j])
-                    .sum::<Constraint>()
+                    .map(|j| rvar(j, 0) * make_const(m[i * T + j]))
+                    .sum::<Constraint<F>>()
                     + rvar(T + i, 1)
                     - rvar(i, 1),
             );
@@ -382,8 +461,8 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
 
     fn witness_first_fl_and_arc(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; T],
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; T],
     ) {
         for i in 0..T {
             view.copy(inputs[i], view.cell(0, i));
@@ -395,14 +474,22 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
                 view.cell(1, i),
                 (0..T)
                     .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
-                    .sum::<Scalar>()
+                    .sum::<F>()
                     + c[i],
             );
             view.set(view.cell(1, T + i), c[i]);
         }
     }
 
-    fn build_linear_and_next_arc(&self, view: &mut impl CircuitView, _round: usize, m: &[Scalar]) {
+    fn build_linear_and_next_arc<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        _round: usize,
+        m: &[F],
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         for i in 0..T {
             view.connect(
                 self.remote_rom_cell(view, i).into(),
@@ -411,15 +498,15 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
             view.add_gate(
                 0,
                 (0..T)
-                    .map(|j| rvar(j, 0) * m[i * T + j])
-                    .sum::<Constraint>()
+                    .map(|j| rvar(j, 0) * make_const(m[i * T + j]))
+                    .sum::<Constraint<F>>()
                     + rvar(T + i, 1)
                     - rvar(i, 1),
             );
         }
     }
 
-    fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView, round: usize, m: &[Scalar]) {
+    fn witness_linear_and_next_arc(&self, view: &mut impl WitnessView<F>, round: usize, m: &[F]) {
         let c = C::get_round_constants();
         for i in 0..T {
             view.set(view.cell(1, T + i), c[(round + 1) * T + i]);
@@ -427,7 +514,7 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
                 view.cell(1, i),
                 (0..T)
                     .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
-                    .sum::<Scalar>()
+                    .sum::<F>()
                     + c[(round + 1) * T + i],
             );
         }
@@ -439,16 +526,17 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize> internal::RcMode<C, T>
 /// You may want to use [`PermutationChipHW`], [`PermutationChipIR`], or [`PermutationChipER`]
 /// rather than referring to this struct directly.
 pub struct PermutationChip<
-    C: poseidon2::Config<Scalar, T>,
-    M: internal::RcMode<C, T>,
+    F: PrimeField,
+    C: poseidon2::Config<F, T>,
+    M: internal::RcMode<F, C, T>,
     const T: usize,
 > {
     rc: M,
-    _data: PhantomData<C>,
+    _data: PhantomData<(F, C)>,
 }
 
-impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize> Debug
-    for PermutationChip<C, M, T>
+impl<F: PrimeField, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C, T>, const T: usize> Debug
+    for PermutationChip<F, C, M, T>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PermutationChip")
@@ -457,99 +545,109 @@ impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T> + Default, const T: usize> Default
-    for PermutationChip<C, M, T>
+impl<
+    F: PrimeField,
+    C: poseidon2::Config<F, T>,
+    M: internal::RcMode<F, C, T> + Default,
+    const T: usize,
+> Default for PermutationChip<F, C, M, T>
 {
     fn default() -> Self {
         Self {
             rc: M::default(),
-            _data: PhantomData::default(),
+            _data: PhantomData,
         }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize> Copy
-    for PermutationChip<C, M, T>
+impl<F: PrimeField, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C, T>, const T: usize> Copy
+    for PermutationChip<F, C, M, T>
 {
 }
 
-impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize> Clone
-    for PermutationChip<C, M, T>
+impl<F: PrimeField, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C, T>, const T: usize> Clone
+    for PermutationChip<F, C, M, T>
 {
     fn clone(&self) -> Self {
         Self {
             rc: self.rc.clone(),
-            _data: self._data.clone(),
+            _data: PhantomData,
         }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
-    PermutationChip<C, M, T>
+impl<F: PrimeField + Sbox, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C, T>, const T: usize>
+    PermutationChip<F, C, M, T>
 {
     pub const FIRST_ARC_HEIGHT: usize = 2;
     pub const ROUND_HEIGHT: usize = 3;
 
-    fn build_full_sbox(&self, view: &mut impl CircuitView) {
+    fn build_full_sbox<G: Field256 + From<F>>(&self, view: &mut impl CircuitView<F, G>)
+    where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         for i in 0..T {
-            view.add_gate(0, (rvar(i, -1) ^ 3) - rvar(i, 0));
-            view.add_gate(0, (rvar(i, -1) ^ 2) * rvar(i, 0) - rvar(i, 1));
+            view.sub_fn(0, i, Some(1), Some(2), |view| F::build_sbox::<G>(view));
         }
     }
 
-    fn witness_full_sbox(&self, view: &mut impl WitnessView) {
+    fn witness_full_sbox(&self, view: &mut impl WitnessView<F>) {
         for i in 0..T {
-            let state = view.get_at(view.cell(-1, i));
-            view.set(view.cell(0, i), state.cube());
-            view.set(view.cell(1, i), state.square().square() * state);
+            view.sub_fn(0, i, Some(1), Some(2), |view| F::witness_sbox(view));
         }
     }
 
-    fn build_partial_sbox(&self, view: &mut impl CircuitView) {
-        view.add_gate(0, (rvar(0, -1) ^ 3) - rvar(0, 0));
-        view.add_gate(0, (rvar(0, -1) ^ 2) * rvar(0, 0) - rvar(0, 1));
+    fn build_partial_sbox<G: Field256 + From<F>>(&self, view: &mut impl CircuitView<F, G>)
+    where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
+        view.sub_fn(0, 0, Some(1), Some(2), |view| F::build_sbox::<G>(view));
         for i in 1..T {
             view.connect(Some(view.cell(-1, i)), Some(view.cell(1, i)));
         }
     }
 
-    fn witness_partial_sbox(&self, view: &mut impl WitnessView) {
-        let state = view.get_at(view.cell(-1, 0));
-        view.set(view.cell(0, 0), state.cube());
-        view.set(view.cell(1, 0), state.square().square() * state);
+    fn witness_partial_sbox(&self, view: &mut impl WitnessView<F>) {
+        view.sub_fn(0, 0, Some(1), Some(2), |view| F::witness_sbox(view));
         for i in 1..T {
             view.copy(view.cell(-1, i).into(), view.cell(1, i));
         }
     }
 
-    fn build_last_linear(&self, view: &mut impl CircuitView) {
+    fn build_last_linear<G: Field256 + From<F>>(&self, view: &mut impl CircuitView<F, G>)
+    where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         let m = C::get_external_matrix();
         for i in 0..T {
             view.add_gate(
                 0,
                 ((0..T)
-                    .map(|j| rvar(j, 0) * m[i * T + j])
-                    .sum::<Constraint>())
+                    .map(|j| rvar(j, 0) * make_const(m[i * T + j]))
+                    .sum::<Constraint<F>>())
                     - rvar(i, 1),
             );
         }
     }
 
-    fn witness_last_linear(&self, view: &mut impl WitnessView) {
+    fn witness_last_linear(&self, view: &mut impl WitnessView<F>) {
         let m = C::get_external_matrix();
         for i in 0..T {
             view.set(
                 view.cell(1, i),
                 (0..T)
                     .map(|j| view.get_at(view.cell(0, j)) * m[i * T + j])
-                    .sum::<Scalar>(),
+                    .sum::<F>(),
             );
         }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, const T: usize>
-    PermutationChip<C, RcModeExternalRom<C, T>, T>
+impl<F: PrimeField + Sbox, C: poseidon2::Config<F, T>, const T: usize>
+    PermutationChip<F, C, RcModeExternalRom<F, C, T>, T>
 {
     /// Constructs a `PermutationChipER` that borrows its round constant ROM from an IR chip located
     /// at the given row/column offsets relative to wherever this ER chip itself is later built or
@@ -560,13 +658,13 @@ impl<C: poseidon2::Config<Scalar, T>, const T: usize>
     pub fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
         Self {
             rc: RcModeExternalRom::new(ir_chip_row_offset, ir_chip_column_offset),
-            _data: PhantomData::default(),
+            _data: PhantomData,
         }
     }
 }
 
-impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize> PlonkChip<T, T>
-    for PermutationChip<C, M, T>
+impl<F: PrimeField + Sbox, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C, T>, const T: usize>
+    PlonkChip<F, T, T> for PermutationChip<F, C, M, T>
 {
     fn width(&self) -> usize {
         self.rc.width()
@@ -576,11 +674,15 @@ impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
         Self::FIRST_ARC_HEIGHT + Self::ROUND_HEIGHT * C::num_total_rounds()
     }
 
-    fn build(
+    fn build<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; T],
-    ) -> Result<[Option<Cell>; T]> {
+    ) -> Result<[Option<Cell>; T]>
+    where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
         let num_full_rounds = C::num_full_rounds();
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();
@@ -628,9 +730,9 @@ impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; T],
-    ) -> Result<[CellOrUnconstrained; T]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; T],
+    ) -> Result<[CellOrUnconstrained<F>; T]> {
         let num_full_rounds = C::num_full_rounds();
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();
@@ -679,19 +781,22 @@ impl<C: poseidon2::Config<Scalar, T>, M: internal::RcMode<C, T>, const T: usize>
 }
 
 /// Poseidon2 permutation chip with [hard-wired round constants](`RcModeHardWired`).
-pub type PermutationChipHW<C, const T: usize> = PermutationChip<C, RcModeHardWired<C, T>, T>;
+pub type PermutationChipHW<F, C, const T: usize> =
+    PermutationChip<F, C, RcModeHardWired<F, C, T>, T>;
 
 /// Poseidon2 permutation chip with [internal ROM storage for round constants](`RcModeInternalRom`).
-pub type PermutationChipIR<C, const T: usize> = PermutationChip<C, RcModeInternalRom<C, T>, T>;
+pub type PermutationChipIR<F, C, const T: usize> =
+    PermutationChip<F, C, RcModeInternalRom<F, C, T>, T>;
 
 /// Poseidon2 permutation chip with [internal ROM storage for round constants](`RcModeExternalRom`).
-pub type PermutationChipER<C, const T: usize> = PermutationChip<C, RcModeExternalRom<C, T>, T>;
+pub type PermutationChipER<F, C, const T: usize> =
+    PermutationChip<F, C, RcModeExternalRom<F, C, T>, T>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use primitive_types::H256;
-    use starkom_bluesky::{from_const, parse_scalar};
+    use starkom_bluesky::{Scalar as BS, from_const, parse_scalar};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
 
@@ -700,9 +805,9 @@ mod tests {
     }
 
     fn test_permutation_impl<const T: usize>(
-        chip: &impl PlonkChip<T, T>,
-        inputs: [Scalar; T],
-        expected_output: [Scalar; T],
+        chip: &impl PlonkChip<BS, T, T>,
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
     ) -> Result<()> {
@@ -723,11 +828,11 @@ mod tests {
         let output = witness.sub_chip(0, 0, chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let proof = circuit.prove::<Sha2Hash<BS>>(witness, options.clone())?;
         assert_eq!(proof.degree_bound(), 256);
         assert_eq!(proof.blowup_log2(), blowup_log2);
         assert_eq!(proof.extended_domain_size(), 256 << blowup_log2);
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<BS>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
         assert!(
@@ -743,17 +848,17 @@ mod tests {
     }
 
     fn test_perm_hw<
-        Cfg: poseidon2::Config<Scalar, T>,
+        Cfg: poseidon2::Config<BS, T>,
         const T: usize,
         const R: usize,
         const C: usize,
     >(
-        inputs: [Scalar; T],
-        expected_output: [Scalar; T],
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
     ) -> Result<()> {
-        let chip = PermutationChipHW::<Cfg, T>::default();
+        let chip = PermutationChipHW::<BS, Cfg, T>::default();
         assert_eq!(chip.width(), T);
         test_permutation_impl::<T>(
             &chip,
@@ -840,17 +945,17 @@ mod tests {
     }
 
     fn test_perm_ir<
-        Cfg: poseidon2::Config<Scalar, T>,
+        Cfg: poseidon2::Config<BS, T>,
         const T: usize,
         const R: usize,
         const C: usize,
     >(
-        inputs: [Scalar; T],
-        expected_output: [Scalar; T],
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
     ) -> Result<()> {
-        let chip = PermutationChipIR::<Cfg, T>::default();
+        let chip = PermutationChipIR::<BS, Cfg, T>::default();
         assert_eq!(chip.width(), T * 2);
         test_permutation_impl::<T>(
             &chip,
@@ -937,22 +1042,22 @@ mod tests {
     }
 
     fn test_perm_er<
-        Cfg: poseidon2::Config<Scalar, T>,
+        Cfg: poseidon2::Config<BS, T>,
         const T: usize,
         const R: usize,
         const C: usize,
     >(
-        inputs: [Scalar; T],
-        expected_output: [Scalar; T],
+        inputs: [BS; T],
+        expected_output: [BS; T],
         blowup_log2: usize,
         circuit_commitment: H256,
     ) -> Result<()> {
-        let chip_ir = PermutationChipIR::<Cfg, T>::default();
+        let chip_ir = PermutationChipIR::<BS, Cfg, T>::default();
         assert_eq!(chip_ir.width(), T * 2);
         assert_eq!(chip_ir.height(), 194);
         let ir_width = chip_ir.width();
 
-        let chip_er = PermutationChipER::<Cfg, T>::new(0, -(ir_width as isize));
+        let chip_er = PermutationChipER::<BS, Cfg, T>::new(0, -(ir_width as isize));
         assert_eq!(chip_er.width(), T * 2);
         assert_eq!(chip_er.height(), 194);
         let er_width = chip_er.width();
@@ -982,13 +1087,13 @@ mod tests {
         circuit.check_witness(&witness).unwrap();
 
         let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let proof = circuit.prove::<Sha2Hash<BS>>(witness, options.clone())?;
 
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<BS>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
 
         let public_inputs = circuit.verify(&proof)?;
-        let get_value = |output: CellOrUnconstrained| match output {
+        let get_value = |output: CellOrUnconstrained<BS>| match output {
             CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
             CellOrUnconstrained::Unconstrained(value) => value,
         };
