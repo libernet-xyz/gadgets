@@ -130,18 +130,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
-        view.add_gate(
-            0,
-            (0..T)
-                .map(|j| make_const(m[j]) * ((var(j) + make_const(c[j])) ^ a))
-                .sum::<Constraint<F>>()
-                - rvar(0, 1),
-        );
-        for i in 1..T {
+        for i in 0..T {
             view.add_gate(
                 0,
-                (0..T)
-                    .map(|j| make_const(m[i * T + j]) * (var(j) + make_const(c[j])))
+                std::iter::once(make_const(m[i * T + 0]) * ((var(0) + make_const(c[0])) ^ a))
+                    .chain((1..T).map(|j| make_const(m[i * T + j]) * (var(j) + make_const(c[j]))))
                     .sum::<Constraint<F>>()
                     - rvar(i, 1),
             );
@@ -152,18 +145,14 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
         let a = F::ALPHA;
         let m = C::get_mds_matrix();
-        view.set(
-            view.cell(1, 0),
-            (0..T)
-                .map(|j| m[j] * (view.get_at(view.cell(0, j)) + c[j]).pow_small_vartime(a))
-                .sum(),
-        );
-        for i in 1..T {
+        for i in 0..T {
             view.set(
                 view.cell(1, i),
-                (0..T)
-                    .map(|j| m[i * T + j] * (view.get_at(view.cell(0, j)) + c[j]))
-                    .sum(),
+                std::iter::once(
+                    m[i * T] * (view.get_at(view.cell(0, 0)) + c[0]).pow_small_vartime(a),
+                )
+                .chain((1..T).map(|j| m[i * T + j] * (view.get_at(view.cell(0, j)) + c[j])))
+                .sum(),
             );
         }
     }
