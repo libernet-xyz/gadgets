@@ -216,13 +216,36 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         F: Mul<G, Output = G>,
         G: Mul<F, Output = G>,
     {
-        // TODO
-        todo!()
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA as isize;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.add_gate(0, var(T + i) - make_const(c[i]));
+            view.add_gate(
+                0,
+                (0..T)
+                    .map(|j| make_const(m[i * T + j]) * ((var(j) + rvar(T + j, 0)) ^ a))
+                    .sum::<Constraint<F>>()
+                    - rvar(i, 1),
+            );
+        }
     }
 
     fn witness_full_round(&self, view: &mut impl WitnessView<F>, round: usize) {
-        // TODO
-        todo!()
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.set(view.cell(0, T + i), c[i]);
+            view.set(
+                view.cell(1, i),
+                (0..T)
+                    .map(|j| {
+                        m[i * T + j] * (view.get_at(view.cell(0, j)) + c[j]).pow_small_vartime(a)
+                    })
+                    .sum(),
+            );
+        }
     }
 
     fn build_partial_round<G: Field256 + From<F>>(
@@ -233,13 +256,36 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         F: Mul<G, Output = G>,
         G: Mul<F, Output = G>,
     {
-        // TODO
-        todo!()
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA as isize;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.add_gate(0, var(T + i) - make_const(c[i]));
+            view.add_gate(
+                0,
+                std::iter::once(make_const(m[i * T]) * ((var(0) + var(T)) ^ a))
+                    .chain((1..T).map(|j| make_const(m[i * T + j]) * (var(j) + var(T + j))))
+                    .sum::<Constraint<F>>()
+                    - rvar(i, 1),
+            );
+        }
     }
 
     fn witness_partial_round(&self, view: &mut impl WitnessView<F>, round: usize) {
-        // TODO
-        todo!()
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.set(view.cell(0, T + i), c[i]);
+            view.set(
+                view.cell(1, i),
+                std::iter::once(
+                    m[i * T] * (view.get_at(view.cell(0, 0)) + c[0]).pow_small_vartime(a),
+                )
+                .chain((1..T).map(|j| m[i * T + j] * (view.get_at(view.cell(0, j)) + c[j])))
+                .sum(),
+            );
+        }
     }
 }
 
@@ -834,215 +880,215 @@ mod tests {
         );
     }
 
-    // fn test_perm_bluesky_ir<
-    //     Cfg: poseidon1::Config<BS, T>,
-    //     const T: usize,
-    //     const R: usize,
-    //     const C: usize,
-    // >(
-    //     inputs: [BS; T],
-    //     expected_output: [BS; T],
-    //     blowup_log2: usize,
-    //     circuit_commitment: H256,
-    // ) -> Result<()> {
-    //     let chip = PermutationChipIR::<BS, Cfg, T>::default();
-    //     assert_eq!(chip.width(), T * 2);
-    //     test_permutation_bluesky_impl::<T>(
-    //         &chip,
-    //         inputs,
-    //         expected_output,
-    //         blowup_log2,
-    //         circuit_commitment,
-    //     )
-    // }
+    fn test_perm_bluesky_ir<
+        Cfg: poseidon1::Config<BS, T>,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+    >(
+        inputs: [BS; T],
+        expected_output: [BS; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChipIR::<BS, Cfg, T>::default();
+        assert_eq!(chip.width(), T * 2);
+        test_permutation_bluesky_impl::<T>(
+            &chip,
+            inputs,
+            expected_output,
+            blowup_log2,
+            circuit_commitment,
+        )
+    }
 
-    // #[test]
-    // fn test_permutation_t3_ir() {
-    //     let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
-    //     let outputs = [
-    //         parse("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
-    //         parse("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
-    //         parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
-    //     ];
-    //     assert!(
-    //         test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
-    //             inputs,
-    //             outputs,
-    //             1,
-    //             parse("0xe4d769d9800824e77947b4bfc3245b40340160a133514a57b5843b0a205a4e29")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
-    //             inputs,
-    //             outputs,
-    //             2,
-    //             parse("0x5b65a04b1aee48eced617acfc78e414b829dc9e6ff90e9964ec8b150387e67f7")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
-    //             inputs,
-    //             outputs,
-    //             3,
-    //             parse("0xfc6b3292633d8898b39e28633c003db164ee8243628ccef32b3cd43137d94238")
-    //         )
-    //         .is_ok()
-    //     );
-    // }
+    #[test]
+    fn test_permutation_t3_ir() {
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
+        let outputs = [
+            parse("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
+            parse("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
+            parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
+        ];
+        assert!(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                1,
+                parse("0xe9c445a6d8f5dd33274620bf39b91ebfbda1774040725d1e856fe7b3ba36db0f")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                2,
+                parse("0xb1a33eb956c0eb259298bf3e850cb1d2f0f88a92d52d94fcd8c1b7b82010f6fb")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                3,
+                parse("0xda6d4e1f7af1b92e8c416ce34929f3c384ea5f5ad129d31d55b747e09e25f559")
+            )
+            .is_ok()
+        );
+    }
 
-    // #[test]
-    // fn test_permutation_t4_ir() {
-    //     let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
-    //     let outputs = [
-    //         parse("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
-    //         parse("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
-    //         parse("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
-    //         parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
-    //     ];
-    //     assert!(
-    //         test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
-    //             inputs,
-    //             outputs,
-    //             1,
-    //             parse("0x24cd89be446211981f6968c0370a948c4382a9e8845db545462c6cbd2d2f9392")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
-    //             inputs,
-    //             outputs,
-    //             2,
-    //             parse("0x0c80929bd4a4d878f9585c582adce9a7ffb5779afaee7902849e1f670cfe752b")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
-    //             inputs,
-    //             outputs,
-    //             3,
-    //             parse("0xb54ce41a7e8e1a408acb86c6b406c392c8731bb454c64d949c11838b707a28df")
-    //         )
-    //         .is_ok()
-    //     );
-    // }
+    #[test]
+    fn test_permutation_t4_ir() {
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
+        let outputs = [
+            parse("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
+            parse("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
+            parse("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
+            parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
+        ];
+        assert!(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                1,
+                parse("0xb05298f897fe2bda796bad79de1306b97c4d25b2a3fd2fac9c7e235a90ec4c3d")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                2,
+                parse("0x8635b5e274847291a6d29f508b83d61ba96dedc174316c66c1b48745c02ff020")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_bluesky_ir::<poseidon1::BlueSkyConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                3,
+                parse("0x6c549d26f46170ded362e705c62ee27e1cee45a117d67bb7a343396182e863ba")
+            )
+            .is_ok()
+        );
+    }
 
-    // fn test_perm_goldilocks_ir<Cfg: poseidon1::Config<GL, T>, const T: usize>(
-    //     inputs: [GL; T],
-    //     expected_output: [GL; T],
-    //     blowup_log2: usize,
-    //     circuit_commitment: H256,
-    // ) -> Result<()> {
-    //     let chip = PermutationChipIR::<GL, Cfg, T>::default();
-    //     assert_eq!(chip.width(), T * 2);
-    //     test_permutation_goldilocks_impl::<T>(
-    //         &chip,
-    //         inputs,
-    //         expected_output,
-    //         blowup_log2,
-    //         circuit_commitment,
-    //     )
-    // }
+    fn test_perm_goldilocks_ir<Cfg: poseidon1::Config<GL, T>, const T: usize>(
+        inputs: [GL; T],
+        expected_output: [GL; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChipIR::<GL, Cfg, T>::default();
+        assert_eq!(chip.width(), T * 2);
+        test_permutation_goldilocks_impl::<T>(
+            &chip,
+            inputs,
+            expected_output,
+            blowup_log2,
+            circuit_commitment,
+        )
+    }
 
-    // #[test]
-    // fn test_permutation_t12_ir() {
-    //     let inputs = std::array::from_fn(|i| i.try_into().unwrap());
-    //     let outputs = [
-    //         parse("0x056bda38ad308e78"),
-    //         parse("0x1f38944238b8ccd0"),
-    //         parse("0x80bef63a171f3156"),
-    //         parse("0x27bbc645b2a3198c"),
-    //         parse("0x9befae3f221509b3"),
-    //         parse("0xa1cfa54ae2c44c9e"),
-    //         parse("0xa1c876869f1c52f8"),
-    //         parse("0x7ffa21471eff65af"),
-    //         parse("0xdc565450ad52b99e"),
-    //         parse("0x4b8b1daf8e8ea3c6"),
-    //         parse("0xf866b42495e61984"),
-    //         parse("0x7af57b5f91f196fe"),
-    //     ];
-    //     assert!(
-    //         test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig12, 12>(
-    //             inputs,
-    //             outputs,
-    //             1,
-    //             parse("0x0bcdce6774d6b947daceb0590ee91b0146bcfeadf7096b739604c0357e55f048")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig12, 12>(
-    //             inputs,
-    //             outputs,
-    //             2,
-    //             parse("0x96672484b088472576742f6fe48cef23e99cd239907177d5db546d619809c419")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig12, 12>(
-    //             inputs,
-    //             outputs,
-    //             3,
-    //             parse("0xa9b7d7a58feead08151d99649d559271796b23fb5466f86f7aa0a7376a12d937")
-    //         )
-    //         .is_ok()
-    //     );
-    // }
+    #[test]
+    fn test_permutation_t12_ir() {
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
+        let outputs = [
+            parse("0x056bda38ad308e78"),
+            parse("0x1f38944238b8ccd0"),
+            parse("0x80bef63a171f3156"),
+            parse("0x27bbc645b2a3198c"),
+            parse("0x9befae3f221509b3"),
+            parse("0xa1cfa54ae2c44c9e"),
+            parse("0xa1c876869f1c52f8"),
+            parse("0x7ffa21471eff65af"),
+            parse("0xdc565450ad52b99e"),
+            parse("0x4b8b1daf8e8ea3c6"),
+            parse("0xf866b42495e61984"),
+            parse("0x7af57b5f91f196fe"),
+        ];
+        assert!(
+            test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                1,
+                parse("0x1afa8b24d35602dfc572885c74efe4b078b98d89c54ec62b52fde8fae1f70caf")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                2,
+                parse("0xaee97d8558f3198e79a0e5ee372b47a6a2876070293e916d4aa1129fa2204a54")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                3,
+                parse("0xed8f71073d457d8e5a116bfb1b015a223bd630a5443ef5d686bc6c5e1206b101")
+            )
+            .is_ok()
+        );
+    }
 
-    // #[test]
-    // fn test_permutation_t16_ir() {
-    //     let inputs = std::array::from_fn(|i| i.try_into().unwrap());
-    //     let outputs = [
-    //         parse("0x6a84bf02be1f328d"),
-    //         parse("0xec14d274b936a21a"),
-    //         parse("0xc0539d7bd4eb66de"),
-    //         parse("0xb317ecf41fa8d55b"),
-    //         parse("0x80b0d36f66671f8a"),
-    //         parse("0x74a1592b9a16e832"),
-    //         parse("0x65e53afadfadc8c3"),
-    //         parse("0xa0007e5ee96ee4b2"),
-    //         parse("0x6dd5661a877003a8"),
-    //         parse("0xc36a09c2dc25cd6e"),
-    //         parse("0xcbda3d58f7cf85f4"),
-    //         parse("0x34cb1d63c35596cf"),
-    //         parse("0x4fcd09b24769e281"),
-    //         parse("0x6c514f906998c65d"),
-    //         parse("0xc447035d8d71952b"),
-    //         parse("0x591863454267826f"),
-    //     ];
-    //     assert!(
-    //         test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig16, 16>(
-    //             inputs,
-    //             outputs,
-    //             1,
-    //             parse("0xe65c79510dbbefbb2fde3583ae0f4aab4cd0fd4b8d12883297d0e097f58b39db")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig16, 16>(
-    //             inputs,
-    //             outputs,
-    //             2,
-    //             parse("0x483c454d97c79edc7b262d4b759db1a204cc779dd46ef2f0ad6b1d595d182b09")
-    //         )
-    //         .is_ok()
-    //     );
-    //     assert!(
-    //         test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig16, 16>(
-    //             inputs,
-    //             outputs,
-    //             3,
-    //             parse("0xf2c27ea1dca488069739767022835c3f6cc6652c6f625d9ecf337771cdfd4a1c")
-    //         )
-    //         .is_ok()
-    //     );
-    // }
+    #[test]
+    fn test_permutation_t16_ir() {
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
+        let outputs = [
+            parse("0x6a84bf02be1f328d"),
+            parse("0xec14d274b936a21a"),
+            parse("0xc0539d7bd4eb66de"),
+            parse("0xb317ecf41fa8d55b"),
+            parse("0x80b0d36f66671f8a"),
+            parse("0x74a1592b9a16e832"),
+            parse("0x65e53afadfadc8c3"),
+            parse("0xa0007e5ee96ee4b2"),
+            parse("0x6dd5661a877003a8"),
+            parse("0xc36a09c2dc25cd6e"),
+            parse("0xcbda3d58f7cf85f4"),
+            parse("0x34cb1d63c35596cf"),
+            parse("0x4fcd09b24769e281"),
+            parse("0x6c514f906998c65d"),
+            parse("0xc447035d8d71952b"),
+            parse("0x591863454267826f"),
+        ];
+        assert!(
+            test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                1,
+                parse("0x279cc1337eda951ccb13af87dc37f06b20194125ed7be83fa9e73ede1a9e7580")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                2,
+                parse("0x46f1d37cec11e7cce214db842eccff2d70dd9d82397da85cb5cd5dc6bbe874b8")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_goldilocks_ir::<poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                3,
+                parse("0x8af4f64c7bb731cf43c66453d2627852fe5e60152d66e40b1a49398553e0608f")
+            )
+            .is_ok()
+        );
+    }
 
     // fn test_perm_bluesky_er<
     //     Cfg: poseidon1::Config<BS, T>,
