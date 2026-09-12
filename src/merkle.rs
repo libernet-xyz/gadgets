@@ -1662,7 +1662,7 @@ mod tests {
         entries: I,
         key: u64,
     ) -> Result<()> {
-        const LANES: usize = 18;
+        const LANES: usize = 52;
 
         let tree = {
             let mut tree = get_empty_binary_tree(256);
@@ -1684,7 +1684,7 @@ mod tests {
 
         let chip = FullBinaryChip::<LANES>::new(path);
         assert_eq!(chip.stage_width(), 6);
-        assert_eq!(chip.stage_height(), 67);
+        assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(257, 6 * LANES));
         assert_eq!(
             chip.height(),
@@ -1767,7 +1767,7 @@ mod tests {
         entries: I,
         key: u64,
     ) -> Result<()> {
-        const LANES: usize = 11;
+        const LANES: usize = 33;
 
         let tree = {
             let mut tree = get_empty_ternary_tree(161);
@@ -1789,7 +1789,7 @@ mod tests {
 
         let chip = FullTernaryChip::<LANES>::new(path);
         assert_eq!(chip.stage_width(), 8);
-        assert_eq!(chip.stage_height(), 67);
+        assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(162, 8 * LANES));
         assert_eq!(
             chip.height(),

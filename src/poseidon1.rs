@@ -348,7 +348,7 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> RcModeExternalRom
         G: Mul<F, Output = G>,
     {
         view.cell(
-            1 + self.ir_chip_row_offset,
+            self.ir_chip_row_offset + 1,
             self.ir_chip_column_offset + (T + i) as isize,
         )
     }
