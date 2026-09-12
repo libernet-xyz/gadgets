@@ -1,13 +1,12 @@
+use crate::poseidon::Sbox;
 use crate::poseidon1;
 use crate::xits;
 use anyhow::Result;
-use starkom_bluesky::Scalar;
-use starkom_bluesky::from_const;
-use starkom_ff::{Field, Field256};
+use starkom_ff::{Field256, PrimeField256};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
 };
-use starkom_poseidon::{BlueSkyConfig3, BlueSkyConfig4};
+use starkom_poseidon::Config as PoseidonConfig;
 use std::ops::Mul;
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
@@ -18,23 +17,32 @@ use std::ops::Mul;
 ///
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
-pub struct BinaryChip<const H: usize, const L: usize> {
-    decomposer: xits::BitDecomposerChip<Scalar, H>,
-    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig3, 3>,
-    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig3, 3>; H],
-    path: [[Scalar; 2]; H],
+pub struct BinaryChip256<
+    F: PrimeField256 + Sbox,
+    const H: usize,
+    C: PoseidonConfig<F, 3>,
+    const L: usize,
+> {
+    decomposer: xits::BitDecomposerChip<F, H>,
+    hasher_ir: poseidon1::PermutationChipIR<F, C, 3>,
+    hasher_er: [poseidon1::PermutationChipER<F, C, 3>; H],
+    path: [[F; 2]; H],
 }
 
-impl<const H: usize, const L: usize> Default for BinaryChip<H, L> {
+impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: usize> Default
+    for BinaryChip256<F, H, C, L>
+{
     fn default() -> Self {
-        Self::new([[Scalar::ZERO; 2]; H])
+        Self::new([[F::ZERO; 2]; H])
     }
 }
 
-impl<const H: usize, const L: usize> BinaryChip<H, L> {
+impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: usize>
+    BinaryChip256<F, H, C, L>
+{
     const SELECTOR_HEIGHT: usize = 2;
 
-    pub fn new(path: [[Scalar; 2]; H]) -> Self {
+    pub fn new(path: [[F; 2]; H]) -> Self {
         assert!(L > 0, "need at least one lane");
         assert!(L <= H, "too many lanes");
         let hasher_ir = poseidon1::PermutationChipIR::default();
@@ -61,38 +69,36 @@ impl<const H: usize, const L: usize> BinaryChip<H, L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<Scalar>>(
+    fn build_input_selector<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         bit: Option<Cell>,
     ) where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(1, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(0, 0)
-                - rvar(0, 1),
+            rvar(2, 0) * rvar(1, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
         );
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(0, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(1, 0)
-                - rvar(1, 1),
+            rvar(2, 0) * rvar(0, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
         );
     }
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        bits: &[CellOrUnconstrained<Scalar>],
+        view: &mut impl WitnessView<F>,
+        bits: &[CellOrUnconstrained<F>],
         i: usize,
     ) {
         let bit = bits[i];
         let bit_value = view.get(bit);
-        if bit_value != Scalar::ZERO {
+        if bit_value != F::ZERO {
             view.set(view.cell(0, 0), self.path[i][1]);
             view.set(view.cell(0, 1), self.path[i][0]);
         } else {
@@ -105,7 +111,9 @@ impl<const H: usize, const L: usize> BinaryChip<H, L> {
     }
 }
 
-impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for BinaryChip<H, L> {
+impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: usize>
+    PlonkChip<F, 2, 1> for BinaryChip256<F, H, C, L>
+{
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -114,14 +122,14 @@ impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for BinaryChip<H, L
         self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<Scalar>>(
+    fn build<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]>
     where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         let [key, value] = inputs;
         let bits = self.decomposer.build(view, [key])?;
@@ -163,9 +171,9 @@ impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for BinaryChip<H, L
 
     fn witness(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        inputs: [CellOrUnconstrained<Scalar>; 2],
-    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 2],
+    ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, _] = inputs;
         let bits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -209,23 +217,32 @@ impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for BinaryChip<H, L
 /// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
 /// [`FullTernaryChip`] below instead.
 #[derive(Debug, Clone)]
-pub struct TernaryChip<const H: usize, const L: usize> {
-    decomposer: xits::TritDecomposerChip<Scalar, H>,
-    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig4, 4>,
-    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig4, 4>; H],
-    path: [[Scalar; 3]; H],
+pub struct TernaryChip256<
+    F: PrimeField256 + Sbox,
+    const H: usize,
+    C: PoseidonConfig<F, 4>,
+    const L: usize,
+> {
+    decomposer: xits::TritDecomposerChip<F, H>,
+    hasher_ir: poseidon1::PermutationChipIR<F, C, 4>,
+    hasher_er: [poseidon1::PermutationChipER<F, C, 4>; H],
+    path: [[F; 3]; H],
 }
 
-impl<const H: usize, const L: usize> Default for TernaryChip<H, L> {
+impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: usize> Default
+    for TernaryChip256<F, H, C, L>
+{
     fn default() -> Self {
-        Self::new([[Scalar::ZERO; 3]; H])
+        Self::new([[F::ZERO; 3]; H])
     }
 }
 
-impl<const H: usize, const L: usize> TernaryChip<H, L> {
+impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: usize>
+    TernaryChip256<F, H, C, L>
+{
     const SELECTOR_HEIGHT: usize = 2;
 
-    pub fn new(path: [[Scalar; 3]; H]) -> Self {
+    pub fn new(path: [[F; 3]; H]) -> Self {
         assert!(L > 0, "need at least one lane");
         assert!(L <= H, "too many lanes");
         let hasher_ir = poseidon1::PermutationChipIR::default();
@@ -252,14 +269,14 @@ impl<const H: usize, const L: usize> TernaryChip<H, L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<Scalar>>(
+    fn build_input_selector<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         trit: Option<Cell>,
     ) where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(trit, view.cell(0, 3).into());
@@ -280,42 +297,38 @@ impl<const H: usize, const L: usize> TernaryChip<H, L> {
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        trits: &[CellOrUnconstrained<Scalar>],
+        view: &mut impl WitnessView<F>,
+        trits: &[CellOrUnconstrained<F>],
         i: usize,
     ) {
         let trit = trits[i];
         let trit_value = view.get(trit);
-        const ZERO: Scalar = from_const(0);
-        const ONE: Scalar = from_const(1);
-        const TWO: Scalar = from_const(2);
-        match trit_value {
-            ZERO => {
-                view.set(view.cell(0, 0), self.path[i][0]);
-                view.set(view.cell(0, 1), self.path[i][1]);
-                view.set(view.cell(0, 2), self.path[i][2]);
-            }
-            ONE => {
-                view.set(view.cell(0, 0), self.path[i][1]);
-                view.set(view.cell(0, 1), self.path[i][0]);
-                view.set(view.cell(0, 2), self.path[i][2]);
-            }
-            TWO => {
-                view.set(view.cell(0, 0), self.path[i][2]);
-                view.set(view.cell(0, 1), self.path[i][0]);
-                view.set(view.cell(0, 2), self.path[i][1]);
-            }
-            _ => panic!("invalid trit value {}", trit_value),
-        };
+        if trit_value == F::from(0u8) {
+            view.set(view.cell(0, 0), self.path[i][0]);
+            view.set(view.cell(0, 1), self.path[i][1]);
+            view.set(view.cell(0, 2), self.path[i][2]);
+        } else if trit_value == F::from(1u8) {
+            view.set(view.cell(0, 0), self.path[i][1]);
+            view.set(view.cell(0, 1), self.path[i][0]);
+            view.set(view.cell(0, 2), self.path[i][2]);
+        } else if trit_value == F::from(2u8) {
+            view.set(view.cell(0, 0), self.path[i][2]);
+            view.set(view.cell(0, 1), self.path[i][0]);
+            view.set(view.cell(0, 2), self.path[i][1]);
+        } else {
+            panic!("invalid trit value {}", trit_value);
+        }
         view.copy(trit, view.cell(0, 3).into());
         view.set(view.cell(1, 0), self.path[i][0]);
         view.set(view.cell(1, 1), self.path[i][1]);
         view.set(view.cell(1, 2), self.path[i][2]);
-        view.set(view.cell(1, 3), Scalar::ZERO);
+        view.set(view.cell(1, 3), F::ZERO);
     }
 }
 
-impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for TernaryChip<H, L> {
+impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: usize>
+    PlonkChip<F, 2, 1> for TernaryChip256<F, H, C, L>
+{
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -324,14 +337,14 @@ impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for TernaryChip<H, 
         self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<Scalar>>(
+    fn build<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]>
     where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         let [key, value] = inputs;
         let trits = self.decomposer.build(view, [key])?;
@@ -373,9 +386,9 @@ impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for TernaryChip<H, 
 
     fn witness(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        inputs: [CellOrUnconstrained<Scalar>; 2],
-    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 2],
+    ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, _] = inputs;
         let trits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -423,23 +436,25 @@ impl<const H: usize, const L: usize> PlonkChip<Scalar, 2, 1> for TernaryChip<H, 
 ///
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
-pub struct FullBinaryChip<const L: usize> {
-    decomposer: xits::FullBitDecomposerChip<Scalar>,
-    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig3, 3>,
-    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig3, 3>; 255],
-    path: [[Scalar; 2]; 256],
+pub struct FullBinaryChip256<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> {
+    decomposer: xits::FullBitDecomposerChip<F>,
+    hasher_ir: poseidon1::PermutationChipIR<F, C, 3>,
+    hasher_er: [poseidon1::PermutationChipER<F, C, 3>; 255],
+    path: [[F; 2]; 256],
 }
 
-impl<const L: usize> Default for FullBinaryChip<L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> Default
+    for FullBinaryChip256<F, C, L>
+{
     fn default() -> Self {
-        Self::new([[Scalar::ZERO; 2]; 256])
+        Self::new([[F::ZERO; 2]; 256])
     }
 }
 
-impl<const L: usize> FullBinaryChip<L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> FullBinaryChip256<F, C, L> {
     const SELECTOR_HEIGHT: usize = 2;
 
-    pub fn new(path: [[Scalar; 2]; 256]) -> Self {
+    pub fn new(path: [[F; 2]; 256]) -> Self {
         assert!(L > 0, "need at least one lane");
         let hasher_ir = poseidon1::PermutationChipIR::default();
         let stage_width = hasher_ir.width() as isize;
@@ -465,39 +480,37 @@ impl<const L: usize> FullBinaryChip<L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<Scalar>>(
+    fn build_input_selector<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         bit: Option<Cell>,
     ) where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(1, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(0, 0)
-                - rvar(0, 1),
+            rvar(2, 0) * rvar(1, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
         );
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(0, 0) + (make_const(from_const(1)) - rvar(2, 0)) * rvar(1, 0)
-                - rvar(1, 1),
+            rvar(2, 0) * rvar(0, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
         );
         view.add_gate(1, var(2));
     }
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        bits: &[CellOrUnconstrained<Scalar>],
+        view: &mut impl WitnessView<F>,
+        bits: &[CellOrUnconstrained<F>],
         i: usize,
     ) {
         let bit = bits[i];
         let bit_value = view.get(bit);
-        if bit_value != Scalar::ZERO {
+        if bit_value != F::ZERO {
             view.set(view.cell(0, 0), self.path[i][1]);
             view.set(view.cell(0, 1), self.path[i][0]);
         } else {
@@ -507,11 +520,13 @@ impl<const L: usize> FullBinaryChip<L> {
         view.copy(bits[i], view.cell(0, 2));
         view.set(view.cell(1, 0), self.path[i][0]);
         view.set(view.cell(1, 1), self.path[i][1]);
-        view.set(view.cell(1, 2), Scalar::ZERO);
+        view.set(view.cell(1, 2), F::ZERO);
     }
 }
 
-impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullBinaryChip<L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> PlonkChip<F, 2, 1>
+    for FullBinaryChip256<F, C, L>
+{
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -520,14 +535,14 @@ impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullBinaryChip<L> {
         self.decomposer.height() + self.stage_height() * 256usize.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<Scalar>>(
+    fn build<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]>
     where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         let [key, value] = inputs;
         let bits = self.decomposer.build(view, [key])?;
@@ -569,9 +584,9 @@ impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullBinaryChip<L> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        inputs: [CellOrUnconstrained<Scalar>; 2],
-    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 2],
+    ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, _] = inputs;
         let bits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -617,23 +632,25 @@ impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullBinaryChip<L> {
 ///
 /// If you don't need 161-trit keys use [`TernaryChip`].
 #[derive(Debug, Clone)]
-pub struct FullTernaryChip<const L: usize> {
-    decomposer: xits::FullTritDecomposerChip<Scalar>,
-    hasher_ir: poseidon1::PermutationChipIR<Scalar, BlueSkyConfig4, 4>,
-    hasher_er: [poseidon1::PermutationChipER<Scalar, BlueSkyConfig4, 4>; 160],
-    path: [[Scalar; 3]; 161],
+pub struct FullTernaryChip256<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> {
+    decomposer: xits::FullTritDecomposerChip<F>,
+    hasher_ir: poseidon1::PermutationChipIR<F, C, 4>,
+    hasher_er: [poseidon1::PermutationChipER<F, C, 4>; 160],
+    path: [[F; 3]; 161],
 }
 
-impl<const L: usize> Default for FullTernaryChip<L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> Default
+    for FullTernaryChip256<F, C, L>
+{
     fn default() -> Self {
-        Self::new([[Scalar::ZERO; 3]; 161])
+        Self::new([[F::ZERO; 3]; 161])
     }
 }
 
-impl<const L: usize> FullTernaryChip<L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> FullTernaryChip256<F, C, L> {
     const SELECTOR_HEIGHT: usize = 2;
 
-    pub fn new(path: [[Scalar; 3]; 161]) -> Self {
+    pub fn new(path: [[F; 3]; 161]) -> Self {
         assert!(L > 0, "need at least one lane");
         let hasher_ir = poseidon1::PermutationChipIR::default();
         let stage_width = hasher_ir.width() as isize;
@@ -659,14 +676,14 @@ impl<const L: usize> FullTernaryChip<L> {
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<Scalar>>(
+    fn build_input_selector<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         trit: Option<Cell>,
     ) where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(trit, view.cell(0, 3).into());
@@ -687,42 +704,38 @@ impl<const L: usize> FullTernaryChip<L> {
 
     fn witness_input_selector(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        trits: &[CellOrUnconstrained<Scalar>],
+        view: &mut impl WitnessView<F>,
+        trits: &[CellOrUnconstrained<F>],
         i: usize,
     ) {
         let trit = trits[i];
         let trit_value = view.get(trit);
-        const ZERO: Scalar = from_const(0);
-        const ONE: Scalar = from_const(1);
-        const TWO: Scalar = from_const(2);
-        match trit_value {
-            ZERO => {
-                view.set(view.cell(0, 0), self.path[i][0]);
-                view.set(view.cell(0, 1), self.path[i][1]);
-                view.set(view.cell(0, 2), self.path[i][2]);
-            }
-            ONE => {
-                view.set(view.cell(0, 0), self.path[i][1]);
-                view.set(view.cell(0, 1), self.path[i][0]);
-                view.set(view.cell(0, 2), self.path[i][2]);
-            }
-            TWO => {
-                view.set(view.cell(0, 0), self.path[i][2]);
-                view.set(view.cell(0, 1), self.path[i][0]);
-                view.set(view.cell(0, 2), self.path[i][1]);
-            }
-            _ => panic!("invalid trit value {}", trit_value),
-        };
+        if trit_value == F::from(0u8) {
+            view.set(view.cell(0, 0), self.path[i][0]);
+            view.set(view.cell(0, 1), self.path[i][1]);
+            view.set(view.cell(0, 2), self.path[i][2]);
+        } else if trit_value == F::from(1u8) {
+            view.set(view.cell(0, 0), self.path[i][1]);
+            view.set(view.cell(0, 1), self.path[i][0]);
+            view.set(view.cell(0, 2), self.path[i][2]);
+        } else if trit_value == F::from(2u8) {
+            view.set(view.cell(0, 0), self.path[i][2]);
+            view.set(view.cell(0, 1), self.path[i][0]);
+            view.set(view.cell(0, 2), self.path[i][1]);
+        } else {
+            panic!("invalid trit value {}", trit_value);
+        }
         view.copy(trit, view.cell(0, 3).into());
         view.set(view.cell(1, 0), self.path[i][0]);
         view.set(view.cell(1, 1), self.path[i][1]);
         view.set(view.cell(1, 2), self.path[i][2]);
-        view.set(view.cell(1, 3), Scalar::ZERO);
+        view.set(view.cell(1, 3), F::ZERO);
     }
 }
 
-impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullTernaryChip<L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> PlonkChip<F, 2, 1>
+    for FullTernaryChip256<F, C, L>
+{
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
     }
@@ -731,14 +744,14 @@ impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullTernaryChip<L> {
         self.decomposer.height() + self.stage_height() * 161usize.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<Scalar>>(
+    fn build<G: Field256 + From<F>>(
         &self,
-        view: &mut impl CircuitView<Scalar, G>,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]>
     where
-        Scalar: Mul<G, Output = G>,
-        G: Mul<Scalar, Output = G>,
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
     {
         let [key, value] = inputs;
         let trits = self.decomposer.build(view, [key])?;
@@ -780,9 +793,9 @@ impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullTernaryChip<L> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView<Scalar>,
-        inputs: [CellOrUnconstrained<Scalar>; 2],
-    ) -> Result<[CellOrUnconstrained<Scalar>; 1]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 2],
+    ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, _] = inputs;
         let trits = self.decomposer.witness(view, [key])?;
         let stage_width = self.stage_width();
@@ -824,10 +837,11 @@ impl<const L: usize> PlonkChip<Scalar, 2, 1> for FullTernaryChip<L> {
 mod tests {
     use super::*;
     use primitive_types::{H256, U256};
-    use starkom_bluesky::{from_const, parse_scalar};
+    use starkom_bluesky::{Scalar, from_const, parse_scalar};
+    use starkom_ff::Field;
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
-    use starkom_poseidon as poseidon1;
+    use starkom_poseidon::{self as poseidon1, BlueSkyConfig3, BlueSkyConfig4};
     use std::collections::BTreeMap;
     use std::fmt::Debug;
     use std::sync::{Arc, LazyLock, Mutex};
@@ -847,7 +861,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = BinaryChip::<H, L>::new(path);
+        let chip = BinaryChip256::<Scalar, H, BlueSkyConfig3, L>::new(path);
         assert_eq!(chip.width(), L * 6);
         assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
@@ -983,7 +997,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = TernaryChip::<H, L>::new(path);
+        let chip = TernaryChip256::<Scalar, H, BlueSkyConfig4, L>::new(path);
         assert_eq!(chip.width(), L * 8);
         assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
@@ -1404,7 +1418,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = BinaryChip::<H, L>::new(path);
+        let chip = BinaryChip256::<Scalar, H, BlueSkyConfig3, L>::new(path);
         assert_eq!(chip.stage_width(), 6);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(H + 1, 6 * L));
@@ -1542,7 +1556,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip::<H, L>::new(path);
+        let chip = TernaryChip256::<Scalar, H, BlueSkyConfig4, L>::new(path);
         assert_eq!(chip.stage_width(), 8);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(H + 1, 8 * L));
@@ -1682,7 +1696,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullBinaryChip::<LANES>::new(path);
+        let chip = FullBinaryChip256::<Scalar, BlueSkyConfig3, LANES>::new(path);
         assert_eq!(chip.stage_width(), 6);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(257, 6 * LANES));
@@ -1787,7 +1801,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullTernaryChip::<LANES>::new(path);
+        let chip = FullTernaryChip256::<Scalar, BlueSkyConfig4, LANES>::new(path);
         assert_eq!(chip.stage_width(), 8);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(162, 8 * LANES));
