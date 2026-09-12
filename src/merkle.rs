@@ -849,7 +849,7 @@ mod tests {
         let value = Scalar::from(value);
         let chip = BinaryChip::<H, L>::new(path);
         assert_eq!(chip.width(), L * 6);
-        assert_eq!(chip.height(), 1 + 67 * H.next_multiple_of(L) / L);
+        assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -985,7 +985,7 @@ mod tests {
         let value = Scalar::from(value);
         let chip = TernaryChip::<H, L>::new(path);
         assert_eq!(chip.width(), L * 8);
-        assert_eq!(chip.height(), 1 + 67 * H.next_multiple_of(L) / L);
+        assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -1406,7 +1406,7 @@ mod tests {
 
         let chip = BinaryChip::<H, L>::new(path);
         assert_eq!(chip.stage_width(), 6);
-        assert_eq!(chip.stage_height(), 67);
+        assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(H + 1, 6 * L));
         assert_eq!(
             chip.height(),
@@ -1544,7 +1544,7 @@ mod tests {
 
         let chip = TernaryChip::<H, L>::new(path);
         assert_eq!(chip.stage_width(), 8);
-        assert_eq!(chip.stage_height(), 67);
+        assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(H + 1, 8 * L));
         assert_eq!(
             chip.height(),
