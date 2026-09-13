@@ -1715,6 +1715,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.degree_bound(), 1024);
         assert_eq!(circuit.num_columns(), chip.width());
 
         let mut witness = circuit.make_witness();
@@ -1820,6 +1821,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.degree_bound(), 1024);
         assert_eq!(circuit.num_columns(), chip.width());
 
         let mut witness = circuit.make_witness();
