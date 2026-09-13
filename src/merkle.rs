@@ -867,7 +867,7 @@ mod tests {
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
-        builder.declare_public_rows([root_hash.unwrap().row()]);
+        builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -1003,7 +1003,7 @@ mod tests {
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
-        builder.declare_public_rows([root_hash.unwrap().row()]);
+        builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -1430,7 +1430,7 @@ mod tests {
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
-        builder.declare_public_rows([root_hash.unwrap().row()]);
+        builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -1568,7 +1568,7 @@ mod tests {
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
-        builder.declare_public_rows([root_hash.unwrap().row()]);
+        builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -1708,7 +1708,7 @@ mod tests {
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
-        builder.declare_public_rows([root_hash.unwrap().row()]);
+        builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -1814,7 +1814,7 @@ mod tests {
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
-        builder.declare_public_rows([root_hash.unwrap().row()]);
+        builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,

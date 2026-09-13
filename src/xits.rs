@@ -770,6 +770,7 @@ mod tests {
 
     fn test_bit_decomposer_chip<F: Field, G: Field256 + From<F>, const N: usize>(
         value: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) where
         F: Mul<G, Output = G>,
@@ -780,14 +781,14 @@ mod tests {
         assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), 4);
+        assert_eq!(circuit.degree_bound(), expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
@@ -814,64 +815,65 @@ mod tests {
     #[test]
     fn test_bit_decomposer_chip_bluesky_1() {
         let c = parse_hash("0x54c875a6d1868a642ea3411f2f856cd979233cec1ac9a5867955c89db11aec6b");
-        test_bit_decomposer_chip::<BS, BS, 1>(0, c);
-        test_bit_decomposer_chip::<BS, BS, 1>(1, c);
+        test_bit_decomposer_chip::<BS, BS, 1>(0, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 1>(1, 4, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_goldilocks_1() {
-        let c = parse_hash("0xd8504b0f3ad1a5bb831dc5d558d6772a4cfe69d6a3eff4aa9ef9128e442400bf");
-        test_bit_decomposer_chip::<GL, GL4, 1>(0, c);
-        test_bit_decomposer_chip::<GL, GL4, 1>(1, c);
+        let c = parse_hash("0x69f79bafa984b0f21aec6882fa951762ad7bb8663b9091d686458ecec0b51df4");
+        test_bit_decomposer_chip::<GL, GL4, 1>(0, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 1>(1, 16, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_bluesky_2() {
         let c = parse_hash("0x9f32441d30c4c51637ebfbdfa96c40e8b9346e0903acedd6d19226ed7d2a8181");
-        test_bit_decomposer_chip::<BS, BS, 2>(0, c);
-        test_bit_decomposer_chip::<BS, BS, 2>(1, c);
-        test_bit_decomposer_chip::<BS, BS, 2>(2, c);
-        test_bit_decomposer_chip::<BS, BS, 2>(3, c);
+        test_bit_decomposer_chip::<BS, BS, 2>(0, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 2>(1, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 2>(2, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 2>(3, 4, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_goldilocks_2() {
-        let c = parse_hash("0xaad052a0f355d7b5a84699660fa8420150093b26ad7cf2d7ca73961ec221e299");
-        test_bit_decomposer_chip::<GL, GL4, 2>(0, c);
-        test_bit_decomposer_chip::<GL, GL4, 2>(1, c);
-        test_bit_decomposer_chip::<GL, GL4, 2>(2, c);
-        test_bit_decomposer_chip::<GL, GL4, 2>(3, c);
+        let c = parse_hash("0x2bf94db335861773b164d3f356506880a0797d68bca8d3526fcba84bf1f0ca5d");
+        test_bit_decomposer_chip::<GL, GL4, 2>(0, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 2>(1, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 2>(2, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 2>(3, 16, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_bluesky_3() {
         let c = parse_hash("0xabe386e6b4aa50042e4b0edeb3605c29531a556fa414a0091e6a92b488f91d31");
-        test_bit_decomposer_chip::<BS, BS, 3>(0, c);
-        test_bit_decomposer_chip::<BS, BS, 3>(1, c);
-        test_bit_decomposer_chip::<BS, BS, 3>(2, c);
-        test_bit_decomposer_chip::<BS, BS, 3>(3, c);
-        test_bit_decomposer_chip::<BS, BS, 3>(4, c);
-        test_bit_decomposer_chip::<BS, BS, 3>(5, c);
-        test_bit_decomposer_chip::<BS, BS, 3>(6, c);
-        test_bit_decomposer_chip::<BS, BS, 3>(7, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(0, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(1, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(2, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(3, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(4, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(5, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(6, 4, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(7, 4, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_goldilocks_3() {
-        let c = parse_hash("0x555f20feb1caa7fafd7c5c63db4209725dee0ba8b3e86b9cadaf0ddc24bf51d4");
-        test_bit_decomposer_chip::<GL, GL4, 3>(0, c);
-        test_bit_decomposer_chip::<GL, GL4, 3>(1, c);
-        test_bit_decomposer_chip::<GL, GL4, 3>(2, c);
-        test_bit_decomposer_chip::<GL, GL4, 3>(3, c);
-        test_bit_decomposer_chip::<GL, GL4, 3>(4, c);
-        test_bit_decomposer_chip::<GL, GL4, 3>(5, c);
-        test_bit_decomposer_chip::<GL, GL4, 3>(6, c);
-        test_bit_decomposer_chip::<GL, GL4, 3>(7, c);
+        let c = parse_hash("0xef23464295ebcebb628a6439d1d3d8fc5095aec99edd1cdfa9dab63202c5861c");
+        test_bit_decomposer_chip::<GL, GL4, 3>(0, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(1, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(2, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(3, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(4, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(5, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(6, 16, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(7, 16, c);
     }
 
     fn test_const_bit_comparator_chip<F: Field, G: Field256 + From<F>, const N: usize>(
         lhs: u8,
         rhs: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) where
         F: Mul<G, Output = G>,
@@ -886,7 +888,7 @@ mod tests {
         let [cmp] = builder
             .sub_chip(decomposer_chip.height(), 0, &comparator_chip, bits)
             .unwrap();
-        builder.declare_public_rows([cmp.unwrap().row()]);
+        builder.declare_public_cells([cmp.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -896,7 +898,7 @@ mod tests {
             circuit.num_rows(),
             decomposer_chip.height() + comparator_chip.height()
         );
-        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.degree_bound(), expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
@@ -930,65 +932,66 @@ mod tests {
     #[test]
     fn test_const_bit_comparator_chip_bluesky_1() {
         let c = parse_hash("0x84aad7ad79038b71cb58257a5a129e5b114286358604de9baa429920682a487f");
-        test_const_bit_comparator_chip::<BS, BS, 1>(0, 0, c);
-        test_const_bit_comparator_chip::<BS, BS, 1>(1, 0, c);
-        test_const_bit_comparator_chip::<BS, BS, 1>(0, 1, c);
-        test_const_bit_comparator_chip::<BS, BS, 1>(1, 1, c);
+        test_const_bit_comparator_chip::<BS, BS, 1>(0, 0, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 1>(1, 0, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 1>(0, 1, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 1>(1, 1, 8, c);
     }
 
     #[test]
     fn test_const_bit_comparator_chip_goldilocks_1() {
-        let c = parse_hash("0x55259e66e322cba34460e74cb715ba979b7835ca997f8fc5ee9e797508730500");
-        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 0, c);
-        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 0, c);
-        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 1, c);
-        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 1, c);
+        let c = parse_hash("0x4f036d005fe0d8023ab82ac31712b12aa311ededcf8063397a625f95d60b679b");
+        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 0, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 0, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 1, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 1, 16, c);
     }
 
     #[test]
     fn test_const_bit_comparator_chip_bluesky_2() {
         let c = parse_hash("0x5acdcc43ef21df21f1f0a419350f2d5510a4804426de782f91dad2873b95a908");
-        test_const_bit_comparator_chip::<BS, BS, 2>(0, 0, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(1, 0, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(2, 0, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(3, 0, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(0, 1, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(1, 1, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(2, 1, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(3, 1, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(0, 2, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(1, 2, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(2, 2, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(3, 2, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(0, 3, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(1, 3, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(2, 3, c);
-        test_const_bit_comparator_chip::<BS, BS, 2>(3, 3, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 0, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 0, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 0, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 0, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 1, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 1, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 1, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 1, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 2, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 2, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 2, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 2, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 3, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 3, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 3, 8, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 3, 8, c);
     }
 
     #[test]
     fn test_const_bit_comparator_chip_goldilocks_2() {
-        let c = parse_hash("0xb0613d4ac23a9ccdce098b4c634673ce3c60411384463741c978aba855d8748d");
-        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 0, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 0, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 0, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 0, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 1, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 1, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 1, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 1, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 2, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 2, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 2, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 2, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 3, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 3, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 3, c);
-        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 3, c);
+        let c = parse_hash("0x0b46c35696e7aa40dbaba78f7a2a6cb8074a4a0e88fba49f4af0df7ebf945277");
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 0, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 0, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 0, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 0, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 1, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 1, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 1, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 1, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 2, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 2, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 2, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 2, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 3, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 3, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 3, 16, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 3, 16, c);
     }
 
     fn test_full_bit_decomposer_chip_impl<F: Field, G: Field256 + From<F>>(
         value: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) where
         F: Mul<G, Output = G>,
@@ -999,14 +1002,14 @@ mod tests {
         assert_eq!(chip.height(), 3);
         let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..256).map(|i| cell(0, i)));
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 3);
-        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.degree_bound(), expected_degree_bound);
         assert_eq!(circuit.num_columns(), 257);
         let mut witness = circuit.make_witness();
         let bits = witness
@@ -1033,27 +1036,27 @@ mod tests {
     #[test]
     fn test_full_bit_decomposer_chip_bluesky() {
         let c = parse_hash("0xd438c9dbb9ca22a74bdd931cd796d5b86d3245b7ee2e2d0daa81d0e70f0c9d05");
-        test_full_bit_decomposer_chip_impl::<BS, BS>(0, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(1, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(2, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(3, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(4, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(5, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(6, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(7, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(0, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(1, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(2, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(3, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(4, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(5, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(6, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS>(7, 8, c);
     }
 
     #[test]
     fn test_full_bit_decomposer_chip_goldilocks() {
-        let c = parse_hash("0x2391a296ace4a6ad4ae96e2d9740a613b24c4bce7e657f345344ae546a37ff1a");
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(0, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(1, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(2, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(3, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(4, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(5, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(6, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(7, c);
+        let c = parse_hash("0xb92bbbdfba068fb48d1a3756cd4e822884b8b9c633ce676cd8f196c0dd176bad");
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(0, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(1, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(2, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(3, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(4, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(5, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(6, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4>(7, 16, c);
     }
 
     #[test]
@@ -1235,6 +1238,7 @@ mod tests {
 
     fn test_trit_decomposer_chip<F: Field, G: Field256 + From<F>, const N: usize>(
         value: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) where
         F: Mul<G, Output = G>,
@@ -1245,14 +1249,14 @@ mod tests {
         assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), 4);
+        assert_eq!(circuit.degree_bound(), expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
@@ -1279,114 +1283,115 @@ mod tests {
     #[test]
     fn test_trit_decomposer_chip_bluesky_1() {
         let c = parse_hash("0x54c875a6d1868a642ea3411f2f856cd979233cec1ac9a5867955c89db11aec6b");
-        test_trit_decomposer_chip::<BS, BS, 1>(0, c);
-        test_trit_decomposer_chip::<BS, BS, 1>(1, c);
-        test_trit_decomposer_chip::<BS, BS, 1>(2, c);
+        test_trit_decomposer_chip::<BS, BS, 1>(0, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 1>(1, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 1>(2, 4, c);
     }
 
     #[test]
     fn test_trit_decomposer_chip_goldilocks_1() {
-        let c = parse_hash("0xd8504b0f3ad1a5bb831dc5d558d6772a4cfe69d6a3eff4aa9ef9128e442400bf");
-        test_trit_decomposer_chip::<GL, GL4, 1>(0, c);
-        test_trit_decomposer_chip::<GL, GL4, 1>(1, c);
-        test_trit_decomposer_chip::<GL, GL4, 1>(2, c);
+        let c = parse_hash("0x69f79bafa984b0f21aec6882fa951762ad7bb8663b9091d686458ecec0b51df4");
+        test_trit_decomposer_chip::<GL, GL4, 1>(0, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 1>(1, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 1>(2, 16, c);
     }
 
     #[test]
     fn test_trit_decomposer_chip_bluesky_2() {
         let c = parse_hash("0x9f32441d30c4c51637ebfbdfa96c40e8b9346e0903acedd6d19226ed7d2a8181");
-        test_trit_decomposer_chip::<BS, BS, 2>(0, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(1, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(2, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(3, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(4, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(5, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(6, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(7, c);
-        test_trit_decomposer_chip::<BS, BS, 2>(8, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(0, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(1, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(2, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(3, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(4, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(5, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(6, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(7, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(8, 4, c);
     }
 
     #[test]
     fn test_trit_decomposer_chip_goldilocks_2() {
-        let c = parse_hash("0xaad052a0f355d7b5a84699660fa8420150093b26ad7cf2d7ca73961ec221e299");
-        test_trit_decomposer_chip::<GL, GL4, 2>(0, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(1, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(2, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(3, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(4, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(5, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(6, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(7, c);
-        test_trit_decomposer_chip::<GL, GL4, 2>(8, c);
+        let c = parse_hash("0x2bf94db335861773b164d3f356506880a0797d68bca8d3526fcba84bf1f0ca5d");
+        test_trit_decomposer_chip::<GL, GL4, 2>(0, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(1, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(2, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(3, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(4, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(5, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(6, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(7, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(8, 16, c);
     }
 
     #[test]
     fn test_trit_decomposer_chip_bluesky_3() {
         let c = parse_hash("0xabe386e6b4aa50042e4b0edeb3605c29531a556fa414a0091e6a92b488f91d31");
-        test_trit_decomposer_chip::<BS, BS, 3>(0, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(1, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(2, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(3, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(4, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(5, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(6, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(7, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(8, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(9, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(10, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(11, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(12, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(13, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(14, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(15, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(16, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(17, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(18, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(19, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(20, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(21, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(22, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(23, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(24, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(25, c);
-        test_trit_decomposer_chip::<BS, BS, 3>(26, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(0, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(1, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(2, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(3, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(4, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(5, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(6, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(7, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(8, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(9, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(10, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(11, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(12, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(13, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(14, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(15, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(16, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(17, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(18, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(19, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(20, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(21, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(22, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(23, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(24, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(25, 4, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(26, 4, c);
     }
 
     #[test]
     fn test_trit_decomposer_chip_goldilocks_3() {
-        let c = parse_hash("0x555f20feb1caa7fafd7c5c63db4209725dee0ba8b3e86b9cadaf0ddc24bf51d4");
-        test_trit_decomposer_chip::<GL, GL4, 3>(0, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(1, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(2, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(3, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(4, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(5, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(6, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(7, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(8, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(9, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(10, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(11, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(12, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(13, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(14, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(15, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(16, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(17, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(18, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(19, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(20, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(21, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(22, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(23, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(24, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(25, c);
-        test_trit_decomposer_chip::<GL, GL4, 3>(26, c);
+        let c = parse_hash("0xef23464295ebcebb628a6439d1d3d8fc5095aec99edd1cdfa9dab63202c5861c");
+        test_trit_decomposer_chip::<GL, GL4, 3>(0, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(1, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(2, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(3, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(4, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(5, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(6, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(7, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(8, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(9, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(10, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(11, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(12, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(13, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(14, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(15, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(16, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(17, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(18, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(19, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(20, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(21, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(22, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(23, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(24, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(25, 16, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(26, 16, c);
     }
 
     fn test_const_trit_comparator_chip<F: Field, G: Field256 + From<F>, const N: usize>(
         lhs: u8,
         rhs: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) where
         F: Mul<G, Output = G>,
@@ -1401,7 +1406,7 @@ mod tests {
         let [cmp] = builder
             .sub_chip(decomposer_chip.height(), 0, &comparator_chip, trits)
             .unwrap();
-        builder.declare_public_rows([cmp.unwrap().row()]);
+        builder.declare_public_cells([cmp.unwrap()]);
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -1411,7 +1416,7 @@ mod tests {
             circuit.num_rows(),
             decomposer_chip.height() + comparator_chip.height()
         );
-        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.degree_bound(), expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
@@ -1445,29 +1450,29 @@ mod tests {
     #[test]
     fn test_const_trit_comparator_chip_bluesky_1() {
         let c = parse_hash("0x6d90c756bd82c957ac918e3a32c3fe6556b9bd28594f3f9bdbaaa19a840c2fe5");
-        test_const_trit_comparator_chip::<BS, BS, 1>(0, 0, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(1, 0, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(2, 0, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(0, 1, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(1, 1, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(2, 1, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(0, 2, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(1, 2, c);
-        test_const_trit_comparator_chip::<BS, BS, 1>(2, 2, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(0, 0, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(1, 0, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(2, 0, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(0, 1, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(1, 1, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(2, 1, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(0, 2, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(1, 2, 8, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(2, 2, 8, c);
     }
 
     #[test]
     fn test_const_trit_comparator_chip_goldilocks_1() {
-        let c = parse_hash("0x7f188763ec7b765ae3736ed7f8523c760d8f3d5aedee51741ef8ef2eff443f67");
-        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 0, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 0, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 0, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 1, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 1, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 1, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 2, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 2, c);
-        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 2, c);
+        let c = parse_hash("0x44d3848430860f1336cb056d42b5301f09796e155ab4e2b12cef36aeaef62810");
+        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 0, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 0, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 0, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 1, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 1, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 1, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 2, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 2, 16, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 2, 16, c);
     }
 
     #[test]
@@ -1475,23 +1480,24 @@ mod tests {
         let c = parse_hash("0xc70b3827c122663ffd46f679476acfec43c46e9dd13fbf59ae7a90ed969b1166");
         for i in 0..9 {
             for j in 0..9 {
-                test_const_trit_comparator_chip::<BS, BS, 2>(i, j, c);
+                test_const_trit_comparator_chip::<BS, BS, 2>(i, j, 8, c);
             }
         }
     }
 
     #[test]
     fn test_const_trit_comparator_chip_goldilocks_2() {
-        let c = parse_hash("0xfe1f1e582009eafdf78ce38ae9a435be7ce08e1282816c640acd80e19bbdc28f");
+        let c = parse_hash("0x096559554992d0d929e9a3a90e0baa93a43df9ef77c250d3f4ceee7e9e65a3d8");
         for i in 0..9 {
             for j in 0..9 {
-                test_const_trit_comparator_chip::<GL, GL4, 2>(i, j, c);
+                test_const_trit_comparator_chip::<GL, GL4, 2>(i, j, 16, c);
             }
         }
     }
 
     fn test_full_trit_decomposer_chip_impl<F: Field, G: Field256 + From<F>>(
         value: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) where
         F: Mul<G, Output = G>,
@@ -1502,14 +1508,14 @@ mod tests {
         assert_eq!(chip.height(), 4);
         let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..161).map(|i| cell(0, i)));
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 4);
-        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.degree_bound(), expected_degree_bound);
         assert_eq!(circuit.num_columns(), 162);
         let mut witness = circuit.make_witness();
         let trits = witness
@@ -1536,34 +1542,34 @@ mod tests {
     #[test]
     fn test_full_trit_decomposer_chip_bluesky() {
         let c = parse_hash("0xcc190ca38525000774d89830c69d3462605ee9591e990622e7ee1af4ec379107");
-        test_full_trit_decomposer_chip_impl::<BS, BS>(0, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(1, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(2, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(3, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(4, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(5, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(6, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(7, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(9, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(10, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(11, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(0, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(1, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(2, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(3, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(4, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(5, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(6, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(7, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(8, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(9, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(10, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS>(11, 8, c);
     }
 
     #[test]
     fn test_full_trit_decomposer_chip_goldilocks() {
-        let c = parse_hash("0x00b8c2bb1d887771ccdee51a8f3b6c1d571d34f23ee374883b717e512b70a95c");
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(0, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(1, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(2, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(3, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(4, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(5, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(6, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(7, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(8, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(9, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(10, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(11, c);
+        let c = parse_hash("0x97bb62afd340379aba0eee6ad4a55f114f43a697e8c3f327e762df0645ee84ab");
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(0, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(1, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(2, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(3, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(4, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(5, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(6, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(7, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(8, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(9, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(10, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4>(11, 16, c);
     }
 }

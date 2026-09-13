@@ -816,7 +816,7 @@ mod tests {
         assert_eq!(chip.height(), 194);
         let mut builder = CircuitBuilder::<BS, BS>::default();
         let output = builder.sub_chip(0, 0, chip, std::array::from_fn(|_| None))?;
-        builder.declare_public_rows([output[0].unwrap().row()]);
+        builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
         })?;
@@ -859,7 +859,7 @@ mod tests {
         assert_eq!(chip.height(), 92);
         let mut builder = CircuitBuilder::<GL, GL4>::default();
         let output = builder.sub_chip(0, 0, chip, std::array::from_fn(|_| None))?;
-        builder.declare_public_rows([output[0].unwrap().row()]);
+        builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
         })?;
@@ -1340,7 +1340,7 @@ mod tests {
         for i in 0..T {
             builder.connect(ir_output[i], er_output[i]);
         }
-        builder.declare_public_rows([ir_output[0].unwrap().row()]);
+        builder.declare_public_cells(ir_output.into_iter().chain(er_output).flatten());
 
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
@@ -1473,7 +1473,7 @@ mod tests {
         for i in 0..T {
             builder.connect(ir_output[i], er_output[i]);
         }
-        builder.declare_public_rows([ir_output[0].unwrap().row(), er_output[0].unwrap().row()]);
+        builder.declare_public_cells(ir_output.into_iter().chain(er_output).flatten());
 
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
