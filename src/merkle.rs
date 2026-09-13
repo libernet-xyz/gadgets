@@ -1499,39 +1499,39 @@ mod tests {
     #[test]
     #[ignore]
     fn test_taller_binary_smt_empty() {
-        assert!(test_tall_binary_smt_impl::<160, 11>([], 0).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>([], 1).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>([], 2).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>([], 3).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>([], 4).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>([], 5).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>([], 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>([], 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>([], 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>([], 3).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>([], 4).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>([], 5).is_ok());
     }
 
     #[test]
     #[ignore]
     fn test_taller_binary_smt_one_entry() {
         let entries = [(12, 34)];
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 0).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 1).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 2).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 11).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 12).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 13).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 11).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 12).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 13).is_ok());
     }
 
     #[test]
     #[ignore]
     fn test_taller_binary_smt_two_entries() {
         let entries = [(34, 56), (78, 12)];
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 0).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 1).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 2).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 33).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 34).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 35).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 77).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 78).is_ok());
-        assert!(test_tall_binary_smt_impl::<160, 11>(entries, 79).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 0).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 1).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 2).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 33).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 34).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 35).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 77).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 78).is_ok());
+        assert!(test_tall_binary_smt_impl::<160, 32>(entries, 79).is_ok());
     }
 
     fn test_tall_ternary_smt_impl<const H: usize, const L: usize>(
@@ -1637,39 +1637,39 @@ mod tests {
     #[test]
     #[ignore]
     fn test_taller_ternary_smt_empty() {
-        assert!(test_tall_ternary_smt_impl::<101, 7>([], 0).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>([], 1).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>([], 2).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>([], 3).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>([], 4).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>([], 5).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>([], 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>([], 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>([], 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>([], 3).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>([], 4).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>([], 5).is_ok());
     }
 
     #[test]
     #[ignore]
     fn test_taller_ternary_smt_one_entry() {
         let entries = [(12, 34)];
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 0).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 1).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 2).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 11).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 12).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 13).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 11).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 12).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 13).is_ok());
     }
 
     #[test]
     #[ignore]
     fn test_taller_ternary_smt_two_entries() {
         let entries = [(34, 56), (78, 12)];
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 0).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 1).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 2).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 33).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 34).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 35).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 77).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 78).is_ok());
-        assert!(test_tall_ternary_smt_impl::<101, 7>(entries, 79).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 0).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 1).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 2).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 33).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 34).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 35).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 77).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 78).is_ok());
+        assert!(test_tall_ternary_smt_impl::<101, 21>(entries, 79).is_ok());
     }
 
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
