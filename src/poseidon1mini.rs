@@ -913,7 +913,7 @@ mod tests {
         }
         let output_row = ir_output[0].unwrap().row();
         builder.declare_public_cells(
-            (0..(T * 2))
+            (0..(ir_width + er_width))
                 .map(|i| Cell::new(output_row, i))
                 .collect::<Vec<Cell>>(),
         );
@@ -973,7 +973,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x6ae0d02555b056c67a58b64d0cfe01f13ed07902851b98795156c4fbf9d3595f")
+                parse("0x5fd00029f6f03f085807ddfbcc6b4b756316da1812b6e534af70b49295cb16be")
             )
             .is_ok()
         );
@@ -982,7 +982,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x63bac3890c17dff52faad356f47db5ee29f0a4f7e58d0ef78770cc384b396783")
+                parse("0x48eae15f6603d556e594eb0a33c8dcf8289a8d764e873a61d575c1b54af3b40c")
             )
             .is_ok()
         );
@@ -1011,7 +1011,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x0286cfd6feb59ee7b00a099973c97dea3d96cbcdd02164bbb83194a9dc6a81fe")
+                parse("0x275ad71cd77c31bffc98bdd7ecb30eb0221449c2eb38dbd0bd5f16cef5d1f660")
             )
             .is_ok()
         );
@@ -1020,7 +1020,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x069717fd1bf79551cada48ad780de13d486a6463bd474d39e355ce5747f6054a")
+                parse("0x9d6b642ee5a86e0531c64af693b7bc27623ef6aab6d61a895e7d4e361ea89923")
             )
             .is_ok()
         );
