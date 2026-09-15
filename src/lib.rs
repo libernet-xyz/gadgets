@@ -9,6 +9,6 @@ pub mod merkle;
 pub mod poseidon;
 pub mod poseidon1;
 pub mod poseidon1mini;
-// pub mod poseidon2;
+pub mod poseidon2;
 // pub mod sponge;
 pub mod xits;
