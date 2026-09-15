@@ -442,6 +442,10 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
 ///
 /// You may want to use [`PermutationChipHW`], [`PermutationChipIR`], or [`PermutationChipER`]
 /// rather than referring to this struct directly.
+///
+/// Unlike [`poseidon1mini::PermutationChip`](`crate::poseidon1mini::PermutationChip`), this chip
+/// uses more rows and caps the constraint degree at 3. It manages to do so thanks to the [`Sbox`]
+/// trait, whose implementations are expected to produce exactly two rows per round.
 pub struct PermutationChip<
     F: PrimeField + Sbox,
     C: poseidon::Config<F, T>,
