@@ -156,6 +156,137 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
     }
 }
 
+/// Internal ROM mode for the [`PermutationChip`].
+///
+/// In this mode the Poseidon round constants are stored in separate columns so that we can reuse
+/// the same gate constraints for the round themselves. By contrast, [`RcModeHardWired`] causes the
+/// gates of all rounds to be different from each other due to the hard-wired constants, and that
+/// results in an elevated number of gates and increased proving cost.
+///
+/// NOTE: the overall number of gates instantiated by this mode is comparable to the hard-wired mode
+/// because we still need to constrain the cells of the ROM area to have the correct values, but the
+/// advantage of this mode is that you can subsequently instantiate an arbitrary number of cheap,
+/// external ROM mode chips (see [`RcModeExternalRom`]). In other words: N hard-wired permutation
+/// chips pay the gate cost of the round constants N times, whereas 1 IR chip + (N-1) ER chips pay
+/// that cost only once (but still achieve N permutations).
+pub struct RcModeInternalRom<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> {
+    _data: PhantomData<(F, C)>,
+}
+
+impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> Debug
+    for RcModeInternalRom<F, C, T>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RcModeInternalRom").finish()
+    }
+}
+
+impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> Default
+    for RcModeInternalRom<F, C, T>
+{
+    fn default() -> Self {
+        Self { _data: PhantomData }
+    }
+}
+
+impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> Copy for RcModeInternalRom<F, C, T> {}
+
+impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> Clone
+    for RcModeInternalRom<F, C, T>
+{
+    fn clone(&self) -> Self {
+        Self { _data: PhantomData }
+    }
+}
+
+impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<F, T>
+    for RcModeInternalRom<F, C, T>
+{
+    fn width(&self) -> usize {
+        T * 2
+    }
+
+    fn build_full_round<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        round: usize,
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA as isize;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.add_gate(0, var(T + i) - make_const(c[i]));
+            view.add_gate(
+                0,
+                (0..T)
+                    .map(|j| make_const(m[i * T + j]) * ((var(j) + var(T + j)) ^ a))
+                    .sum::<Constraint<F>>()
+                    - rvar(i, 1),
+            );
+        }
+    }
+
+    fn witness_full_round(&self, view: &mut impl WitnessView<F>, round: usize) {
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.set(view.cell(0, T + i), c[i]);
+            view.set(
+                view.cell(1, i),
+                (0..T)
+                    .map(|j| {
+                        m[i * T + j] * (view.get_at(view.cell(0, j)) + c[j]).pow_small_vartime(a)
+                    })
+                    .sum(),
+            );
+        }
+    }
+
+    fn build_partial_round<G: Field256 + From<F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        round: usize,
+    ) where
+        F: Mul<G, Output = G>,
+        G: Mul<F, Output = G>,
+    {
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA as isize;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.add_gate(0, var(T + i) - make_const(c[i]));
+            view.add_gate(
+                0,
+                std::iter::once(make_const(m[i * T]) * ((var(0) + var(T)) ^ a))
+                    .chain((1..T).map(|j| make_const(m[i * T + j]) * (var(j) + var(T + j))))
+                    .sum::<Constraint<F>>()
+                    - rvar(i, 1),
+            );
+        }
+    }
+
+    fn witness_partial_round(&self, view: &mut impl WitnessView<F>, round: usize) {
+        let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
+        let a = F::ALPHA;
+        let m = C::get_mds_matrix();
+        for i in 0..T {
+            view.set(view.cell(0, T + i), c[i]);
+            view.set(
+                view.cell(1, i),
+                std::iter::once(
+                    m[i * T] * (view.get_at(view.cell(0, 0)) + c[0]).pow_small_vartime(a),
+                )
+                .chain((1..T).map(|j| m[i * T + j] * (view.get_at(view.cell(0, j)) + c[j])))
+                .sum(),
+            );
+        }
+    }
+}
+
 /// Compact Poseidon permutation chip.
 ///
 /// You may want to use [`PermutationChipHW`], [`PermutationChipIR`], or [`PermutationChipER`]
@@ -297,9 +428,9 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const 
 pub type PermutationChipHW<F, C, const T: usize> =
     PermutationChip<F, C, RcModeHardWired<F, C, T>, T>;
 
-// /// Poseidon permutation chip with [internal ROM storage for round constants](`RcModeInternalRom`).
-// pub type PermutationChipIR<F, C, const T: usize> =
-//     PermutationChip<F, C, RcModeInternalRom<F, C, T>, T>;
+/// Poseidon permutation chip with [internal ROM storage for round constants](`RcModeInternalRom`).
+pub type PermutationChipIR<F, C, const T: usize> =
+    PermutationChip<F, C, RcModeInternalRom<F, C, T>, T>;
 
 // /// Poseidon permutation chip with [external ROM storage for round constants](`RcModeExternalRom`).
 // pub type PermutationChipER<F, C, const T: usize> =
@@ -460,6 +591,103 @@ mod tests {
                 outputs,
                 3,
                 parse("0xd161f3e6ba8cf5e8d73aa3645c44b9082254d8c3985944df254a47ac841defc0")
+            )
+            .is_ok()
+        );
+    }
+
+    fn test_perm_schraderbrau_ir<
+        Cfg: poseidon1::Config<SB, T>,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+    >(
+        inputs: [SB; T],
+        expected_output: [SB; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChipIR::<SB, Cfg, T>::default();
+        assert_eq!(chip.width(), T * 2);
+        test_permutation_schraderbrau_impl::<T>(
+            &chip,
+            inputs,
+            expected_output,
+            blowup_log2,
+            circuit_commitment,
+        )
+    }
+
+    #[test]
+    fn test_permutation_t3_ir() {
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
+        let outputs = [
+            parse("0x1531e124d8f663b8d26c56b9bf0b1b09ba15d4e20ea10a3d898cdcf1d2c41dba"),
+            parse("0x1f5714cc13f8a33f4b32a07f1a85409de2d1b8d353aa269ca8f2bfa91071bd62"),
+            parse("0x588c20c682f8b66c52049d910a4f0e7195dfd300a0d0cf3198b1383be1a4134a"),
+        ];
+        assert!(
+            test_perm_schraderbrau_ir::<poseidon1::SchraderbrauConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                1,
+                parse("0xd6f0fc99e8190a2b51e44b37111d37963afaff4ae49bb2becb5aee59714ddf0e")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_schraderbrau_ir::<poseidon1::SchraderbrauConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                2,
+                parse("0x8bbb1d9305dc9d61d43ffe2bed090e19048deb4aa5da594df3d50528994d84f8")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_schraderbrau_ir::<poseidon1::SchraderbrauConfig3, 3, 2, 1>(
+                inputs,
+                outputs,
+                3,
+                parse("0x87fec259ec7c97d39145625dc926c563e09f46e49e801d803713324f076fde48")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_permutation_t4_ir() {
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
+        let outputs = [
+            parse("0x11de0b3702563747b0729abd2b93e720ec947ce067ca3f8c088b9829df1169d7"),
+            parse("0x487ca87fa054ad960f6f571cf7aa6f5e075fd5ac3386e2e9fb22aeeb036fb1e1"),
+            parse("0x28c775ddba9039531ee5deb0d4e2e6b1c9bb7d8be8da260a20d331bb041d0d38"),
+            parse("0x10c93f76dca6f63507bc8ed1d2ea40647bb480ad43ac9922a3f10597b802f949"),
+        ];
+        assert!(
+            test_perm_schraderbrau_ir::<poseidon1::SchraderbrauConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                1,
+                parse("0xd8873b7baf50db8c6b44f3e39b85863fa5667b0ace57bcd7bb5357a2bb40f850")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_schraderbrau_ir::<poseidon1::SchraderbrauConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                2,
+                parse("0xd7c92583699b214e60ac8eec659d47c22c251f25180eb309c946a484c6a9f218")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_perm_schraderbrau_ir::<poseidon1::SchraderbrauConfig4, 4, 3, 1>(
+                inputs,
+                outputs,
+                3,
+                parse("0x8136c3a1a9553f7c207a2cf8efbe45b962e7cc0a7bcaf71643f266601d9b05ea")
             )
             .is_ok()
         );
