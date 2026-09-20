@@ -16,7 +16,7 @@ use starkom_poseidon::Config as PoseidonConfig;
 ///
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
-pub struct BinaryChip256<
+pub struct BinaryChip<
     F: PrimeField256 + Sbox,
     const H: usize,
     C: PoseidonConfig<F, 3>,
@@ -29,7 +29,7 @@ pub struct BinaryChip256<
 }
 
 impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: usize> Default
-    for BinaryChip256<F, H, C, L>
+    for BinaryChip<F, H, C, L>
 {
     fn default() -> Self {
         Self::new([[F::ZERO; 2]; H])
@@ -37,7 +37,7 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: 
 }
 
 impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: usize>
-    BinaryChip256<F, H, C, L>
+    BinaryChip<F, H, C, L>
 {
     const SELECTOR_HEIGHT: usize = 2;
 
@@ -108,7 +108,7 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: 
 }
 
 impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: usize>
-    PlonkChip<F, 2, 1> for BinaryChip256<F, H, C, L>
+    PlonkChip<F, 2, 1> for BinaryChip<F, H, C, L>
 {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
@@ -209,7 +209,7 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: 
 /// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
 /// [`FullTernaryChip`] below instead.
 #[derive(Debug, Clone)]
-pub struct TernaryChip256<
+pub struct TernaryChip<
     F: PrimeField256 + Sbox,
     const H: usize,
     C: PoseidonConfig<F, 4>,
@@ -222,7 +222,7 @@ pub struct TernaryChip256<
 }
 
 impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: usize> Default
-    for TernaryChip256<F, H, C, L>
+    for TernaryChip<F, H, C, L>
 {
     fn default() -> Self {
         Self::new([[F::ZERO; 3]; H])
@@ -230,7 +230,7 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: 
 }
 
 impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: usize>
-    TernaryChip256<F, H, C, L>
+    TernaryChip<F, H, C, L>
 {
     const SELECTOR_HEIGHT: usize = 2;
 
@@ -316,7 +316,7 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: 
 }
 
 impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: usize>
-    PlonkChip<F, 2, 1> for TernaryChip256<F, H, C, L>
+    PlonkChip<F, 2, 1> for TernaryChip<F, H, C, L>
 {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
@@ -421,7 +421,7 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: 
 ///
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
-pub struct FullBinaryChip256<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> {
+pub struct FullBinaryChip<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> {
     decomposer: xits::FullBitDecomposerChip<F>,
     hasher_ir: poseidon1::PermutationChipIR<F, C, 3>,
     hasher_er: [poseidon1::PermutationChipER<F, C, 3>; 255],
@@ -429,14 +429,14 @@ pub struct FullBinaryChip256<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, c
 }
 
 impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> Default
-    for FullBinaryChip256<F, C, L>
+    for FullBinaryChip<F, C, L>
 {
     fn default() -> Self {
         Self::new([[F::ZERO; 2]; 256])
     }
 }
 
-impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> FullBinaryChip256<F, C, L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> FullBinaryChip<F, C, L> {
     const SELECTOR_HEIGHT: usize = 2;
 
     pub fn new(path: [[F; 2]; 256]) -> Self {
@@ -507,7 +507,7 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> FullBinar
 }
 
 impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> PlonkChip<F, 2, 1>
-    for FullBinaryChip256<F, C, L>
+    for FullBinaryChip<F, C, L>
 {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
@@ -610,7 +610,7 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> PlonkChip
 ///
 /// If you don't need 161-trit keys use [`TernaryChip`].
 #[derive(Debug, Clone)]
-pub struct FullTernaryChip256<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> {
+pub struct FullTernaryChip<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> {
     decomposer: xits::FullTritDecomposerChip<F>,
     hasher_ir: poseidon1::PermutationChipIR<F, C, 4>,
     hasher_er: [poseidon1::PermutationChipER<F, C, 4>; 160],
@@ -618,14 +618,14 @@ pub struct FullTernaryChip256<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, 
 }
 
 impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> Default
-    for FullTernaryChip256<F, C, L>
+    for FullTernaryChip<F, C, L>
 {
     fn default() -> Self {
         Self::new([[F::ZERO; 3]; 161])
     }
 }
 
-impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> FullTernaryChip256<F, C, L> {
+impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> FullTernaryChip<F, C, L> {
     const SELECTOR_HEIGHT: usize = 2;
 
     pub fn new(path: [[F; 3]; 161]) -> Self {
@@ -709,7 +709,7 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> FullTerna
 }
 
 impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> PlonkChip<F, 2, 1>
-    for FullTernaryChip256<F, C, L>
+    for FullTernaryChip<F, C, L>
 {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.stage_width() * L)
@@ -832,7 +832,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = BinaryChip256::<Scalar, H, BlueSkyConfig3, L>::new(path);
+        let chip = BinaryChip::<Scalar, H, BlueSkyConfig3, L>::new(path);
         assert_eq!(chip.width(), L * 6);
         assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
@@ -968,7 +968,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = TernaryChip256::<Scalar, H, BlueSkyConfig4, L>::new(path);
+        let chip = TernaryChip::<Scalar, H, BlueSkyConfig4, L>::new(path);
         assert_eq!(chip.width(), L * 8);
         assert_eq!(chip.height(), 1 + 196 * H.next_multiple_of(L) / L);
         let mut builder = CircuitBuilder::default();
@@ -1389,7 +1389,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = BinaryChip256::<Scalar, H, BlueSkyConfig3, L>::new(path);
+        let chip = BinaryChip::<Scalar, H, BlueSkyConfig3, L>::new(path);
         assert_eq!(chip.stage_width(), 6);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(H + 1, 6 * L));
@@ -1527,7 +1527,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip256::<Scalar, H, BlueSkyConfig4, L>::new(path);
+        let chip = TernaryChip::<Scalar, H, BlueSkyConfig4, L>::new(path);
         assert_eq!(chip.stage_width(), 8);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(H + 1, 8 * L));
@@ -1667,7 +1667,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullBinaryChip256::<Scalar, BlueSkyConfig3, LANES>::new(path);
+        let chip = FullBinaryChip::<Scalar, BlueSkyConfig3, LANES>::new(path);
         assert_eq!(chip.stage_width(), 6);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(257, 6 * LANES));
@@ -1773,7 +1773,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullTernaryChip256::<Scalar, BlueSkyConfig4, LANES>::new(path);
+        let chip = FullTernaryChip::<Scalar, BlueSkyConfig4, LANES>::new(path);
         assert_eq!(chip.stage_width(), 8);
         assert_eq!(chip.stage_height(), 196);
         assert_eq!(chip.width(), std::cmp::max(162, 8 * LANES));
