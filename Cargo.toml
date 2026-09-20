@@ -20,14 +20,15 @@ sha3 = "0.12.0"
 starkom-bluesky = { version = "3.7.2", optional = true }
 starkom-ff = "4.1.0"
 starkom-goldilocks = { version = "3.2.1", optional = true }
+starkom-koalabear = { version = "1.1.1", optional = true }
 starkom-pcs = "6.1.1"
-starkom-plonk = { path = "../plonk" }
+starkom-plonk = "7.0.0"
 starkom-poseidon = "3.8.2"
 starkom-poseidon2 = "6.8.2"
 starkom-schraderbrau = { version = "1.1.1", optional = true }
 
 [features]
-default = ["bluesky", "goldilocks", "schraderbrau"]
+default = ["bluesky", "goldilocks", "schraderbrau", "koalabear"]
 bluesky = [
   "starkom-bluesky",
   "starkom-pcs/bluesky",
@@ -46,3 +47,4 @@ schraderbrau = [
   "starkom-poseidon/schraderbrau",
   "starkom-poseidon2/schraderbrau",
 ]
+koalabear = ["starkom-koalabear", "starkom-poseidon/koalabear"]

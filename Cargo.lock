@@ -582,6 +582,7 @@ dependencies = [
  "starkom-bluesky",
  "starkom-ff",
  "starkom-goldilocks",
+ "starkom-koalabear",
  "starkom-pcs",
  "starkom-plonk",
  "starkom-poseidon",
@@ -638,7 +639,9 @@ dependencies = [
 
 [[package]]
 name = "starkom-plonk"
-version = "6.0.0"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "045072120468c84d01c8cd07600bde0d0ed0ea8d69bde842ccd91389018324dc"
 dependencies = [
  "anyhow",
  "primitive-types",
@@ -674,6 +677,7 @@ dependencies = [
  "starkom-bluesky",
  "starkom-ff",
  "starkom-goldilocks",
+ "starkom-koalabear",
  "starkom-schraderbrau",
 ]
 

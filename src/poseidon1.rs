@@ -907,7 +907,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xdbad34475f0d5f38cc11b9ab25936e3edbe3418dc2670745de140119f4987c82")
+                parse("0xe91b439285d11ad5651f507d53580b3d7085ee34ce71d956cb174a2985948134")
             )
             .is_ok()
         );
@@ -916,7 +916,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x69adf9a8ffa5d637f4b3433d7d91f39102645754cc2cf4ea17e28894f0d468b8")
+                parse("0xdd2e180ffd6a1ab433f2f6a7959bf8d1be1bd79ab8e15dfcc2c2ce9c288691fc")
             )
             .is_ok()
         );
@@ -925,7 +925,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xf2a96c0c58559129fa670ca2c6cbe6f7697cadded8c796e9c39167fb9edc6c0b")
+                parse("0x2be3ed482b38bac4714f9e447a6198728c3be8c2f0a38e092f57336c7908bef3")
             )
             .is_ok()
         );
@@ -957,7 +957,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x5260ce7c2d728c1a41d19f53b5b2159326fadcb2db6c6ceca6b3addc3b37d70a")
+                parse("0x0a1e99ca8c9856ac69b8746fad6471e8be174f8a5befd0a759c7eb4d7b757367")
             )
             .is_ok()
         );
@@ -966,7 +966,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x620c6a76c15f9bcf20d19bd8a3b8ada71898403ca9ba52c8d3b607c045d1a501")
+                parse("0x088cf78c240cf29451dec029a5c3dd112969685cb358ab18b1ad9fc45e237117")
             )
             .is_ok()
         );
@@ -975,7 +975,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x8236d782628179a9d407be3af27421e550a815252f000b17c8729f54eff665ce")
+                parse("0x4a574402bfa6af73003748465a1345f503b546201c7620ef50dec6d225c67102")
             )
             .is_ok()
         );
@@ -1117,7 +1117,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x0bcdce6774d6b947daceb0590ee91b0146bcfeadf7096b739604c0357e55f048")
+                parse("0xde6b2a4d985580c80c9da2104d3fbc64aa209b476cbc60dbbcb52b0658a38d29")
             )
             .is_ok()
         );
@@ -1126,7 +1126,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x96672484b088472576742f6fe48cef23e99cd239907177d5db546d619809c419")
+                parse("0x16ea69ac7c227a61ca066959a96b807e11cf24a8e232e52aae33b591a329d6ea")
             )
             .is_ok()
         );
@@ -1135,7 +1135,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xa9b7d7a58feead08151d99649d559271796b23fb5466f86f7aa0a7376a12d937")
+                parse("0xc4e4343f0f0a83a9d06bd217339a2cb828cb3143f74e78c55e0cd594e1e9163f")
             )
             .is_ok()
         );
@@ -1167,7 +1167,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xe65c79510dbbefbb2fde3583ae0f4aab4cd0fd4b8d12883297d0e097f58b39db")
+                parse("0x54383f75118dafeefe9f493a4e16ece933e5ecf302d5569622271594147f5050")
             )
             .is_ok()
         );
@@ -1176,7 +1176,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x483c454d97c79edc7b262d4b759db1a204cc779dd46ef2f0ad6b1d595d182b09")
+                parse("0xa21089503a2f56f81b426975c153b962d4dfbb7f9855daa4fc910c73275adb9c")
             )
             .is_ok()
         );
@@ -1185,7 +1185,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xf2c27ea1dca488069739767022835c3f6cc6652c6f625d9ecf337771cdfd4a1c")
+                parse("0x2a49f21a9985c3129f29497bdb31e2d88841770ca979a85494f020381158b860")
             )
             .is_ok()
         );
@@ -1409,7 +1409,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xb3a98d4e2070a6c457f5fc881ae8d6f8ce0aae5d1873b16e82453f0d4657525a")
+                parse("0xf740f5e7668b208bea8f17536ddbfa9c1dc926de8b3ca2f63a1cd10e5d8ea42c")
             )
             .is_ok()
         );
@@ -1418,7 +1418,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x0f7c814ed244108a1e8a7f16765c45bbf7d569b9d24d75d783d5aeebcf638f38")
+                parse("0x09d22db30f8b8c1fe8e536f75b0597b599bc9dcc36f10ac128ad6c31f79f31d5")
             )
             .is_ok()
         );
@@ -1427,7 +1427,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xbf92bd63d9c5150ee34b3ad6994719bc268a32c2c732106aec60b23e19994781")
+                parse("0x614898a5a812ae8dc3929fd8f0f157ed04aa6b09d6884bb42532f6575a573702")
             )
             .is_ok()
         );
@@ -1459,7 +1459,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x9cc132a28ceaaf3a8df78baf7dc7e22451f8b112da27f281f9a022f70298ea57")
+                parse("0x76a0004a4a2d488b2abcecd3dc9f1c01cb4285e92c74ce78e275b01c322fc2b7")
             )
             .is_ok()
         );
@@ -1468,7 +1468,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x08fa687a51679f130817b6dbae9bda427495a3a204800f57cef09570c1758dfe")
+                parse("0xd77028abc61f77c110f190d34ca1119853679637bdcd1bfb9ead87498a3af289")
             )
             .is_ok()
         );
@@ -1477,7 +1477,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x8a319c689b701e34c7e98956de3a1c52b4b597e093502414dcee449378e0c531")
+                parse("0x02b364673ec49bc79b71ad6a1eae4c0cdf432f0dd47d4a35163da93efbb763a1")
             )
             .is_ok()
         );
