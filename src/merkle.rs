@@ -7,7 +7,6 @@ use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
 };
 use starkom_poseidon::Config as PoseidonConfig;
-use std::ops::Mul;
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
@@ -69,15 +68,12 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: 
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<F>>(
+    fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         bit: Option<Cell>,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
@@ -122,15 +118,11 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 3>, const L: 
         self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
         let bits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();
@@ -269,15 +261,12 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: 
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<F>>(
+    fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         trit: Option<Cell>,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(trit, view.cell(0, 3).into());
         let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
@@ -337,15 +326,11 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: 
         self.decomposer.height() + self.stage_height() * H.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
         let trits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();
@@ -480,15 +465,12 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> FullBinar
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<F>>(
+    fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         bit: Option<Cell>,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
@@ -535,15 +517,11 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> PlonkChip
         self.decomposer.height() + self.stage_height() * 256usize.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
         let bits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();
@@ -676,15 +654,12 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> FullTerna
         Self::SELECTOR_HEIGHT + self.hasher_ir.height()
     }
 
-    fn build_input_selector<G: Field256 + From<F>>(
+    fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
         trit: Option<Cell>,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         view.connect(hash, view.cell(0, 0).into());
         view.connect(trit, view.cell(0, 3).into());
         let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
@@ -744,15 +719,11 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> PlonkChip
         self.decomposer.height() + self.stage_height() * 161usize.next_multiple_of(L) / L
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 2],
-    ) -> Result<[Option<Cell>; 1]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
         let trits = self.decomposer.build(view, [key])?;
         let stage_width = self.stage_width();

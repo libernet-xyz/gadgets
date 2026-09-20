@@ -8,7 +8,6 @@ use starkom_plonk::{
 use starkom_poseidon2 as poseidon2;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
-use std::ops::Mul;
 
 mod internal {
     use super::*;
@@ -21,13 +20,11 @@ mod internal {
     {
         fn width(&self) -> usize;
 
-        fn build_first_fl_and_arc<G: Field256 + From<F>>(
+        fn build_first_fl_and_arc<G: Field256<BaseField = F>>(
             &self,
             view: &mut impl CircuitView<F, G>,
             inputs: [Option<Cell>; T],
-        ) where
-            F: Mul<G, Output = G>,
-            G: Mul<F, Output = G>;
+        );
 
         fn witness_first_fl_and_arc(
             &self,
@@ -35,14 +32,12 @@ mod internal {
             inputs: [CellOrUnconstrained<F>; T],
         );
 
-        fn build_linear_and_next_arc<G: Field256 + From<F>>(
+        fn build_linear_and_next_arc<G: Field256<BaseField = F>>(
             &self,
             view: &mut impl CircuitView<F, G>,
             round: usize,
             matrix: &[F],
-        ) where
-            F: Mul<G, Output = G>,
-            G: Mul<F, Output = G>;
+        );
 
         fn witness_linear_and_next_arc(
             &self,
@@ -51,14 +46,11 @@ mod internal {
             matrix: &[F],
         );
 
-        fn build_fl_and_next_arc<G: Field256 + From<F>>(
+        fn build_fl_and_next_arc<G: Field256<BaseField = F>>(
             &self,
             view: &mut impl CircuitView<F, G>,
             round: usize,
-        ) where
-            F: Mul<G, Output = G>,
-            G: Mul<F, Output = G>,
-        {
+        ) {
             self.build_linear_and_next_arc(view, round, C::get_external_matrix());
         }
 
@@ -66,14 +58,11 @@ mod internal {
             self.witness_linear_and_next_arc(view, round, C::get_external_matrix());
         }
 
-        fn build_pl_and_next_arc<G: Field256 + From<F>>(
+        fn build_pl_and_next_arc<G: Field256<BaseField = F>>(
             &self,
             view: &mut impl CircuitView<F, G>,
             round: usize,
-        ) where
-            F: Mul<G, Output = G>,
-            G: Mul<F, Output = G>,
-        {
+        ) {
             self.build_linear_and_next_arc(view, round, C::get_internal_matrix());
         }
 
@@ -124,14 +113,11 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode
         T
     }
 
-    fn build_first_fl_and_arc<G: Field256 + From<F>>(
+    fn build_first_fl_and_arc<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; T],
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
@@ -170,15 +156,12 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode
         }
     }
 
-    fn build_linear_and_next_arc<G: Field256 + From<F>>(
+    fn build_linear_and_next_arc<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         round: usize,
         m: &[F],
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let c = C::get_round_constants();
         for i in 0..T {
             view.add_gate(
@@ -259,14 +242,11 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode
         T * 2
     }
 
-    fn build_first_fl_and_arc<G: Field256 + From<F>>(
+    fn build_first_fl_and_arc<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; T],
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
@@ -307,15 +287,12 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode
         }
     }
 
-    fn build_linear_and_next_arc<G: Field256 + From<F>>(
+    fn build_linear_and_next_arc<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         round: usize,
         m: &[F],
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let c = C::get_round_constants();
         for i in 0..T {
             view.add_gate(1, var(T + i) - make_const(c[(round + 1) * T + i]));
@@ -408,15 +385,11 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> RcModeExternalRo
     /// `.sub_fn()` calls, the IR chip's corresponding cell always sits at the same `(1, T + i)`
     /// local offset from `view`'s current position, shifted only by the constant offset between the
     /// two chips' own roots.
-    fn remote_rom_cell<G: Field256 + From<F>>(
+    fn remote_rom_cell<G: Field256<BaseField = F>>(
         &self,
         view: &impl CircuitView<F, G>,
         i: usize,
-    ) -> Cell
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Cell {
         view.cell(
             self.ir_chip_row_offset + 1,
             self.ir_chip_column_offset + (T + i) as isize,
@@ -431,14 +404,11 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode
         T * 2
     }
 
-    fn build_first_fl_and_arc<G: Field256 + From<F>>(
+    fn build_first_fl_and_arc<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; T],
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         for i in 0..T {
             view.connect(inputs[i], Some(view.cell(0, i)));
         }
@@ -481,15 +451,12 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> internal::RcMode
         }
     }
 
-    fn build_linear_and_next_arc<G: Field256 + From<F>>(
+    fn build_linear_and_next_arc<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         _round: usize,
         m: &[F],
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         for i in 0..T {
             view.connect(
                 self.remote_rom_cell(view, i).into(),
@@ -582,11 +549,7 @@ impl<F: PrimeField + Sbox, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C,
     pub const FIRST_ARC_HEIGHT: usize = 2;
     pub const ROUND_HEIGHT: usize = 3;
 
-    fn build_full_sbox<G: Field256 + From<F>>(&self, view: &mut impl CircuitView<F, G>)
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    fn build_full_sbox<G: Field256<BaseField = F>>(&self, view: &mut impl CircuitView<F, G>) {
         for i in 0..T {
             view.sub_fn(0, i, Some(1), Some(2), |view| F::build_sbox::<G>(view));
         }
@@ -598,11 +561,7 @@ impl<F: PrimeField + Sbox, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C,
         }
     }
 
-    fn build_partial_sbox<G: Field256 + From<F>>(&self, view: &mut impl CircuitView<F, G>)
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    fn build_partial_sbox<G: Field256<BaseField = F>>(&self, view: &mut impl CircuitView<F, G>) {
         view.sub_fn(0, 0, Some(1), Some(2), |view| F::build_sbox::<G>(view));
         for i in 1..T {
             view.connect(Some(view.cell(-1, i)), Some(view.cell(1, i)));
@@ -616,11 +575,7 @@ impl<F: PrimeField + Sbox, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C,
         }
     }
 
-    fn build_last_linear<G: Field256 + From<F>>(&self, view: &mut impl CircuitView<F, G>)
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    fn build_last_linear<G: Field256<BaseField = F>>(&self, view: &mut impl CircuitView<F, G>) {
         let m = C::get_external_matrix();
         for i in 0..T {
             view.add_gate(
@@ -674,15 +629,11 @@ impl<F: PrimeField + Sbox, C: poseidon2::Config<F, T>, M: internal::RcMode<F, C,
         Self::FIRST_ARC_HEIGHT + Self::ROUND_HEIGHT * C::num_total_rounds()
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; T],
-    ) -> Result<[Option<Cell>; T]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; T]> {
         let num_full_rounds = C::num_full_rounds();
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();

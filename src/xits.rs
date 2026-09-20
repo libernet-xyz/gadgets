@@ -6,7 +6,6 @@ use starkom_plonk::{
     rvar, var,
 };
 use std::marker::PhantomData;
-use std::ops::Mul;
 
 /// Returns the smallest power of three that is >= n (returns 1 for n=0).
 pub fn next_power_of_three(n: usize) -> usize {
@@ -108,15 +107,11 @@ impl<F: Field, const N: usize> PlonkChip<F, 1, N> for BitDecomposerChip<F, N> {
         1
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; N]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; N]> {
         for i in 0..N {
             view.add_gate(0, var(i) * (make_const(1u8.into()) - var(i)));
         }
@@ -190,15 +185,11 @@ impl<F: Field, const N: usize> PlonkChip<F, N, 1> for ConstBitComparatorChip<F, 
         2
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; N],
-    ) -> Result<[Option<Cell>; 1]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 1]> {
         for i in 0..N {
             view.connect(inputs[i], view.cell(0, i).into());
         }
@@ -274,15 +265,11 @@ impl<F: Field> PlonkChip<F, 1, 256> for FullBitDecomposerChip<F> {
         self.decomposer.height() + self.comparator.height()
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; 256]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 256]> {
         let bits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, bits)?;
@@ -356,15 +343,11 @@ impl<F: Field, const N: usize> PlonkChip<F, 1, N> for TritDecomposerChip<F, N> {
         1
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; N]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; N]> {
         for i in 0..N {
             view.add_gate(0, var(i) * (var(i) - 1) * (var(i) - 2));
         }
@@ -438,15 +421,11 @@ impl<F: Field, const N: usize> PlonkChip<F, N, 1> for ConstTritComparatorChip<F,
         3
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; N],
-    ) -> Result<[Option<Cell>; 1]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 1]> {
         for i in 0..N {
             view.connect(inputs[i], view.cell(0, i).into());
             let trit = self.get_rhs_trit(i);
@@ -517,15 +496,11 @@ impl<F: Field> PlonkChip<F, 1, 161> for FullTritDecomposerChip<F> {
         self.decomposer.height() + self.comparator.height()
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; 161]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Result<[Option<Cell>; 161]> {
         let trits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, trits)?;
@@ -768,14 +743,11 @@ mod tests {
         );
     }
 
-    fn test_bit_decomposer_chip<F: Field, G: Field256 + From<F>, const N: usize>(
+    fn test_bit_decomposer_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
         value: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let chip = BitDecomposerChip::<F, N>::default();
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
@@ -870,15 +842,12 @@ mod tests {
         test_bit_decomposer_chip::<GL, GL4, 3>(7, 16, c);
     }
 
-    fn test_const_bit_comparator_chip<F: Field, G: Field256 + From<F>, const N: usize>(
+    fn test_const_bit_comparator_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
         lhs: u8,
         rhs: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let mut builder = CircuitBuilder::<F, G>::default();
         let decomposer_chip = BitDecomposerChip::<F, N>::default();
         let bits = builder.sub_chip(0, 0, &decomposer_chip, [None]).unwrap();
@@ -989,14 +958,11 @@ mod tests {
         test_const_bit_comparator_chip::<GL, GL4, 2>(3, 3, 16, c);
     }
 
-    fn test_full_bit_decomposer_chip_impl<F: Field, G: Field256 + From<F>>(
+    fn test_full_bit_decomposer_chip_impl<F: Field, G: Field256<BaseField = F>>(
         value: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let chip = FullBitDecomposerChip::<F>::default();
         assert_eq!(chip.width(), 257);
         assert_eq!(chip.height(), 3);
@@ -1236,14 +1202,11 @@ mod tests {
         );
     }
 
-    fn test_trit_decomposer_chip<F: Field, G: Field256 + From<F>, const N: usize>(
+    fn test_trit_decomposer_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
         value: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let chip = TritDecomposerChip::<F, N>::default();
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
@@ -1388,15 +1351,12 @@ mod tests {
         test_trit_decomposer_chip::<GL, GL4, 3>(26, 16, c);
     }
 
-    fn test_const_trit_comparator_chip<F: Field, G: Field256 + From<F>, const N: usize>(
+    fn test_const_trit_comparator_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
         lhs: u8,
         rhs: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let mut builder = CircuitBuilder::<F, G>::default();
         let decomposer_chip = TritDecomposerChip::<F, N>::default();
         let trits = builder.sub_chip(0, 0, &decomposer_chip, [None]).unwrap();
@@ -1495,14 +1455,11 @@ mod tests {
         }
     }
 
-    fn test_full_trit_decomposer_chip_impl<F: Field, G: Field256 + From<F>>(
+    fn test_full_trit_decomposer_chip_impl<F: Field, G: Field256<BaseField = F>>(
         value: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let chip = FullTritDecomposerChip::<F>::default();
         assert_eq!(chip.width(), 162);
         assert_eq!(chip.height(), 4);

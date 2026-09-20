@@ -5,7 +5,6 @@ use starkom_plonk::{
 use starkom_poseidon as poseidon;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
-use std::ops::Mul;
 
 mod internal {
     use super::*;
@@ -16,23 +15,19 @@ mod internal {
     pub trait RcMode<F: PrimeField, const T: usize>: Debug + Copy + Clone {
         fn width(&self) -> usize;
 
-        fn build_full_round<G: Field256 + From<F>>(
+        fn build_full_round<G: Field256<BaseField = F>>(
             &self,
             view: &mut impl CircuitView<F, G>,
             round: usize,
-        ) where
-            F: Mul<G, Output = G>,
-            G: Mul<F, Output = G>;
+        );
 
         fn witness_full_round(&self, view: &mut impl WitnessView<F>, round: usize);
 
-        fn build_partial_round<G: Field256 + From<F>>(
+        fn build_partial_round<G: Field256<BaseField = F>>(
             &self,
             view: &mut impl CircuitView<F, G>,
             round: usize,
-        ) where
-            F: Mul<G, Output = G>,
-            G: Mul<F, Output = G>;
+        );
 
         fn witness_partial_round(&self, view: &mut impl WitnessView<F>, round: usize);
     }
@@ -79,14 +74,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         T
     }
 
-    fn build_full_round<G: Field256 + From<F>>(
+    fn build_full_round<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         round: usize,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
@@ -117,14 +109,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         }
     }
 
-    fn build_partial_round<G: Field256 + From<F>>(
+    fn build_partial_round<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         round: usize,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
@@ -206,14 +195,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         T * 2
     }
 
-    fn build_full_round<G: Field256 + From<F>>(
+    fn build_full_round<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         round: usize,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
@@ -246,14 +232,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         }
     }
 
-    fn build_partial_round<G: Field256 + From<F>>(
+    fn build_partial_round<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         round: usize,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let c = &C::get_round_constants()[(round * T)..((round + 1) * T)];
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
@@ -346,15 +329,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> RcModeExternalRom
     /// `.sub_fn()` calls, the IR chip's corresponding cell always sits at the same `(1, T + i)`
     /// local offset from `view`'s current position, shifted only by the constant offset between the
     /// two chips' own roots.
-    fn remote_rom_cell<G: Field256 + From<F>>(
+    fn remote_rom_cell<G: Field256<BaseField = F>>(
         &self,
         view: &impl CircuitView<F, G>,
         i: usize,
-    ) -> Cell
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> Cell {
         view.cell(
             self.ir_chip_row_offset,
             self.ir_chip_column_offset + (T + i) as isize,
@@ -369,14 +348,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         T * 2
     }
 
-    fn build_full_round<G: Field256 + From<F>>(
+    fn build_full_round<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         _round: usize,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
         for i in 0..T {
@@ -411,14 +387,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, const T: usize> internal::RcMode<
         }
     }
 
-    fn build_partial_round<G: Field256 + From<F>>(
+    fn build_partial_round<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         _round: usize,
-    ) where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) {
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
         for i in 0..T {
@@ -537,15 +510,11 @@ impl<F: PrimeField, C: poseidon::Config<F, T>, M: internal::RcMode<F, T>, const 
         C::num_total_rounds() + 1
     }
 
-    fn build<G: Field256 + From<F>>(
+    fn build<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<starkom_plonk::Cell>; T],
-    ) -> anyhow::Result<[Option<starkom_plonk::Cell>; T]>
-    where
-        F: Mul<G, Output = G>,
-        G: Mul<F, Output = G>,
-    {
+    ) -> anyhow::Result<[Option<starkom_plonk::Cell>; T]> {
         let num_full_rounds = C::num_full_rounds();
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();
