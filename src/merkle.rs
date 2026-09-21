@@ -1,4 +1,4 @@
-use crate::poseidon1nano as poseidon1;
+use crate::poseidon1;
 use crate::xits;
 use anyhow::Result;
 use starkom_ff::{Field256, PrimeField256};
