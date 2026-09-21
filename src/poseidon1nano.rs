@@ -86,6 +86,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
 
         let mut state: [Constraint<F>; T] = std::array::from_fn(|i| var(offset + i));
         offset += T;
+
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
             let linear: [Constraint<F>; T] = std::array::from_fn(|i| {
                 (1..T)
