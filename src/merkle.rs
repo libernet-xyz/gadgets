@@ -28,7 +28,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> Default for Bina
 }
 
 impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> BinaryChip<F, H, C> {
-    const SELECTOR_HEIGHT: usize = 2;
+    const SELECTOR_WIDTH: usize = 6;
 
     pub fn new(path: [[F; 2]; H]) -> Self {
         Self {
@@ -39,11 +39,11 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> BinaryChip<F, H,
     }
 
     fn stage_width(&self) -> usize {
-        self.hasher.width()
+        Self::SELECTOR_WIDTH + self.hasher.width()
     }
 
     fn stage_height(&self) -> usize {
-        Self::SELECTOR_HEIGHT + self.hasher.height()
+        self.hasher.height()
     }
 
     fn build_input_selector<G: Field256<BaseField = F>>(
@@ -56,12 +56,13 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> BinaryChip<F, H,
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(1, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
+            var(2) * var(1) + (make_const(F::ONE) - var(2)) * var(0) - var(3),
         );
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(0, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
+            var(2) * var(0) + (make_const(F::ONE) - var(2)) * var(1) - var(4),
         );
+        view.add_gate(0, var(5));
     }
 
     fn witness_input_selector(
@@ -80,8 +81,9 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> BinaryChip<F, H,
             view.set(view.cell(0, 1), self.path[i][1]);
         }
         view.copy(bits[i], view.cell(0, 2));
-        view.set(view.cell(1, 0), self.path[i][0]);
-        view.set(view.cell(1, 1), self.path[i][1]);
+        view.set(view.cell(0, 3), self.path[i][0]);
+        view.set(view.cell(0, 4), self.path[i][1]);
+        view.set(view.cell(0, 5), F::ZERO);
     }
 }
 
@@ -114,12 +116,12 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 3 + i).into());
             [hash, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.build_input_selector(view, hash, bit)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -141,12 +143,12 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 3 + i).into());
             [hash, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.witness_input_selector(view, &bits, i)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -333,7 +335,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> Default for FullBinaryChip<F, C>
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 3>> FullBinaryChip<F, C> {
-    const SELECTOR_HEIGHT: usize = 2;
+    const SELECTOR_WIDTH: usize = 6;
 
     pub fn new(path: [[F; 2]; 256]) -> Self {
         Self {
@@ -344,11 +346,11 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> FullBinaryChip<F, C> {
     }
 
     fn stage_width(&self) -> usize {
-        self.hasher.width()
+        Self::SELECTOR_WIDTH + self.hasher.width()
     }
 
     fn stage_height(&self) -> usize {
-        Self::SELECTOR_HEIGHT + self.hasher.height()
+        self.hasher.height()
     }
 
     fn build_input_selector<G: Field256<BaseField = F>>(
@@ -361,13 +363,13 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> FullBinaryChip<F, C> {
         view.connect(bit, view.cell(0, 2).into());
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(1, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(0, 0) - rvar(0, 1),
+            var(2) * var(1) + (make_const(F::ONE) - var(2)) * var(0) - var(3),
         );
         view.add_gate(
             0,
-            rvar(2, 0) * rvar(0, 0) + (make_const(F::ONE) - rvar(2, 0)) * rvar(1, 0) - rvar(1, 1),
+            var(2) * var(0) + (make_const(F::ONE) - var(2)) * var(1) - var(4),
         );
-        view.add_gate(1, var(2));
+        view.add_gate(0, var(5));
     }
 
     fn witness_input_selector(
@@ -386,9 +388,9 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> FullBinaryChip<F, C> {
             view.set(view.cell(0, 1), self.path[i][1]);
         }
         view.copy(bits[i], view.cell(0, 2));
-        view.set(view.cell(1, 0), self.path[i][0]);
-        view.set(view.cell(1, 1), self.path[i][1]);
-        view.set(view.cell(1, 2), F::ZERO);
+        view.set(view.cell(0, 3), self.path[i][0]);
+        view.set(view.cell(0, 4), self.path[i][1]);
+        view.set(view.cell(0, 5), F::ZERO);
     }
 }
 
@@ -419,12 +421,12 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 1> for FullBinar
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 3 + i).into());
             [hash, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.build_input_selector(view, hash, bit)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -446,12 +448,12 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 1> for FullBinar
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 3 + i).into());
             [hash, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.witness_input_selector(view, &bits, i)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -644,8 +646,8 @@ mod tests {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
         let chip = BinaryChip::<Scalar, H, BlueSkyConfig3>::new(path);
-        assert_eq!(chip.width(), 85);
-        assert_eq!(chip.height(), 1 + 3 * H);
+        assert_eq!(chip.width(), 91);
+        assert_eq!(chip.height(), 1 + H);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -1115,10 +1117,10 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = BinaryChip::<Scalar, H, BlueSkyConfig3>::new(path);
-        assert_eq!(chip.stage_width(), 85);
-        assert_eq!(chip.stage_height(), 3);
-        assert_eq!(chip.width(), std::cmp::max(H + 1, 85));
-        assert_eq!(chip.height(), 1 + 3 * H);
+        assert_eq!(chip.stage_width(), 91);
+        assert_eq!(chip.stage_height(), 1);
+        assert_eq!(chip.width(), std::cmp::max(H + 1, 91));
+        assert_eq!(chip.height(), 1 + H);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
@@ -1385,10 +1387,10 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = FullBinaryChip::<Scalar, BlueSkyConfig3>::new(path);
-        assert_eq!(chip.stage_width(), 85);
-        assert_eq!(chip.stage_height(), 3);
-        assert_eq!(chip.width(), std::cmp::max(257, 85));
-        assert_eq!(chip.height(), 3 + chip.stage_height() * 256);
+        assert_eq!(chip.stage_width(), 91);
+        assert_eq!(chip.stage_height(), 1);
+        assert_eq!(chip.width(), std::cmp::max(257, 91));
+        assert_eq!(chip.height(), 259);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
@@ -1400,7 +1402,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
-        assert_eq!(circuit.degree_bound(), 1024);
+        assert_eq!(circuit.degree_bound(), 512);
         assert_eq!(circuit.num_columns(), chip.width());
 
         let mut witness = circuit.make_witness();
