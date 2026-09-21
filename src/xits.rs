@@ -1,6 +1,6 @@
 use anyhow::Result;
 use primitive_types::U256;
-use starkom_ff::{Field, Field256};
+use starkom_ff::{Field, Field32, Field64, Field128, Field256};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, make_const,
     rvar, var,
@@ -91,8 +91,10 @@ pub fn decompose_scalar_bits<F: Field, const N: usize>(value: F) -> [F; N] {
 ///
 /// The returned bits are in little-endian order.
 ///
-/// WARNING: this chip is unsafe to use with 255 or 256 bits because it doesn't guard against
-/// aliasing. Use the [`FullBitDecomposerChip`] for a full decomposition into 256 bits.
+/// WARNING: this chip is unsafe to use with a number of bits close to the field's own bit length
+/// because it doesn't guard against aliasing. Use [`FullBitDecomposerChip32`],
+/// [`FullBitDecomposerChip64`], [`FullBitDecomposerChip128`], or [`FullBitDecomposerChip256`] for a
+/// full decomposition instead.
 #[derive(Debug, Default, Clone)]
 pub struct BitDecomposerChip<F: Field, const N: usize> {
     _data: PhantomData<F>,
@@ -235,19 +237,21 @@ impl<F: Field, const N: usize> PlonkChip<F, N, 1> for ConstBitComparatorChip<F, 
     }
 }
 
-/// Decomposes an input signal into 256 bits.
+/// Decomposes an input signal into `N` bits, covering the full range of a field whose modulus fits
+/// in `N` bits.
 ///
 /// The returned bits are in little-endian order.
 ///
-/// Note that the MSB will always be zero because BlueSky scalars don't cover the upper half of the
-/// 256 bit range.
+/// This is the shared implementation behind [`FullBitDecomposerChip32`], [`FullBitDecomposerChip64`],
+/// [`FullBitDecomposerChip128`], and [`FullBitDecomposerChip256`]; use one of those instead of this type
+/// directly.
 #[derive(Debug, Clone)]
-pub struct FullBitDecomposerChip<F: Field> {
-    decomposer: BitDecomposerChip<F, 256>,
-    comparator: ConstBitComparatorChip<F, 256>,
+struct FullBitDecomposer<F: Field, const N: usize> {
+    decomposer: BitDecomposerChip<F, N>,
+    comparator: ConstBitComparatorChip<F, N>,
 }
 
-impl<F: Field> Default for FullBitDecomposerChip<F> {
+impl<F: Field, const N: usize> Default for FullBitDecomposer<F, N> {
     fn default() -> Self {
         Self {
             decomposer: BitDecomposerChip::default(),
@@ -256,7 +260,7 @@ impl<F: Field> Default for FullBitDecomposerChip<F> {
     }
 }
 
-impl<F: Field> PlonkChip<F, 1, 256> for FullBitDecomposerChip<F> {
+impl<F: Field, const N: usize> FullBitDecomposer<F, N> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.comparator.width())
     }
@@ -269,7 +273,7 @@ impl<F: Field> PlonkChip<F, 1, 256> for FullBitDecomposerChip<F> {
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; 256]> {
+    ) -> Result<[Option<Cell>; N]> {
         let bits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, bits)?;
@@ -281,10 +285,144 @@ impl<F: Field> PlonkChip<F, 1, 256> for FullBitDecomposerChip<F> {
         &self,
         view: &mut impl WitnessView<F>,
         inputs: [CellOrUnconstrained<F>; 1],
-    ) -> Result<[CellOrUnconstrained<F>; 256]> {
+    ) -> Result<[CellOrUnconstrained<F>; N]> {
         let bits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         view.sub_chip(1, 0, &self.comparator, bits)?;
         Ok(bits)
+    }
+}
+
+/// Decomposes an input signal into 32 bits, covering the full range of any [`Field32`].
+///
+/// The returned bits are in little-endian order.
+///
+/// Note that the MSB will always be zero for fields whose modulus doesn't cover the upper half of
+/// the 32 bit range, such as KoalaBear.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip32<F: Field32>(FullBitDecomposer<F, 32>);
+
+impl<F: Field32> PlonkChip<F, 1, 32> for FullBitDecomposerChip32<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 32]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 32]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 64 bits, covering the full range of any [`Field64`].
+///
+/// The returned bits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip64<F: Field64>(FullBitDecomposer<F, 64>);
+
+impl<F: Field64> PlonkChip<F, 1, 64> for FullBitDecomposerChip64<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 64]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 64]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 128 bits, covering the full range of any [`Field128`].
+///
+/// The returned bits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip128<F: Field128>(FullBitDecomposer<F, 128>);
+
+impl<F: Field128> PlonkChip<F, 1, 128> for FullBitDecomposerChip128<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 128]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 128]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 256 bits, covering the full range of any [`Field256`].
+///
+/// The returned bits are in little-endian order.
+///
+/// Note that the MSB will always be zero for fields whose modulus doesn't cover the upper half of
+/// the 256 bit range, such as BlueSky and Schraderbrau.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip256<F: Field256>(FullBitDecomposer<F, 256>);
+
+impl<F: Field256> PlonkChip<F, 1, 256> for FullBitDecomposerChip256<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 256]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 256]> {
+        self.0.witness(view, inputs)
     }
 }
 
@@ -327,8 +465,10 @@ pub fn decompose_scalar_trits<F: Field, const N: usize>(value: F) -> [F; N] {
 
 /// Decomposes the input signal into N trits.
 ///
-/// WARNING: this chip is unsafe to use with 160 or 161 trits because it doesn't guard against
-/// aliasing. Use the [`FullTritDecomposerChip`] for a full decomposition into 161 trits.
+/// WARNING: this chip is unsafe to use with a number of trits close to the field's own bit length
+/// because it doesn't guard against aliasing. Use [`FullTritDecomposerChip32`],
+/// [`FullTritDecomposerChip64`], [`FullTritDecomposerChip128`], or [`FullTritDecomposerChip256`]
+/// for a full decomposition instead, picking the one that matches the field's size.
 #[derive(Debug, Default, Clone)]
 pub struct TritDecomposerChip<F: Field, const N: usize> {
     _data: PhantomData<F>,
@@ -469,16 +609,21 @@ impl<F: Field, const N: usize> PlonkChip<F, N, 1> for ConstTritComparatorChip<F,
     }
 }
 
-/// Decomposes an input signal into 161 trits, covering the full BlueSky range.
+/// Decomposes an input signal into `N` trits, covering the full range of a field whose modulus fits
+/// in `N` trits.
 ///
 /// The returned trits are in little-endian order.
+///
+/// This is the shared implementation behind [`FullTritDecomposerChip32`],
+/// [`FullTritDecomposerChip64`], [`FullTritDecomposerChip128`], and [`FullTritDecomposerChip256`];
+/// use one of those instead of this type directly.
 #[derive(Debug, Clone)]
-pub struct FullTritDecomposerChip<F: Field> {
-    decomposer: TritDecomposerChip<F, 161>,
-    comparator: ConstTritComparatorChip<F, 161>,
+struct FullTritDecomposer<F: Field, const N: usize> {
+    decomposer: TritDecomposerChip<F, N>,
+    comparator: ConstTritComparatorChip<F, N>,
 }
 
-impl<F: Field> Default for FullTritDecomposerChip<F> {
+impl<F: Field, const N: usize> Default for FullTritDecomposer<F, N> {
     fn default() -> Self {
         Self {
             decomposer: TritDecomposerChip::default(),
@@ -487,7 +632,7 @@ impl<F: Field> Default for FullTritDecomposerChip<F> {
     }
 }
 
-impl<F: Field> PlonkChip<F, 1, 161> for FullTritDecomposerChip<F> {
+impl<F: Field, const N: usize> FullTritDecomposer<F, N> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.comparator.width())
     }
@@ -500,7 +645,7 @@ impl<F: Field> PlonkChip<F, 1, 161> for FullTritDecomposerChip<F> {
         &self,
         view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; 161]> {
+    ) -> Result<[Option<Cell>; N]> {
         let trits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, trits)?;
@@ -512,19 +657,153 @@ impl<F: Field> PlonkChip<F, 1, 161> for FullTritDecomposerChip<F> {
         &self,
         view: &mut impl WitnessView<F>,
         inputs: [CellOrUnconstrained<F>; 1],
-    ) -> Result<[CellOrUnconstrained<F>; 161]> {
+    ) -> Result<[CellOrUnconstrained<F>; N]> {
         let trits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         view.sub_chip(self.decomposer.height(), 0, &self.comparator, trits)?;
         Ok(trits)
     }
 }
 
-#[cfg(all(test, feature = "bluesky", feature = "goldilocks"))]
+/// Decomposes an input signal into 21 trits, covering the full range of any [`Field32`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip32<F: Field32>(FullTritDecomposer<F, 21>);
+
+impl<F: Field32> PlonkChip<F, 1, 21> for FullTritDecomposerChip32<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 21]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 21]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 41 trits, covering the full range of any [`Field64`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip64<F: Field64>(FullTritDecomposer<F, 41>);
+
+impl<F: Field64> PlonkChip<F, 1, 41> for FullTritDecomposerChip64<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 41]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 41]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 81 trits, covering the full range of any [`Field128`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip128<F: Field128>(FullTritDecomposer<F, 81>);
+
+impl<F: Field128> PlonkChip<F, 1, 81> for FullTritDecomposerChip128<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 81]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 81]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 162 trits, covering the full range of any [`Field256`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip256<F: Field256>(FullTritDecomposer<F, 162>);
+
+impl<F: Field256> PlonkChip<F, 1, 162> for FullTritDecomposerChip256<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 162]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 162]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "bluesky",
+    feature = "goldilocks",
+    feature = "koalabear"
+))]
 mod tests {
     use super::*;
     use primitive_types::H256;
     use starkom_bluesky::{Scalar as BS, parse_scalar};
     use starkom_goldilocks::{GL, GL4};
+    use starkom_koalabear::{KB, KB8};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use std::cmp::Ordering;
@@ -958,17 +1237,22 @@ mod tests {
         test_const_bit_comparator_chip::<GL, GL4, 2>(3, 3, 16, c);
     }
 
-    fn test_full_bit_decomposer_chip_impl<F: Field, G: Field256<BaseField = F>>(
+    fn test_full_bit_decomposer_chip_impl<
+        F: Field,
+        G: Field256<BaseField = F>,
+        C: PlonkChip<F, 1, N> + Default,
+        const N: usize,
+    >(
         value: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
     ) {
-        let chip = FullBitDecomposerChip::<F>::default();
-        assert_eq!(chip.width(), 257);
+        let chip = C::default();
+        assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 3);
         let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_cells((0..256).map(|i| cell(0, i)));
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -976,7 +1260,7 @@ mod tests {
             .unwrap();
         assert_eq!(circuit.num_rows(), 3);
         assert_eq!(circuit.degree_bound(), expected_degree_bound);
-        assert_eq!(circuit.num_columns(), 257);
+        assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
             .sub_chip(0, 0, &chip, [F::from(value).into()])
@@ -985,7 +1269,7 @@ mod tests {
                 CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output bits must be constrained"),
             });
-        assert_eq!(bits, decompose_bits::<F, 256>(value.into())[0..256]);
+        assert_eq!(bits, decompose_bits::<F, N>(value.into()));
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
@@ -996,33 +1280,46 @@ mod tests {
         let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
-        assert!((0..256).all(|i| openings[&cell(0, i)] == bits[i]));
+        assert!((0..N).all(|i| openings[&cell(0, i)] == bits[i]));
     }
 
     #[test]
     fn test_full_bit_decomposer_chip_bluesky() {
         let c = parse_hash("0xd438c9dbb9ca22a74bdd931cd796d5b86d3245b7ee2e2d0daa81d0e70f0c9d05");
-        test_full_bit_decomposer_chip_impl::<BS, BS>(0, 8, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(1, 8, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(2, 8, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(3, 8, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(4, 8, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(5, 8, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(6, 8, c);
-        test_full_bit_decomposer_chip_impl::<BS, BS>(7, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(0, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(1, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(2, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(3, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(4, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(5, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(6, 8, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, FullBitDecomposerChip256<BS>, 256>(7, 8, c);
     }
 
     #[test]
     fn test_full_bit_decomposer_chip_goldilocks() {
-        let c = parse_hash("0xc6c53413b3f7ebd3ee250f98fedea38bd354021a7982c840d03cbe1e727cee3a");
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(0, 16, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(1, 16, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(2, 16, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(3, 16, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(4, 16, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(5, 16, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(6, 16, c);
-        test_full_bit_decomposer_chip_impl::<GL, GL4>(7, 16, c);
+        let c = parse_hash("0x2968d56df25a2e5c3574bb696a69860ac48831804c2fdb928bfc927411a95ea6");
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(0, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(1, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(2, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(3, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(4, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(5, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(6, 16, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, FullBitDecomposerChip64<GL>, 64>(7, 16, c);
+    }
+
+    #[test]
+    fn test_full_bit_decomposer_chip_koalabear() {
+        let c = parse_hash("0x7f8cdf99eea154e1870831d3cc8377342db6839a5d03967f48547e5310bb69f0");
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(0, 32, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(1, 32, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(2, 32, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(3, 32, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(4, 32, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(5, 32, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(6, 32, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, FullBitDecomposerChip32<KB>, 32>(7, 32, c);
     }
 
     #[test]
@@ -1455,17 +1752,22 @@ mod tests {
         }
     }
 
-    fn test_full_trit_decomposer_chip_impl<F: Field, G: Field256<BaseField = F>>(
+    fn test_full_trit_decomposer_chip_impl<
+        F: Field,
+        G: Field256<BaseField = F>,
+        C: PlonkChip<F, 1, N> + Default,
+        const N: usize,
+    >(
         value: u8,
         expected_degree_bound: usize,
         circuit_commitment: H256,
     ) {
-        let chip = FullTritDecomposerChip::<F>::default();
-        assert_eq!(chip.width(), 162);
+        let chip = C::default();
+        assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 4);
         let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_cells((0..161).map(|i| cell(0, i)));
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
@@ -1473,7 +1775,7 @@ mod tests {
             .unwrap();
         assert_eq!(circuit.num_rows(), 4);
         assert_eq!(circuit.degree_bound(), expected_degree_bound);
-        assert_eq!(circuit.num_columns(), 162);
+        assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
             .sub_chip(0, 0, &chip, [F::from(value).into()])
@@ -1482,7 +1784,7 @@ mod tests {
                 CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output trits must be constrained"),
             });
-        assert_eq!(trits, decompose_trits::<F, 161>(value.into())[0..161]);
+        assert_eq!(trits, decompose_trits::<F, N>(value.into()));
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions {
             blowup_log2: BLOWUP_LOG2,
@@ -1493,40 +1795,57 @@ mod tests {
         let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
-        assert!((0..161).all(|i| openings[&cell(0, i)] == trits[i]));
+        assert!((0..N).all(|i| openings[&cell(0, i)] == trits[i]));
     }
 
     #[test]
     fn test_full_trit_decomposer_chip_bluesky() {
-        let c = parse_hash("0xcc190ca38525000774d89830c69d3462605ee9591e990622e7ee1af4ec379107");
-        test_full_trit_decomposer_chip_impl::<BS, BS>(0, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(1, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(2, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(3, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(4, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(5, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(6, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(7, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(8, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(9, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(10, 8, c);
-        test_full_trit_decomposer_chip_impl::<BS, BS>(11, 8, c);
+        let c = parse_hash("0xefdf02a8376c05e3b7f60c85fac274f3523958c271fa35b432a4c55c80a435c3");
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(0, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(1, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(2, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(3, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(4, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(5, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(6, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(7, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(8, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(9, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(10, 8, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, FullTritDecomposerChip256<BS>, 162>(11, 8, c);
     }
 
     #[test]
     fn test_full_trit_decomposer_chip_goldilocks() {
-        let c = parse_hash("0x7a46dcd60b2a1ff2d852037573b043dd78848358802d646eb7ea9af1072418cc");
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(0, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(1, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(2, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(3, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(4, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(5, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(6, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(7, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(8, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(9, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(10, 16, c);
-        test_full_trit_decomposer_chip_impl::<GL, GL4>(11, 16, c);
+        let c = parse_hash("0x3aec2562a3670489c5c460a9715af136a83028610df0935ddd39ae1c20dc8bd1");
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(0, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(1, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(2, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(3, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(4, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(5, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(6, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(7, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(8, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(9, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(10, 16, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, FullTritDecomposerChip64<GL>, 41>(11, 16, c);
+    }
+
+    #[test]
+    fn test_full_trit_decomposer_chip_koalabear() {
+        let c = parse_hash("0xdaf0ff83c253c3b5ea5b241f1e44896e22110394211e03a358acca5a0ec4dd0c");
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(0, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(1, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(2, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(3, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(4, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(5, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(6, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(7, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(8, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(9, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(10, 32, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, FullTritDecomposerChip32<KB>, 21>(11, 32, c);
     }
 }

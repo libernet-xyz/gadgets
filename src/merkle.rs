@@ -414,15 +414,15 @@ impl<F: PrimeField256 + Sbox, const H: usize, C: PoseidonConfig<F, 4>, const L: 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height 256.
 ///
 /// The keys of such a tree span the full BlueSky range. Internally this chip uses a
-/// [`xits::FullBitDecomposerChip`], making the 256-bit decomposition safe at the cost of some extra
-/// constraints.
+/// [`xits::FullBitDecomposerChip256`], making the 256-bit decomposition safe at the cost of some
+/// extra constraints.
 ///
 /// If you don't need 256- or 255-bit keys use [`BinaryChip`].
 ///
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
 pub struct FullBinaryChip<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> {
-    decomposer: xits::FullBitDecomposerChip<F>,
+    decomposer: xits::FullBitDecomposerChip256<F>,
     hasher_ir: poseidon1::PermutationChipIR<F, C, 3>,
     hasher_er: [poseidon1::PermutationChipER<F, C, 3>; 255],
     path: [[F; 2]; 256],
@@ -445,7 +445,7 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> FullBinar
         let stage_width = hasher_ir.width() as isize;
         let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
-            decomposer: xits::FullBitDecomposerChip::default(),
+            decomposer: xits::FullBitDecomposerChip256::default(),
             hasher_ir,
             hasher_er: std::array::from_fn(|i| {
                 poseidon1::PermutationChipER::new(
@@ -605,13 +605,13 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 3>, const L: usize> PlonkChip
 /// Runs a Merkle lookup over a ternary Sparse Merkle Tree of height 161.
 ///
 /// The keys of such a tree span the full BlueSky range. Internally this chip uses a
-/// [`xits::FullTritDecomposerChip`], making the 161-trit decomposition safe at the cost of some
+/// [`xits::FullTritDecomposerChip256`], making the 161-trit decomposition safe at the cost of some
 /// extra constraints.
 ///
 /// If you don't need 161-trit keys use [`TernaryChip`].
 #[derive(Debug, Clone)]
 pub struct FullTernaryChip<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> {
-    decomposer: xits::FullTritDecomposerChip<F>,
+    decomposer: xits::FullTritDecomposerChip256<F>,
     hasher_ir: poseidon1::PermutationChipIR<F, C, 4>,
     hasher_er: [poseidon1::PermutationChipER<F, C, 4>; 160],
     path: [[F; 3]; 161],
@@ -634,7 +634,7 @@ impl<F: PrimeField256 + Sbox, C: PoseidonConfig<F, 4>, const L: usize> FullTerna
         let stage_width = hasher_ir.width() as isize;
         let stage_height = (Self::SELECTOR_HEIGHT + hasher_ir.height()) as isize;
         Self {
-            decomposer: xits::FullTritDecomposerChip::default(),
+            decomposer: xits::FullTritDecomposerChip256::default(),
             hasher_ir,
             hasher_er: std::array::from_fn(|i| {
                 poseidon1::PermutationChipER::new(
