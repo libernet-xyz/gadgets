@@ -65,16 +65,18 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         let c = C::get_round_constants();
         let a = F::ALPHA as isize;
         let m = C::get_mds_matrix();
+        let m0_inv = m[0].invert_unwrap();
 
         let mut offset = 0;
         for r in 0..num_full_rounds {
-            let sboxed: [Constraint<F>; T] =
-                std::array::from_fn(|j| (make_const(c[r * T + j]) + var(offset + j)) ^ a);
             for i in 0..T {
                 view.add_gate(
                     0,
                     (0..T)
-                        .map(|j| sboxed[j].clone() * make_const(m[i * T + j]))
+                        .map(|j| {
+                            ((make_const(c[r * T + j]) + var(offset + j)) ^ a)
+                                * make_const(m[i * T + j])
+                        })
                         .sum::<Constraint<F>>()
                         - var(offset + T + i),
                 );
@@ -85,7 +87,6 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         let mut state: [Constraint<F>; T] = std::array::from_fn(|i| var(offset + i));
         offset += T;
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            let sbox = (make_const(c[r * T]) + state[0].clone()) ^ a;
             let linear: [Constraint<F>; T] = std::array::from_fn(|i| {
                 (1..T)
                     .map(|j| {
@@ -93,18 +94,18 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
                     })
                     .sum()
             });
-            let next = var(offset);
             view.add_gate(
                 0,
-                sbox * make_const(m[0]) + linear[0].clone() - next.clone(),
+                ((make_const(c[r * T]) + state[0].clone()) ^ a) * make_const(m[0])
+                    + linear[0].clone()
+                    - var(offset),
             );
-            // Keep the state linear by expressing the S-box output through the gate above.
-            let sbox =
-                (next.clone() - linear[0].clone()) * make_const(m[0].invert_vartime().unwrap());
             for i in 1..T {
-                state[i] = sbox.clone() * make_const(m[i * T]) + linear[i].clone();
+                state[i] =
+                    (var(offset) - linear[0].clone()) * make_const(m0_inv) * make_const(m[i * T])
+                        + linear[i].clone();
             }
-            state[0] = next;
+            state[0] = var(offset);
             offset += 1;
         }
 
@@ -115,13 +116,14 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         offset += T - 1;
 
         for r in (num_full_rounds + num_partial_rounds)..num_total_rounds {
-            let sboxed: [Constraint<F>; T] =
-                std::array::from_fn(|j| (make_const(c[r * T + j]) + state[j].clone()) ^ a);
             for i in 0..T {
                 view.add_gate(
                     0,
                     (0..T)
-                        .map(|j| sboxed[j].clone() * make_const(m[i * T + j]))
+                        .map(|j| {
+                            ((make_const(c[r * T + j]) + state[j].clone()) ^ a)
+                                * make_const(m[i * T + j])
+                        })
                         .sum::<Constraint<F>>()
                         - var(offset + i),
                 );
@@ -152,8 +154,11 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
 
         let mut offset = T;
         for r in 0..num_full_rounds {
-            let sboxed: [F; T] = std::array::from_fn(|j| (c[r * T + j] + state[j]).pow_small(a));
-            state = std::array::from_fn(|i| (0..T).map(|j| sboxed[j] * m[i * T + j]).sum());
+            state = std::array::from_fn(|i| {
+                (0..T)
+                    .map(|j| (c[r * T + j] + state[j]).pow_small(a) * m[i * T + j])
+                    .sum()
+            });
             for i in 0..T {
                 view.set(view.cell(0, offset + i), state[i]);
             }
@@ -161,11 +166,11 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         }
 
         for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
-            let sboxed: [F; T] = std::array::from_fn(|j| {
-                let x = c[r * T + j] + state[j];
-                if j == 0 { x.pow_small(a) } else { x }
+            state = std::array::from_fn(|i| {
+                std::iter::once((c[r * T] + state[0]).pow_small(a) * m[i * T])
+                    .chain((1..T).map(|j| (c[r * T + j] + state[j]) * m[i * T + j]))
+                    .sum()
             });
-            state = std::array::from_fn(|i| (0..T).map(|j| sboxed[j] * m[i * T + j]).sum());
             view.set(view.cell(0, offset), state[0]);
             offset += 1;
         }
@@ -176,8 +181,11 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         offset += T - 1;
 
         for r in (num_full_rounds + num_partial_rounds)..num_total_rounds {
-            let sboxed: [F; T] = std::array::from_fn(|j| (c[r * T + j] + state[j]).pow_small(a));
-            state = std::array::from_fn(|i| (0..T).map(|j| sboxed[j] * m[i * T + j]).sum());
+            state = std::array::from_fn(|i| {
+                (0..T)
+                    .map(|j| (c[r * T + j] + state[j]).pow_small(a) * m[i * T + j])
+                    .sum()
+            });
             for i in 0..T {
                 view.set(view.cell(0, offset + i), state[i]);
             }
