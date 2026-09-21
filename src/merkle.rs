@@ -3,7 +3,7 @@ use crate::xits;
 use anyhow::Result;
 use starkom_ff::{Field256, PrimeField256};
 use starkom_plonk::{
-    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
+    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, var,
 };
 use starkom_poseidon::Config as PoseidonConfig;
 
@@ -173,7 +173,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> Default for Tern
 }
 
 impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H, C> {
-    const SELECTOR_HEIGHT: usize = 2;
+    const SELECTOR_WIDTH: usize = 8;
 
     pub fn new(path: [[F; 3]; H]) -> Self {
         Self {
@@ -184,11 +184,11 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H
     }
 
     fn stage_width(&self) -> usize {
-        self.hasher.width()
+        Self::SELECTOR_WIDTH + self.hasher.width()
     }
 
     fn stage_height(&self) -> usize {
-        Self::SELECTOR_HEIGHT + self.hasher.height()
+        self.hasher.height()
     }
 
     fn build_input_selector<G: Field256<BaseField = F>>(
@@ -204,14 +204,14 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H
         let l2 = ((var(3) ^ 2) - var(3)) / 2;
         view.add_gate(
             0,
-            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - rvar(0, 1),
+            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - var(4),
         );
         view.add_gate(
             0,
-            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - rvar(1, 1),
+            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(5),
         );
-        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - rvar(2, 1));
-        view.add_gate(1, var(3));
+        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(6));
+        view.add_gate(0, var(7));
     }
 
     fn witness_input_selector(
@@ -238,10 +238,10 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H
             panic!("invalid trit value {}", trit_value);
         }
         view.copy(trit, view.cell(0, 3).into());
-        view.set(view.cell(1, 0), self.path[i][0]);
-        view.set(view.cell(1, 1), self.path[i][1]);
-        view.set(view.cell(1, 2), self.path[i][2]);
-        view.set(view.cell(1, 3), F::ZERO);
+        view.set(view.cell(0, 4), self.path[i][0]);
+        view.set(view.cell(0, 5), self.path[i][1]);
+        view.set(view.cell(0, 6), self.path[i][2]);
+        view.set(view.cell(0, 7), F::ZERO);
     }
 }
 
@@ -274,12 +274,12 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.build_input_selector(view, hash, trit)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -301,12 +301,12 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.witness_input_selector(view, &trits, i)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -480,7 +480,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> Default for FullTernaryChip<F, C
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
-    const SELECTOR_HEIGHT: usize = 2;
+    const SELECTOR_WIDTH: usize = 8;
 
     pub fn new(path: [[F; 3]; 161]) -> Self {
         Self {
@@ -491,11 +491,11 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
     }
 
     fn stage_width(&self) -> usize {
-        self.hasher.width()
+        Self::SELECTOR_WIDTH + self.hasher.width()
     }
 
     fn stage_height(&self) -> usize {
-        Self::SELECTOR_HEIGHT + self.hasher.height()
+        self.hasher.height()
     }
 
     fn build_input_selector<G: Field256<BaseField = F>>(
@@ -511,14 +511,14 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
         let l2 = ((var(3) ^ 2) - var(3)) / 2;
         view.add_gate(
             0,
-            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - rvar(0, 1),
+            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - var(4),
         );
         view.add_gate(
             0,
-            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - rvar(1, 1),
+            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(5),
         );
-        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - rvar(2, 1));
-        view.add_gate(1, var(3));
+        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(6));
+        view.add_gate(0, var(7));
     }
 
     fn witness_input_selector(
@@ -545,10 +545,10 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
             panic!("invalid trit value {}", trit_value);
         }
         view.copy(trit, view.cell(0, 3).into());
-        view.set(view.cell(1, 0), self.path[i][0]);
-        view.set(view.cell(1, 1), self.path[i][1]);
-        view.set(view.cell(1, 2), self.path[i][2]);
-        view.set(view.cell(1, 3), F::ZERO);
+        view.set(view.cell(0, 4), self.path[i][0]);
+        view.set(view.cell(0, 5), self.path[i][1]);
+        view.set(view.cell(0, 6), self.path[i][2]);
+        view.set(view.cell(0, 7), F::ZERO);
     }
 }
 
@@ -579,12 +579,12 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullTerna
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.build_input_selector(view, hash, trit)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -606,12 +606,12 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullTerna
                 stage_width.into(),
                 stage_height.into(),
             );
-            let inputs = std::array::from_fn(|i| view.cell(Self::SELECTOR_HEIGHT - 1, i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, None, Self::SELECTOR_HEIGHT.into(), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.witness_input_selector(view, &trits, i)
                 })
-                .sub_chip(Self::SELECTOR_HEIGHT, 0, &self.hasher, inputs)?;
+                .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
         Ok([hash])
     }
@@ -750,8 +750,8 @@ mod tests {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
         let chip = TernaryChip::<Scalar, H, BlueSkyConfig4>::new(path);
-        assert_eq!(chip.width(), 95);
-        assert_eq!(chip.height(), 1 + 3 * H);
+        assert_eq!(chip.width(), 103);
+        assert_eq!(chip.height(), 1 + H);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -1252,10 +1252,10 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = TernaryChip::<Scalar, H, BlueSkyConfig4>::new(path);
-        assert_eq!(chip.stage_width(), 95);
-        assert_eq!(chip.stage_height(), 3);
-        assert_eq!(chip.width(), std::cmp::max(H + 1, 95));
-        assert_eq!(chip.height(), 1 + 3 * H);
+        assert_eq!(chip.stage_width(), 103);
+        assert_eq!(chip.stage_height(), 1);
+        assert_eq!(chip.width(), std::cmp::max(H + 1, 103));
+        assert_eq!(chip.height(), 1 + H);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
@@ -1488,10 +1488,10 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = FullTernaryChip::<Scalar, BlueSkyConfig4>::new(path);
-        assert_eq!(chip.stage_width(), 95);
-        assert_eq!(chip.stage_height(), 3);
-        assert_eq!(chip.width(), std::cmp::max(163, 95));
-        assert_eq!(chip.height(), 4 + chip.stage_height() * 161);
+        assert_eq!(chip.stage_width(), 103);
+        assert_eq!(chip.stage_height(), 1);
+        assert_eq!(chip.width(), std::cmp::max(163, 103));
+        assert_eq!(chip.height(), 165);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
@@ -1503,7 +1503,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
-        assert_eq!(circuit.degree_bound(), 512);
+        assert_eq!(circuit.degree_bound(), 256);
         assert_eq!(circuit.num_columns(), chip.width());
 
         let mut witness = circuit.make_witness();
