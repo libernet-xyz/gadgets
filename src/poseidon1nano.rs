@@ -197,34 +197,44 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
     }
 }
 
-#[cfg(all(test, feature = "schraderbrau"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use primitive_types::H256;
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon::Config;
-    use starkom_schraderbrau::Scalar;
     use std::fmt::Debug;
     use std::str::FromStr;
+
+    #[cfg(feature = "bluesky")]
+    use starkom_bluesky::Scalar as BS;
+
+    #[cfg(feature = "schraderbrau")]
+    use starkom_schraderbrau::Scalar as SB;
 
     fn parse<T: FromStr<Err: Debug>>(s: &'static str) -> T {
         s.parse().unwrap()
     }
 
-    fn test_permutation_impl<C: Config<Scalar, T>, const T: usize>(
-        inputs: [Scalar; T],
-        expected_output: [Scalar; T],
+    fn test_permutation_impl<
+        F: PrimeField,
+        G: Field256<BaseField = F>,
+        C: Config<F, T>,
+        const T: usize,
+    >(
+        inputs: [F; T],
+        expected_output: [F; T],
         blowup_log2: usize,
         circuit_commitment: H256,
     ) -> Result<()> {
-        let chip = PermutationChip::<Scalar, C, T>::default();
+        let chip = PermutationChip::<F, C, T>::default();
         assert_eq!(
             chip.width(),
             T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
         );
         assert_eq!(chip.height(), 1);
-        let mut builder = CircuitBuilder::<Scalar, Scalar>::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(CompilationOptions {
@@ -240,11 +250,11 @@ mod tests {
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
+        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
         assert_eq!(proof.degree_bound(), 4);
         assert_eq!(proof.blowup_log2(), blowup_log2);
         assert_eq!(proof.extended_domain_size(), 4 << blowup_log2);
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
         assert!(
@@ -259,8 +269,86 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "bluesky")]
     #[test]
-    fn test_permutation_t3() {
+    fn test_permutation_t3_bs() {
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
+        let outputs = [
+            parse("0x7b68dcd80fa751ee8f2d76043bfd92c685601c79189393fc76e03c5214eed32b"),
+            parse("0x0fbcb5720b463bf7e2ccabf373e77d2c10d27e6549f34cfa33eb2d06ea8b900a"),
+            parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
+        ];
+        assert!(
+            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig3, 3>(
+                inputs,
+                outputs,
+                1,
+                parse("0xf38f43b1031d10fc36e7b5506f486676298303ec7089a04b4f977fa7aae2faca")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig3, 3>(
+                inputs,
+                outputs,
+                2,
+                parse("0x2c1468b45cd498a6fa8e297b51742d68a541e227f0fcedcc91201c7fd6ef78f5")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig3, 3>(
+                inputs,
+                outputs,
+                3,
+                parse("0xd7cf2642d50b23d2a67a85798949e0d2a8aa7e4b6ad867f75cc75d324c18fa8d")
+            )
+            .is_ok()
+        );
+    }
+
+    #[cfg(feature = "bluesky")]
+    #[test]
+    fn test_permutation_t4_bs() {
+        let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
+        let outputs = [
+            parse("0x12dde8a4c46760e349670d241e36ca7abacc991233039f8deaf6c58ce2230ef6"),
+            parse("0x61e95d9456e9223b4d7926dabae10009da2b6fb9134ade8405f6ef1424e66aa1"),
+            parse("0x2fcce25ab9efb3e26276f3b3aff1e02cdf82df48ce8d3eadbff900cfe015775b"),
+            parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
+        ];
+        assert!(
+            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig4, 4>(
+                inputs,
+                outputs,
+                1,
+                parse("0xb5dafcffa8b4ec594f36a1ba0b101d80a82fbac5a4a96561583bc2bb98c96c91")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig4, 4>(
+                inputs,
+                outputs,
+                2,
+                parse("0x39ccda5c4a841ee8fbf39403b4414d38cf8fa5aadc3aa554caeaf01019473716")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig4, 4>(
+                inputs,
+                outputs,
+                3,
+                parse("0x4d60c26877c88738f171b4899c8c320c118da828eb7a65fead14fef87f6aed35")
+            )
+            .is_ok()
+        );
+    }
+
+    #[cfg(feature = "schraderbrau")]
+    #[test]
+    fn test_permutation_t3_sb() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into()];
         let outputs = [
             parse("0x1531e124d8f663b8d26c56b9bf0b1b09ba15d4e20ea10a3d898cdcf1d2c41dba"),
@@ -268,7 +356,7 @@ mod tests {
             parse("0x588c20c682f8b66c52049d910a4f0e7195dfd300a0d0cf3198b1383be1a4134a"),
         ];
         assert!(
-            test_permutation_impl::<poseidon1::SchraderbrauConfig3, 3>(
+            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig3, 3>(
                 inputs,
                 outputs,
                 1,
@@ -277,7 +365,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<poseidon1::SchraderbrauConfig3, 3>(
+            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig3, 3>(
                 inputs,
                 outputs,
                 2,
@@ -286,7 +374,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<poseidon1::SchraderbrauConfig3, 3>(
+            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig3, 3>(
                 inputs,
                 outputs,
                 3,
@@ -296,8 +384,9 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "schraderbrau")]
     #[test]
-    fn test_permutation_t4() {
+    fn test_permutation_t4_sb() {
         let inputs = [0u8.into(), 1u8.into(), 2u8.into(), 3u8.into()];
         let outputs = [
             parse("0x11de0b3702563747b0729abd2b93e720ec947ce067ca3f8c088b9829df1169d7"),
@@ -306,7 +395,7 @@ mod tests {
             parse("0x10c93f76dca6f63507bc8ed1d2ea40647bb480ad43ac9922a3f10597b802f949"),
         ];
         assert!(
-            test_permutation_impl::<poseidon1::SchraderbrauConfig4, 4>(
+            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig4, 4>(
                 inputs,
                 outputs,
                 1,
@@ -315,7 +404,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<poseidon1::SchraderbrauConfig4, 4>(
+            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig4, 4>(
                 inputs,
                 outputs,
                 2,
@@ -324,7 +413,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<poseidon1::SchraderbrauConfig4, 4>(
+            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig4, 4>(
                 inputs,
                 outputs,
                 3,
