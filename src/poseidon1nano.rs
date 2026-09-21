@@ -201,6 +201,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
 mod tests {
     use super::*;
     use primitive_types::H256;
+    use starkom_ff::{PrimeField64, PrimeField256};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon::Config;
@@ -210,6 +211,9 @@ mod tests {
     #[cfg(feature = "bluesky")]
     use starkom_bluesky::Scalar as BS;
 
+    #[cfg(feature = "goldilocks")]
+    use starkom_goldilocks::{GL, GL4};
+
     #[cfg(feature = "schraderbrau")]
     use starkom_schraderbrau::Scalar as SB;
 
@@ -217,12 +221,7 @@ mod tests {
         s.parse().unwrap()
     }
 
-    fn test_permutation_impl<
-        F: PrimeField,
-        G: Field256<BaseField = F>,
-        C: Config<F, T>,
-        const T: usize,
-    >(
+    fn test_permutation256_impl<F: PrimeField256, C: Config<F, T>, const T: usize>(
         inputs: [F; T],
         expected_output: [F; T],
         blowup_log2: usize,
@@ -234,7 +233,7 @@ mod tests {
             T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
         );
         assert_eq!(chip.height(), 1);
-        let mut builder = CircuitBuilder::<F, G>::default();
+        let mut builder = CircuitBuilder::<F, F>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(CompilationOptions {
@@ -250,11 +249,11 @@ mod tests {
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
+        let proof = circuit.prove::<Sha2Hash<F>>(witness, options.clone())?;
         assert_eq!(proof.degree_bound(), 4);
         assert_eq!(proof.blowup_log2(), blowup_log2);
         assert_eq!(proof.extended_domain_size(), 4 << blowup_log2);
-        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<F>>(options);
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
         assert!(
@@ -279,7 +278,7 @@ mod tests {
             parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
         ];
         assert!(
-            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig3, 3>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig3, 3>(
                 inputs,
                 outputs,
                 1,
@@ -288,7 +287,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig3, 3>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig3, 3>(
                 inputs,
                 outputs,
                 2,
@@ -297,7 +296,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig3, 3>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig3, 3>(
                 inputs,
                 outputs,
                 3,
@@ -318,7 +317,7 @@ mod tests {
             parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
         ];
         assert!(
-            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig4, 4>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig4, 4>(
                 inputs,
                 outputs,
                 1,
@@ -327,7 +326,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig4, 4>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig4, 4>(
                 inputs,
                 outputs,
                 2,
@@ -336,7 +335,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<BS, BS, poseidon1::BlueSkyConfig4, 4>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig4, 4>(
                 inputs,
                 outputs,
                 3,
@@ -356,7 +355,7 @@ mod tests {
             parse("0x588c20c682f8b66c52049d910a4f0e7195dfd300a0d0cf3198b1383be1a4134a"),
         ];
         assert!(
-            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig3, 3>(
+            test_permutation256_impl::<SB, poseidon1::SchraderbrauConfig3, 3>(
                 inputs,
                 outputs,
                 1,
@@ -365,7 +364,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig3, 3>(
+            test_permutation256_impl::<SB, poseidon1::SchraderbrauConfig3, 3>(
                 inputs,
                 outputs,
                 2,
@@ -374,7 +373,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig3, 3>(
+            test_permutation256_impl::<SB, poseidon1::SchraderbrauConfig3, 3>(
                 inputs,
                 outputs,
                 3,
@@ -395,7 +394,7 @@ mod tests {
             parse("0x10c93f76dca6f63507bc8ed1d2ea40647bb480ad43ac9922a3f10597b802f949"),
         ];
         assert!(
-            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig4, 4>(
+            test_permutation256_impl::<SB, poseidon1::SchraderbrauConfig4, 4>(
                 inputs,
                 outputs,
                 1,
@@ -404,7 +403,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig4, 4>(
+            test_permutation256_impl::<SB, poseidon1::SchraderbrauConfig4, 4>(
                 inputs,
                 outputs,
                 2,
@@ -413,7 +412,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation_impl::<SB, SB, poseidon1::SchraderbrauConfig4, 4>(
+            test_permutation256_impl::<SB, poseidon1::SchraderbrauConfig4, 4>(
                 inputs,
                 outputs,
                 3,
@@ -423,5 +422,153 @@ mod tests {
         );
     }
 
-    // TODO
+    fn test_permutation64_impl<
+        F: PrimeField64,
+        G: Field256<BaseField = F>,
+        C: Config<F, T>,
+        const T: usize,
+    >(
+        inputs: [F; T],
+        expected_output: [F; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChip::<F, C, T>::default();
+        assert_eq!(
+            chip.width(),
+            T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
+        );
+        assert_eq!(chip.height(), 1);
+        let mut builder = CircuitBuilder::<F, G>::default();
+        let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
+        builder.declare_public_cells(output.into_iter().flatten());
+        let circuit = builder.build(CompilationOptions {
+            canonicalize_constraints: false,
+        })?;
+        assert_eq!(circuit.num_rows(), 1);
+        assert_eq!(circuit.degree_bound(), 16);
+        assert_eq!(circuit.num_columns(), chip.width());
+        let mut witness = circuit.make_witness();
+        assert_eq!(witness.num_rows(), 1);
+        assert_eq!(witness.degree_bound(), 16);
+        assert_eq!(witness.num_columns(), chip.width());
+        let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions { blowup_log2 };
+        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
+        assert_eq!(proof.degree_bound(), 16);
+        assert_eq!(proof.blowup_log2(), blowup_log2);
+        assert_eq!(proof.extended_domain_size(), 16 << blowup_log2);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let public_inputs = circuit.verify(&proof)?;
+        assert!(
+            output
+                .into_iter()
+                .enumerate()
+                .all(|(i, output)| match output {
+                    CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
+                    CellOrUnconstrained::Unconstrained(value) => value,
+                } == expected_output[i])
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "goldilocks")]
+    #[test]
+    fn test_permutation_t12_hw() {
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
+        let outputs = [
+            parse("0x056bda38ad308e78"),
+            parse("0x1f38944238b8ccd0"),
+            parse("0x80bef63a171f3156"),
+            parse("0x27bbc645b2a3198c"),
+            parse("0x9befae3f221509b3"),
+            parse("0xa1cfa54ae2c44c9e"),
+            parse("0xa1c876869f1c52f8"),
+            parse("0x7ffa21471eff65af"),
+            parse("0xdc565450ad52b99e"),
+            parse("0x4b8b1daf8e8ea3c6"),
+            parse("0xf866b42495e61984"),
+            parse("0x7af57b5f91f196fe"),
+        ];
+        assert!(
+            test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                1,
+                parse("0x96c37ae8089e392cf888bef6bce5ec9984429e3f6599f7ba94a35cdb9b274855")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                2,
+                parse("0x821585f96b9af782405b3f1931c34c51eaa1bfed81e3b3ab95bdef9e831aa651")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig12, 12>(
+                inputs,
+                outputs,
+                3,
+                parse("0x943216ede1aca48240f963cffac6bb951f40154a18ef7cfe8e3af126329ada8b")
+            )
+            .is_ok()
+        );
+    }
+
+    #[cfg(feature = "goldilocks")]
+    #[test]
+    fn test_permutation_t16_hw() {
+        let inputs = std::array::from_fn(|i| i.try_into().unwrap());
+        let outputs = [
+            parse("0x6a84bf02be1f328d"),
+            parse("0xec14d274b936a21a"),
+            parse("0xc0539d7bd4eb66de"),
+            parse("0xb317ecf41fa8d55b"),
+            parse("0x80b0d36f66671f8a"),
+            parse("0x74a1592b9a16e832"),
+            parse("0x65e53afadfadc8c3"),
+            parse("0xa0007e5ee96ee4b2"),
+            parse("0x6dd5661a877003a8"),
+            parse("0xc36a09c2dc25cd6e"),
+            parse("0xcbda3d58f7cf85f4"),
+            parse("0x34cb1d63c35596cf"),
+            parse("0x4fcd09b24769e281"),
+            parse("0x6c514f906998c65d"),
+            parse("0xc447035d8d71952b"),
+            parse("0x591863454267826f"),
+        ];
+        assert!(
+            test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                1,
+                parse("0xeb296b91f3415bc8eab2e18a3b4084c9f7f0a3d79f34af8528806e3288ce3c0b")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                2,
+                parse("0x580bbaf22cc0e8977704d58890e38607ca7cfdaf2842acaee9aa646a49bcce15")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig16, 16>(
+                inputs,
+                outputs,
+                3,
+                parse("0xafb2727920f5b9877476705b03137eb67c28d87190a7755fdf8d904b90375fd7")
+            )
+            .is_ok()
+        );
+    }
 }
