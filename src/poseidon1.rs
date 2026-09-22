@@ -201,7 +201,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
 mod tests {
     use super::*;
     use primitive_types::H256;
-    use starkom_ff::{PrimeField64, PrimeField256};
+    use starkom_ff::{PrimeField32, PrimeField64, PrimeField256};
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
     use starkom_poseidon::Config;
@@ -212,7 +212,10 @@ mod tests {
     use starkom_bluesky::Scalar as BS;
 
     #[cfg(feature = "goldilocks")]
-    use starkom_goldilocks::{GL, GL4};
+    use starkom_goldilocks::{GL, GL4, from_const as gl};
+
+    #[cfg(feature = "koalabear")]
+    use starkom_koalabear::{KB, KB8, from_const as kb};
 
     #[cfg(feature = "schraderbrau")]
     use starkom_schraderbrau::Scalar as SB;
@@ -479,18 +482,18 @@ mod tests {
     fn test_permutation_t12_hw() {
         let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
-            parse("0x056bda38ad308e78"),
-            parse("0x1f38944238b8ccd0"),
-            parse("0x80bef63a171f3156"),
-            parse("0x27bbc645b2a3198c"),
-            parse("0x9befae3f221509b3"),
-            parse("0xa1cfa54ae2c44c9e"),
-            parse("0xa1c876869f1c52f8"),
-            parse("0x7ffa21471eff65af"),
-            parse("0xdc565450ad52b99e"),
-            parse("0x4b8b1daf8e8ea3c6"),
-            parse("0xf866b42495e61984"),
-            parse("0x7af57b5f91f196fe"),
+            gl(0x056bda38ad308e78),
+            gl(0x1f38944238b8ccd0),
+            gl(0x80bef63a171f3156),
+            gl(0x27bbc645b2a3198c),
+            gl(0x9befae3f221509b3),
+            gl(0xa1cfa54ae2c44c9e),
+            gl(0xa1c876869f1c52f8),
+            gl(0x7ffa21471eff65af),
+            gl(0xdc565450ad52b99e),
+            gl(0x4b8b1daf8e8ea3c6),
+            gl(0xf866b42495e61984),
+            gl(0x7af57b5f91f196fe),
         ];
         assert!(
             test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig12, 12>(
@@ -526,22 +529,22 @@ mod tests {
     fn test_permutation_t16_hw() {
         let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
-            parse("0x6a84bf02be1f328d"),
-            parse("0xec14d274b936a21a"),
-            parse("0xc0539d7bd4eb66de"),
-            parse("0xb317ecf41fa8d55b"),
-            parse("0x80b0d36f66671f8a"),
-            parse("0x74a1592b9a16e832"),
-            parse("0x65e53afadfadc8c3"),
-            parse("0xa0007e5ee96ee4b2"),
-            parse("0x6dd5661a877003a8"),
-            parse("0xc36a09c2dc25cd6e"),
-            parse("0xcbda3d58f7cf85f4"),
-            parse("0x34cb1d63c35596cf"),
-            parse("0x4fcd09b24769e281"),
-            parse("0x6c514f906998c65d"),
-            parse("0xc447035d8d71952b"),
-            parse("0x591863454267826f"),
+            gl(0x6a84bf02be1f328d),
+            gl(0xec14d274b936a21a),
+            gl(0xc0539d7bd4eb66de),
+            gl(0xb317ecf41fa8d55b),
+            gl(0x80b0d36f66671f8a),
+            gl(0x74a1592b9a16e832),
+            gl(0x65e53afadfadc8c3),
+            gl(0xa0007e5ee96ee4b2),
+            gl(0x6dd5661a877003a8),
+            gl(0xc36a09c2dc25cd6e),
+            gl(0xcbda3d58f7cf85f4),
+            gl(0x34cb1d63c35596cf),
+            gl(0x4fcd09b24769e281),
+            gl(0x6c514f906998c65d),
+            gl(0xc447035d8d71952b),
+            gl(0x591863454267826f),
         ];
         assert!(
             test_permutation64_impl::<GL, GL4, poseidon1::GoldilocksConfig16, 16>(
@@ -567,6 +570,184 @@ mod tests {
                 outputs,
                 3,
                 parse("0xafb2727920f5b9877476705b03137eb67c28d87190a7755fdf8d904b90375fd7")
+            )
+            .is_ok()
+        );
+    }
+
+    fn test_permutation32_impl<
+        F: PrimeField32,
+        G: Field256<BaseField = F>,
+        C: Config<F, T>,
+        const T: usize,
+    >(
+        inputs: [F; T],
+        expected_output: [F; T],
+        blowup_log2: usize,
+        circuit_commitment: H256,
+    ) -> Result<()> {
+        let chip = PermutationChip::<F, C, T>::default();
+        assert_eq!(
+            chip.width(),
+            T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
+        );
+        assert_eq!(chip.height(), 1);
+        let mut builder = CircuitBuilder::<F, G>::default();
+        let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
+        builder.declare_public_cells(output.into_iter().flatten());
+        let circuit = builder.build(CompilationOptions {
+            canonicalize_constraints: false,
+        })?;
+        assert_eq!(circuit.num_rows(), 1);
+        assert_eq!(circuit.degree_bound(), 32);
+        assert_eq!(circuit.num_columns(), chip.width());
+        let mut witness = circuit.make_witness();
+        assert_eq!(witness.num_rows(), 1);
+        assert_eq!(witness.degree_bound(), 32);
+        assert_eq!(witness.num_columns(), chip.width());
+        let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
+        circuit.check_witness(&witness).unwrap();
+        let options = ProvingOptions { blowup_log2 };
+        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
+        assert_eq!(proof.degree_bound(), 32);
+        assert_eq!(proof.blowup_log2(), blowup_log2);
+        assert_eq!(proof.extended_domain_size(), 32 << blowup_log2);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let public_inputs = circuit.verify(&proof)?;
+        assert!(
+            output
+                .into_iter()
+                .enumerate()
+                .all(|(i, output)| match output {
+                    CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
+                    CellOrUnconstrained::Unconstrained(value) => value,
+                } == expected_output[i])
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "koalabear")]
+    #[test]
+    fn test_permutation_t24_kb() {
+        let inputs = std::array::from_fn(|i| kb(i as u32));
+        let outputs = [
+            kb(0x20c420b9),
+            kb(0x13ee7831),
+            kb(0x1664a5fe),
+            kb(0x61b8a9da),
+            kb(0x62c0a36b),
+            kb(0x6686aa16),
+            kb(0x086b196f),
+            kb(0x2ba9a06e),
+            kb(0x48e393fa),
+            kb(0x40e4aa30),
+            kb(0x5afc6000),
+            kb(0x5c9bd903),
+            kb(0x3d866242),
+            kb(0x44fb43ec),
+            kb(0x4fd48650),
+            kb(0x45c361f2),
+            kb(0x5087cccd),
+            kb(0x0c28329f),
+            kb(0x58fc4353),
+            kb(0x1fa8695a),
+            kb(0x4a026a9d),
+            kb(0x3e0c59ec),
+            kb(0x3be00b5d),
+            kb(0x687cd26e),
+        ];
+        assert!(
+            test_permutation32_impl::<KB, KB8, poseidon1::KoalaBearConfig24, 24>(
+                inputs,
+                outputs,
+                1,
+                parse("0xaa07e62436079cfefecfc42070bb63f8101726b2b87bf4d1a1ae860be0589d5f")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation32_impl::<KB, KB8, poseidon1::KoalaBearConfig24, 24>(
+                inputs,
+                outputs,
+                2,
+                parse("0xf9a0f4bc7cf733bf1933d16eab1ab75d957852bb5a9f619d9501faf0a1688ba2")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation32_impl::<KB, KB8, poseidon1::KoalaBearConfig24, 24>(
+                inputs,
+                outputs,
+                3,
+                parse("0x77d1af53fcb23c6ee510b23e03e8f3cdfbee7ffd8d78ef46137d8ed2ee292304")
+            )
+            .is_ok()
+        );
+    }
+
+    #[cfg(feature = "koalabear")]
+    #[test]
+    fn test_permutation_t32_kb() {
+        let inputs = std::array::from_fn(|i| kb(i as u32));
+        let outputs = [
+            kb(0x2cd28abd),
+            kb(0x4b7e0de6),
+            kb(0x1c28010b),
+            kb(0x341a4215),
+            kb(0x2730f966),
+            kb(0x6d5f6492),
+            kb(0x2da41e53),
+            kb(0x5b9553f8),
+            kb(0x40f3bd78),
+            kb(0x1847d418),
+            kb(0x3b40f194),
+            kb(0x61deec2d),
+            kb(0x268de447),
+            kb(0x4ff70519),
+            kb(0x0276d981),
+            kb(0x0ecd4498),
+            kb(0x5852c99b),
+            kb(0x0c0c5656),
+            kb(0x1a5d72b5),
+            kb(0x1556aa75),
+            kb(0x05df8f05),
+            kb(0x4e9c5eb7),
+            kb(0x669108c9),
+            kb(0x051bc5f5),
+            kb(0x5d193fdf),
+            kb(0x1fc5ddac),
+            kb(0x478e26aa),
+            kb(0x78fe0af3),
+            kb(0x40b6dd16),
+            kb(0x6cc4f791),
+            kb(0x77e872fe),
+            kb(0x6112c017),
+        ];
+        assert!(
+            test_permutation32_impl::<KB, KB8, poseidon1::KoalaBearConfig32, 32>(
+                inputs,
+                outputs,
+                1,
+                parse("0xead7a05ae16a0643a94214297c3565dc78a9513937433b83bc517ae2b3a4f7c4")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation32_impl::<KB, KB8, poseidon1::KoalaBearConfig32, 32>(
+                inputs,
+                outputs,
+                2,
+                parse("0x1c060a56f5fb0177be4c9ae8565905a981be15aa276a614cab0a5f2c21d6a6fb")
+            )
+            .is_ok()
+        );
+        assert!(
+            test_permutation32_impl::<KB, KB8, poseidon1::KoalaBearConfig32, 32>(
+                inputs,
+                outputs,
+                3,
+                parse("0x22b05bbdba463cd8f47a6e157fe8af9d7775ecf96771dccd8461515af77bdfac")
             )
             .is_ok()
         );
