@@ -145,7 +145,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 
         inputs: [CellOrUnconstrained<F>; 2],
     ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, value] = inputs;
-        let bits = xits::decompose_bits::<F, H>(view.get(key).to_u256());
+        let bits = xits::decompose_scalar_bits::<F, H>(view.get(key));
         let width = self.width();
         let mut hash = value;
         for i in 0..H {
@@ -168,7 +168,6 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 
 /// [`FullTernaryChip`] below instead.
 #[derive(Debug, Clone)]
 pub struct TernaryChip<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> {
-    decomposer: xits::TritDecomposerChip<F, H>,
     hasher: poseidon1::PermutationChip<F, C, 4>,
     path: [[F; 3]; H],
 }
@@ -180,92 +179,99 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> Default for Tern
 }
 
 impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H, C> {
-    const SELECTOR_WIDTH: usize = 8;
+    const SELECTOR_WIDTH: usize = 9;
 
     pub fn new(path: [[F; 3]; H]) -> Self {
+        // TODO: assert that H is strictly less than the number of trits required to represent a
+        // scalar.
         Self {
-            decomposer: xits::TritDecomposerChip::default(),
             hasher: poseidon1::PermutationChip::default(),
             path,
         }
     }
 
-    fn stage_width(&self) -> usize {
-        Self::SELECTOR_WIDTH + self.hasher.width()
-    }
-
-    fn stage_height(&self) -> usize {
-        self.hasher.height()
-    }
-
     /// Selector layout:
     ///
-    /// +----+----+----+----+----+----+----+----+
-    /// | H1 | H2 | H3 | T  | I1 | I2 | I3 | 0  |
-    /// +----+----+----+----+----+----+----+----+
+    /// +----+----+----+----+----+----+----+----+----+
+    /// | H1 | H2 | H3 | T  | S  | I1 | I2 | I3 | 0  |
+    /// +----+----+----+----+----+----+----+----+----+
     ///
     /// H1 = leaf-to-root path hash
-    /// H2 = first peer hash
-    /// H3 = second peer hash
+    /// H2 = first peer hash (unconstrained)
+    /// H3 = second peer hash (unconstrained)
     /// T = key trit
+    /// S = key trit sum
     /// I1 = first input hash (one of H1, H2, or H3)
     /// I2 = second input hash (one of H1, H2, or H3)
     /// I3 = third input hash (one of H1, H2, or H3)
     /// 0 = a zero scalar used as input capacity
+    ///
+    /// The T column holds the decomposed trits of the key and the S column is used to reconstruct
+    /// the original key by summing the decomposed trits weighted by the corresponding powers of
+    /// three. Once reconstructed, the sum must be constrained to equal the original key.
     ///
     /// Note that the last four elements are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
-        trit: Option<Cell>,
+        i: usize,
     ) {
         view.connect(hash, view.cell(0, 0).into());
-        view.connect(trit, view.cell(0, 3).into());
+        if i > 0 {
+            view.add_gate(
+                0,
+                var(3) * (make_const(F::from(3u8)) ^ (i as isize)) + rvar(4, -1) - var(4),
+            );
+        } else {
+            view.add_gate(0, var(3) - var(4));
+        }
         let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
         let l1 = var(3) * 2 - (var(3) ^ 2);
         let l2 = ((var(3) ^ 2) - var(3)) / 2;
         view.add_gate(
             0,
-            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - var(4),
+            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - var(5),
         );
         view.add_gate(
             0,
-            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(5),
+            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(6),
         );
-        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(6));
-        view.add_gate(0, var(7));
+        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(7));
+        view.add_gate(0, var(8));
     }
 
     /// See [`Self::build_input_selector`] for the layout.
-    fn witness_input_selector(
-        &self,
-        view: &mut impl WitnessView<F>,
-        trits: &[CellOrUnconstrained<F>],
-        i: usize,
-    ) {
+    fn witness_input_selector(&self, view: &mut impl WitnessView<F>, trits: &[F], i: usize) {
         let trit = trits[i];
-        let trit_value = view.get(trit);
-        if trit_value == F::from(0u8) {
+        if trit == F::from(0u8) {
             view.set(view.cell(0, 0), self.path[i][0]);
             view.set(view.cell(0, 1), self.path[i][1]);
             view.set(view.cell(0, 2), self.path[i][2]);
-        } else if trit_value == F::from(1u8) {
+        } else if trit == F::from(1u8) {
             view.set(view.cell(0, 0), self.path[i][1]);
             view.set(view.cell(0, 1), self.path[i][0]);
             view.set(view.cell(0, 2), self.path[i][2]);
-        } else if trit_value == F::from(2u8) {
+        } else if trit == F::from(2u8) {
             view.set(view.cell(0, 0), self.path[i][2]);
             view.set(view.cell(0, 1), self.path[i][0]);
             view.set(view.cell(0, 2), self.path[i][1]);
         } else {
-            panic!("invalid trit value {}", trit_value);
+            panic!("invalid trit value {}", trit);
         }
-        view.copy(trit, view.cell(0, 3).into());
-        view.set(view.cell(0, 4), self.path[i][0]);
-        view.set(view.cell(0, 5), self.path[i][1]);
-        view.set(view.cell(0, 6), self.path[i][2]);
-        view.set(view.cell(0, 7), F::ZERO);
+        view.set(view.cell(0, 3).into(), trit);
+        if i > 0 {
+            view.set(
+                view.cell(0, 4),
+                trit * F::from(3u8).pow_small(i) + view.get_at(view.cell(-1, 4)),
+            );
+        } else {
+            view.copy(view.cell(0, 3).into(), view.cell(0, 4));
+        }
+        view.set(view.cell(0, 5), self.path[i][0]);
+        view.set(view.cell(0, 6), self.path[i][1]);
+        view.set(view.cell(0, 7), self.path[i][2]);
+        view.set(view.cell(0, 8), F::ZERO);
     }
 }
 
@@ -273,11 +279,11 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
     for TernaryChip<F, H, C>
 {
     fn width(&self) -> usize {
-        std::cmp::max(self.decomposer.width(), self.stage_width())
+        Self::SELECTOR_WIDTH + self.hasher.width()
     }
 
     fn height(&self) -> usize {
-        self.decomposer.height() + self.stage_height() * H
+        H
     }
 
     fn build<G: Field256<BaseField = F>>(
@@ -286,25 +292,18 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
-        let trits = self.decomposer.build(view, [key])?;
-        let stage_width = self.stage_width();
-        let stage_height = self.stage_height();
+        let width = self.width();
         let mut hash = value;
         for i in 0..H {
-            let trit = trits[i];
-            let mut view = view.sub(
-                self.decomposer.height() + stage_height * i,
-                0,
-                stage_width.into(),
-                stage_height.into(),
-            );
-            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
+            let mut view = view.sub(i, 0, width.into(), Some(1));
+            let inputs = std::array::from_fn(|i| view.cell(0, 5 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
-                    self.build_input_selector(view, hash, trit)
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), None, |view| {
+                    self.build_input_selector(view, hash, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
+        view.connect(key, view.cell(H - 1, 4).into());
         Ok([hash])
     }
 
@@ -314,20 +313,14 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
         inputs: [CellOrUnconstrained<F>; 2],
     ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, value] = inputs;
-        let trits = self.decomposer.witness(view, [key])?;
-        let stage_width = self.stage_width();
-        let stage_height = self.stage_height();
+        let trits = xits::decompose_scalar_trits::<F, H>(view.get(key));
+        let width = self.width();
         let mut hash = value;
         for i in 0..H {
-            let mut view = view.sub(
-                self.decomposer.height() + stage_height * i,
-                0,
-                stage_width.into(),
-                stage_height.into(),
-            );
-            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
+            let mut view = view.sub(i, 0, width.into(), Some(1));
+            let inputs = std::array::from_fn(|i| view.cell(0, 5 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), None, |view| {
                     self.witness_input_selector(view, &trits, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
@@ -806,8 +799,8 @@ mod tests {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
         let chip = TernaryChip::<Scalar, H, BlueSkyConfig4>::new(path);
-        assert_eq!(chip.width(), 103);
-        assert_eq!(chip.height(), 1 + H);
+        assert_eq!(chip.width(), 104);
+        assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
@@ -1306,10 +1299,8 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = TernaryChip::<Scalar, H, BlueSkyConfig4>::new(path);
-        assert_eq!(chip.stage_width(), 103);
-        assert_eq!(chip.stage_height(), 1);
-        assert_eq!(chip.width(), std::cmp::max(H + 1, 103));
-        assert_eq!(chip.height(), 1 + H);
+        assert_eq!(chip.width(), 104);
+        assert_eq!(chip.height(), H);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];

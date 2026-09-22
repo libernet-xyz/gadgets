@@ -8,7 +8,7 @@ use starkom_plonk::{
 use std::marker::PhantomData;
 
 /// Returns the smallest power of three that is >= n (returns 1 for n=0).
-pub fn next_power_of_three(n: usize) -> usize {
+pub const fn next_power_of_three(n: usize) -> usize {
     let mut pow = 1usize;
     while pow < n {
         pow *= 3;
@@ -17,7 +17,7 @@ pub fn next_power_of_three(n: usize) -> usize {
 }
 
 /// Checks if a number is a power of 3.
-pub fn is_power_of_three(mut value: usize) -> bool {
+pub const fn is_power_of_three(mut value: usize) -> bool {
     if value == 0 {
         return false;
     }
@@ -34,7 +34,7 @@ pub fn is_power_of_three(mut value: usize) -> bool {
 ///
 /// If `n` is not a power of 3 this function returns the logarithm rounded down to the nearest
 /// integer, eg. `ilog3(8) == 1`.
-pub fn ilog3(mut n: usize) -> usize {
+pub const fn ilog3(mut n: usize) -> usize {
     let mut c = 0;
     while n >= 3 {
         c += 1;
