@@ -46,6 +46,20 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> BinaryChip<F, H,
         self.hasher.height()
     }
 
+    /// Selector layout:
+    ///
+    /// +----+----+----+----+----+----+
+    /// | H1 | H2 | B  | I1 | I2 | 0  |
+    /// +----+----+----+----+----+----+
+    ///
+    /// H1 = leaf-to-root path hash
+    /// H2 = peer hash
+    /// B = key bit
+    /// I1 = left-hand-side input hash (either H1 or H2)
+    /// I2 = right-hand-side input hash (either H1 or H2)
+    /// 0 = a zero scalar used as input capacity
+    ///
+    /// Note that the last three elements are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
@@ -65,6 +79,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> BinaryChip<F, H,
         view.add_gate(0, var(5));
     }
 
+    /// See [`Self::build_input_selector`] for the layout.
     fn witness_input_selector(
         &self,
         view: &mut impl WitnessView<F>,
@@ -191,6 +206,22 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H
         self.hasher.height()
     }
 
+    /// Selector layout:
+    ///
+    /// +----+----+----+----+----+----+----+----+
+    /// | H1 | H2 | H3 | T  | I1 | I2 | I3 | 0  |
+    /// +----+----+----+----+----+----+----+----+
+    ///
+    /// H1 = leaf-to-root path hash
+    /// H2 = first peer hash
+    /// H3 = second peer hash
+    /// T = key trit
+    /// I1 = first input hash (one of H1, H2, or H3)
+    /// I2 = second input hash (one of H1, H2, or H3)
+    /// I3 = third input hash (one of H1, H2, or H3)
+    /// 0 = a zero scalar used as input capacity
+    ///
+    /// Note that the last four elements are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
@@ -214,6 +245,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H
         view.add_gate(0, var(7));
     }
 
+    /// See [`Self::build_input_selector`] for the layout.
     fn witness_input_selector(
         &self,
         view: &mut impl WitnessView<F>,
@@ -353,6 +385,20 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> FullBinaryChip<F, C> {
         self.hasher.height()
     }
 
+    /// Selector layout:
+    ///
+    /// +----+----+----+----+----+----+
+    /// | H1 | H2 | B  | I1 | I2 | 0  |
+    /// +----+----+----+----+----+----+
+    ///
+    /// H1 = leaf-to-root path hash
+    /// H2 = peer hash
+    /// B = key bit
+    /// I1 = left-hand-side input hash (either H1 or H2)
+    /// I2 = right-hand-side input hash (either H1 or H2)
+    /// 0 = a zero scalar used as input capacity
+    ///
+    /// Note that the last three elements are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
@@ -372,6 +418,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> FullBinaryChip<F, C> {
         view.add_gate(0, var(5));
     }
 
+    /// See [`Self::build_input_selector`] for the layout.
     fn witness_input_selector(
         &self,
         view: &mut impl WitnessView<F>,
@@ -498,6 +545,22 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
         self.hasher.height()
     }
 
+    /// Selector layout:
+    ///
+    /// +----+----+----+----+----+----+----+----+
+    /// | H1 | H2 | H3 | T  | I1 | I2 | I3 | 0  |
+    /// +----+----+----+----+----+----+----+----+
+    ///
+    /// H1 = leaf-to-root path hash
+    /// H2 = first peer hash
+    /// H3 = second peer hash
+    /// T = key trit
+    /// I1 = first input hash (one of H1, H2, or H3)
+    /// I2 = second input hash (one of H1, H2, or H3)
+    /// I3 = third input hash (one of H1, H2, or H3)
+    /// 0 = a zero scalar used as input capacity
+    ///
+    /// Note that the last four elements are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
@@ -521,6 +584,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
         view.add_gate(0, var(7));
     }
 
+    /// See [`Self::build_input_selector`] for the layout.
     fn witness_input_selector(
         &self,
         view: &mut impl WitnessView<F>,
