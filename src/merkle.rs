@@ -615,10 +615,10 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
         let cmp = ((var(3) - make_const(trit)) * make_const(F::from(7u8))
             - ((var(3) - make_const(trit)) ^ 3))
             / make_const(F::from(6u8));
-        if i < 162 {
+        if i < 161 {
             view.add_gate(
                 0,
-                rvar(4, 1) + (make_const(F::ONE) - rvar(4, 1)) * cmp - var(4),
+                rvar(4, 1) + (make_const(F::ONE) - (rvar(4, 1) ^ 2)) * cmp - var(4),
             );
         } else {
             view.add_gate(0, cmp - var(4));
@@ -638,14 +638,14 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
         let l2 = ((var(3) ^ 2) - var(3)) / 2;
         view.add_gate(
             0,
-            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - var(4),
+            l0.clone() * var(0) + l1.clone() * var(1) + l2.clone() * var(1) - var(6),
         );
         view.add_gate(
             0,
-            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(5),
+            l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(7),
         );
-        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(6));
-        view.add_gate(0, var(7));
+        view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(8));
+        view.add_gate(0, var(9));
     }
 
     /// See [`Self::build_input_selector`] for the layout.
@@ -703,7 +703,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullTerna
         let [key, value] = inputs;
         let width = self.width();
         let mut hash = value;
-        for i in 0..161 {
+        for i in 0..162 {
             let mut view = view.sub(i, 0, width.into(), Some(1));
             let inputs = std::array::from_fn(|i| view.cell(0, 6 + i).into());
             [hash, _, _, _] = view
@@ -726,7 +726,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullTerna
         let trits = xits::decompose_scalar_trits::<F, 162>(view.get(key));
         let width = self.width();
         let mut hash = value;
-        for i in 0..161 {
+        for i in 0..162 {
             let mut view = view.sub(i, 0, width.into(), Some(1));
             let inputs = std::array::from_fn(|i| view.cell(0, 6 + i).into());
             [hash, _, _, _] = view
