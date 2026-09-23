@@ -539,60 +539,100 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 1> for FullBinar
 /// If you don't need 161-trit keys use [`TernaryChip`].
 #[derive(Debug, Clone)]
 pub struct FullTernaryChip<F: PrimeField256, C: PoseidonConfig<F, 4>> {
-    decomposer: xits::FullTritDecomposerChip256<F>,
     hasher: poseidon1::PermutationChip<F, C, 4>,
-    path: [[F; 3]; 161],
+    path: [[F; 3]; 162],
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 4>> Default for FullTernaryChip<F, C> {
     fn default() -> Self {
-        Self::new([[F::ZERO; 3]; 161])
+        Self::new([[F::ZERO; 3]; 162])
     }
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
-    const SELECTOR_WIDTH: usize = 8;
+    const SELECTOR_WIDTH: usize = 10;
 
-    pub fn new(path: [[F; 3]; 161]) -> Self {
+    pub fn new(path: [[F; 3]; 162]) -> Self {
         Self {
-            decomposer: xits::FullTritDecomposerChip256::default(),
             hasher: poseidon1::PermutationChip::default(),
             path,
         }
     }
 
-    fn stage_width(&self) -> usize {
-        Self::SELECTOR_WIDTH + self.hasher.width()
-    }
-
-    fn stage_height(&self) -> usize {
-        self.hasher.height()
+    fn modulus_trit(i: usize) -> F {
+        let modulus: U256 = F::MODULUS.parse().unwrap();
+        let three: U256 = 3.into();
+        ((modulus / three.pow(i.into())) % three).as_u32().into()
     }
 
     /// Selector layout:
     ///
-    /// +----+----+----+----+----+----+----+----+
-    /// | H1 | H2 | H3 | T  | I1 | I2 | I3 | 0  |
-    /// +----+----+----+----+----+----+----+----+
+    /// +----+----+----+----+----+----+----+----+----+----+
+    /// | H1 | H2 | H3 | T  | C  | S  | I1 | I2 | I3 | 0  |
+    /// +----+----+----+----+----+----+----+----+----+----+
     ///
     /// H1 = leaf-to-root path hash
     /// H2 = first peer hash
     /// H3 = second peer hash
     /// T = key trit
+    /// C = partial result of comparison
+    /// S = key trit sum
     /// I1 = first input hash (one of H1, H2, or H3)
     /// I2 = second input hash (one of H1, H2, or H3)
     /// I3 = third input hash (one of H1, H2, or H3)
     /// 0 = a zero scalar used as input capacity
     ///
-    /// Note that the last four elements are the permutation input state vector.
+    /// The T column holds the decomposed trits of the key and the S column is used to reconstruct
+    /// the original key by summing the decomposed trits weighted by the corresponding powers of
+    /// three. Once reconstructed, the sum must be constrained to equal the original key.
+    ///
+    /// Since this chip can handle large keys we need to explicitly compare the key against the
+    /// field modulus trit by trit in order to prevent aliasing. Without the constraints enforced by
+    /// this comparison, the sum in the S column might wrap around. The C column contains the
+    /// partial result of the trit-by-trit comparison, with -1 indicating that the key is strictly
+    /// less than the modulus, 0 that it's equal, and 1 that it's strictly greater. The first (ie.
+    /// least significant) trit of C must be constrained to -1.
+    ///
+    /// NOTE: since the rows of the chip are ordered in little-endian (the first row calculates the
+    /// leaf hash with the least significant trit of the key, the last row calculates the root hash
+    /// with the most significant trit), each C bit must refer to the *next* one (`rvar(3, +1)`) to
+    /// determine whether or not the comparison has been already resolved by a higher bit.
+    ///
+    /// The last four elements of the selector are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
-        trit: Option<Cell>,
+        i: usize,
     ) {
         view.connect(hash, view.cell(0, 0).into());
-        view.connect(trit, view.cell(0, 3).into());
+        view.add_gate(
+            0,
+            var(3) * (var(3) - make_const(F::from(1u8))) * (var(3) - make_const(F::from(2u8))),
+        );
+
+        let trit = Self::modulus_trit(i);
+        let cmp = ((var(3) - make_const(trit)) * make_const(F::from(7u8))
+            - ((var(3) - make_const(trit)) ^ 3))
+            / make_const(F::from(6u8));
+        if i < 162 {
+            view.add_gate(
+                0,
+                rvar(4, 1) + (make_const(F::ONE) - rvar(4, 1)) * cmp - var(4),
+            );
+        } else {
+            view.add_gate(0, cmp - var(4));
+        }
+
+        if i > 0 {
+            view.add_gate(
+                0,
+                var(3) * (make_const(F::from(3u8)) ^ (i as isize)) + rvar(5, -1) - var(5),
+            );
+        } else {
+            view.add_gate(0, var(3) - var(5));
+        }
+
         let l0 = ((var(3) ^ 2) - var(3) * 3 + 2) / 2;
         let l1 = var(3) * 2 - (var(3) ^ 2);
         let l2 = ((var(3) ^ 2) - var(3)) / 2;
@@ -609,44 +649,50 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullTernaryChip<F, C> {
     }
 
     /// See [`Self::build_input_selector`] for the layout.
-    fn witness_input_selector(
-        &self,
-        view: &mut impl WitnessView<F>,
-        trits: &[CellOrUnconstrained<F>],
-        i: usize,
-    ) {
+    ///
+    /// This function fills in all selector cells of the i-th row except the C column, which cannot
+    /// be determined without knowing the entry from the next row. The C column is filled in
+    /// separately by the caller.
+    fn witness_input_selector(&self, view: &mut impl WitnessView<F>, trits: &[F], i: usize) {
         let trit = trits[i];
-        let trit_value = view.get(trit);
-        if trit_value == F::from(0u8) {
+        if trit == F::from(0u8) {
             view.set(view.cell(0, 0), self.path[i][0]);
             view.set(view.cell(0, 1), self.path[i][1]);
             view.set(view.cell(0, 2), self.path[i][2]);
-        } else if trit_value == F::from(1u8) {
+        } else if trit == F::from(1u8) {
             view.set(view.cell(0, 0), self.path[i][1]);
             view.set(view.cell(0, 1), self.path[i][0]);
             view.set(view.cell(0, 2), self.path[i][2]);
-        } else if trit_value == F::from(2u8) {
+        } else if trit == F::from(2u8) {
             view.set(view.cell(0, 0), self.path[i][2]);
             view.set(view.cell(0, 1), self.path[i][0]);
             view.set(view.cell(0, 2), self.path[i][1]);
         } else {
-            panic!("invalid trit value {}", trit_value);
+            panic!("invalid trit value {}", trit);
         }
-        view.copy(trit, view.cell(0, 3).into());
-        view.set(view.cell(0, 4), self.path[i][0]);
-        view.set(view.cell(0, 5), self.path[i][1]);
-        view.set(view.cell(0, 6), self.path[i][2]);
-        view.set(view.cell(0, 7), F::ZERO);
+        view.set(view.cell(0, 3).into(), trit);
+        if i > 0 {
+            view.set(
+                view.cell(0, 5),
+                trit * F::from(3u8).pow_small(i) + view.get_at(view.cell(-1, 5)),
+            );
+        } else {
+            view.set(view.cell(0, 5), trit);
+        }
+        view.set(view.cell(0, 6), self.path[i][0]);
+        view.set(view.cell(0, 7), self.path[i][1]);
+        view.set(view.cell(0, 8), self.path[i][2]);
+        view.set(view.cell(0, 9), F::ZERO);
     }
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullTernaryChip<F, C> {
     fn width(&self) -> usize {
-        std::cmp::max(self.decomposer.width(), self.stage_width())
+        Self::SELECTOR_WIDTH + self.hasher.width()
     }
 
     fn height(&self) -> usize {
-        self.decomposer.height() + self.stage_height() * 161
+        162
     }
 
     fn build<G: Field256<BaseField = F>>(
@@ -655,25 +701,19 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullTerna
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
-        let trits = self.decomposer.build(view, [key])?;
-        let stage_width = self.stage_width();
-        let stage_height = self.stage_height();
+        let width = self.width();
         let mut hash = value;
         for i in 0..161 {
-            let trit = trits[i];
-            let mut view = view.sub(
-                self.decomposer.height() + stage_height * i,
-                0,
-                stage_width.into(),
-                stage_height.into(),
-            );
-            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
+            let mut view = view.sub(i, 0, width.into(), Some(1));
+            let inputs = std::array::from_fn(|i| view.cell(0, 6 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
-                    self.build_input_selector(view, hash, trit)
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), None, |view| {
+                    self.build_input_selector(view, hash, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
+        view.add_gate(0, var(4) + make_const(F::ONE));
+        view.connect(key, view.cell(161, 5).into());
         Ok([hash])
     }
 
@@ -683,23 +723,25 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullTerna
         inputs: [CellOrUnconstrained<F>; 2],
     ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, value] = inputs;
-        let trits = self.decomposer.witness(view, [key])?;
-        let stage_width = self.stage_width();
-        let stage_height = self.stage_height();
+        let trits = xits::decompose_scalar_trits::<F, 162>(view.get(key));
+        let width = self.width();
         let mut hash = value;
         for i in 0..161 {
-            let mut view = view.sub(
-                self.decomposer.height() + stage_height * i,
-                0,
-                stage_width.into(),
-                stage_height.into(),
-            );
-            let inputs = std::array::from_fn(|i| view.cell(0, 4 + i).into());
+            let mut view = view.sub(i, 0, width.into(), Some(1));
+            let inputs = std::array::from_fn(|i| view.cell(0, 6 + i).into());
             [hash, _, _, _] = view
-                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
+                .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), None, |view| {
                     self.witness_input_selector(view, &trits, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
+        }
+        let diff = trits[161] - Self::modulus_trit(161);
+        let mut cmp = (diff * F::from(7u8) - diff.cube()) / F::from(6u8);
+        view.set(view.cell(161, 4), cmp);
+        for i in (0..161).rev() {
+            let diff = trits[i] - Self::modulus_trit(i);
+            cmp += (F::ONE - cmp.square()) * ((diff * F::from(7u8) - diff.cube()) / F::from(6u8));
+            view.set(view.cell(i, 4), cmp);
         }
         Ok([hash])
     }
@@ -1552,7 +1594,7 @@ mod tests {
         key: u64,
     ) -> Result<()> {
         let tree = {
-            let mut tree = get_empty_ternary_tree(161);
+            let mut tree = get_empty_ternary_tree(162);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1560,7 +1602,7 @@ mod tests {
         };
         let key = key.into();
         let value = tree.get(key);
-        let path: [[Scalar; 3]; 161] = tree
+        let path: [[Scalar; 3]; 162] = tree
             .get_merkle_path(key.into())
             .into_iter()
             .map(|entry| entry.try_into().unwrap())
@@ -1570,10 +1612,8 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = FullTernaryChip::<Scalar, BlueSkyConfig4>::new(path);
-        assert_eq!(chip.stage_width(), 103);
-        assert_eq!(chip.stage_height(), 1);
-        assert_eq!(chip.width(), std::cmp::max(163, 103));
-        assert_eq!(chip.height(), 165);
+        assert_eq!(chip.width(), 105);
+        assert_eq!(chip.height(), 162);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
