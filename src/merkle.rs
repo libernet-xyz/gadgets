@@ -1,6 +1,7 @@
 use crate::poseidon1;
 use crate::xits;
 use anyhow::Result;
+use primitive_types::U256;
 use starkom_ff::{Field256, PrimeField256};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
@@ -63,6 +64,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> BinaryChip<F, H,
         i: usize,
     ) {
         view.connect(hash, view.cell(0, 0).into());
+        view.add_gate(0, var(2) * (var(2) - make_const(F::ONE)));
         if i > 0 {
             view.add_gate(
                 0,
@@ -218,6 +220,10 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> TernaryChip<F, H
         i: usize,
     ) {
         view.connect(hash, view.cell(0, 0).into());
+        view.add_gate(
+            0,
+            var(3) * (var(3) - make_const(F::ONE)) * (var(3) - make_const(F::from(2u8))),
+        );
         if i > 0 {
             view.add_gate(
                 0,
@@ -340,7 +346,6 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
 /// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
 pub struct FullBinaryChip<F: PrimeField256, C: PoseidonConfig<F, 3>> {
-    decomposer: xits::FullBitDecomposerChip256<F>,
     hasher: poseidon1::PermutationChip<F, C, 3>,
     path: [[F; 2]; 256],
 }
@@ -352,87 +357,127 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> Default for FullBinaryChip<F, C>
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 3>> FullBinaryChip<F, C> {
-    const SELECTOR_WIDTH: usize = 6;
+    const SELECTOR_WIDTH: usize = 8;
 
     pub fn new(path: [[F; 2]; 256]) -> Self {
         Self {
-            decomposer: xits::FullBitDecomposerChip256::default(),
             hasher: poseidon1::PermutationChip::default(),
             path,
         }
     }
 
-    fn stage_width(&self) -> usize {
-        Self::SELECTOR_WIDTH + self.hasher.width()
-    }
-
-    fn stage_height(&self) -> usize {
-        self.hasher.height()
+    fn modulus_bit(i: usize) -> F {
+        let modulus: U256 = F::MODULUS.parse().unwrap();
+        ((modulus >> i) & U256::one()).as_u32().into()
     }
 
     /// Selector layout:
     ///
-    /// +----+----+----+----+----+----+
-    /// | H1 | H2 | B  | I1 | I2 | 0  |
-    /// +----+----+----+----+----+----+
+    /// +----+----+----+----+----+----+----+----+
+    /// | H1 | H2 | B  | C  | S  | I1 | I2 | 0  |
+    /// +----+----+----+----+----+----+----+----+
     ///
     /// H1 = leaf-to-root path hash
-    /// H2 = peer hash
+    /// H2 = peer hash (unconstrained)
     /// B = key bit
+    /// C = partial result of comparison
+    /// S = key bit sum
     /// I1 = left-hand-side input hash (either H1 or H2)
     /// I2 = right-hand-side input hash (either H1 or H2)
     /// 0 = a zero scalar used as input capacity
     ///
-    /// Note that the last three elements are the permutation input state vector.
+    /// The B column holds the decomposed bits of the key and the S column is used to reconstruct
+    /// the original key by summing the decomposed bits weighted by the corresponding powers of two.
+    /// Once reconstructed, the sum must be constrained to equal the original key.
+    ///
+    /// Since this chip can handle large keys we need to explicitly compare the key against the
+    /// field modulus bit by bit in order to prevent aliasing. Without the constraints enforced by
+    /// this comparison, the sum in the S column might wrap around. The C column contains the
+    /// partial result of the bit-by-bit comparison, with -1 indicating that the key is strictly
+    /// less than the modulus, 0 that it's equal, and 1 that it's strictly greater. The first (ie.
+    /// least significant) bit of C must be constrained to -1.
+    ///
+    /// NOTE: since the rows of the chip are ordered in little-endian (the first row calculates the
+    /// leaf hash with the least significant bit of the key, the last row calculates the root hash
+    /// with the most significant bit of the key), each C bit must refer to the *next* one
+    /// (`rvar(3, +1)`) to determine whether or not the comparison has been already resolved by a
+    /// higher bit.
+    ///
+    /// The last three elements of the selector are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
         hash: Option<Cell>,
-        bit: Option<Cell>,
+        i: usize,
     ) {
         view.connect(hash, view.cell(0, 0).into());
-        view.connect(bit, view.cell(0, 2).into());
+        view.add_gate(0, var(2) * (var(2) - make_const(F::ONE)));
+        if i < 255 {
+            view.add_gate(
+                0,
+                rvar(3, 1)
+                    + (make_const(F::ONE) - (rvar(3, 1) ^ 2))
+                        * (var(2) - make_const(Self::modulus_bit(i)))
+                    - var(3),
+            );
+        } else {
+            view.add_gate(0, var(2) - make_const(Self::modulus_bit(255)) - var(3));
+        }
+        if i > 0 {
+            view.add_gate(
+                0,
+                var(2) * (make_const(F::from(2u8)) ^ (i as isize)) + rvar(4, -1) - var(4),
+            );
+        } else {
+            view.add_gate(0, var(2) - var(4));
+        }
         view.add_gate(
             0,
-            var(2) * var(1) + (make_const(F::ONE) - var(2)) * var(0) - var(3),
+            var(2) * var(1) + (make_const(F::ONE) - var(2)) * var(0) - var(5),
         );
         view.add_gate(
             0,
-            var(2) * var(0) + (make_const(F::ONE) - var(2)) * var(1) - var(4),
+            var(2) * var(0) + (make_const(F::ONE) - var(2)) * var(1) - var(6),
         );
-        view.add_gate(0, var(5));
+        view.add_gate(0, var(7));
     }
 
     /// See [`Self::build_input_selector`] for the layout.
-    fn witness_input_selector(
-        &self,
-        view: &mut impl WitnessView<F>,
-        bits: &[CellOrUnconstrained<F>],
-        i: usize,
-    ) {
+    ///
+    /// This function fills in all selector cells of the i-th row except the C column, which cannot
+    /// be determined without knowing the entry from the next row. The C column is filled in
+    /// separately by the caller.
+    fn witness_input_selector(&self, view: &mut impl WitnessView<F>, bits: &[F], i: usize) {
         let bit = bits[i];
-        let bit_value = view.get(bit);
-        if bit_value != F::ZERO {
+        if bit != F::ZERO {
             view.set(view.cell(0, 0), self.path[i][1]);
             view.set(view.cell(0, 1), self.path[i][0]);
         } else {
             view.set(view.cell(0, 0), self.path[i][0]);
             view.set(view.cell(0, 1), self.path[i][1]);
         }
-        view.copy(bits[i], view.cell(0, 2));
-        view.set(view.cell(0, 3), self.path[i][0]);
-        view.set(view.cell(0, 4), self.path[i][1]);
-        view.set(view.cell(0, 5), F::ZERO);
+        view.set(view.cell(0, 2), bit);
+        if i > 0 {
+            view.set(
+                view.cell(0, 4),
+                bit * F::from(2u8).pow_small(i) + view.get_at(view.cell(-1, 4)),
+            );
+        } else {
+            view.set(view.cell(0, 4), bit);
+        }
+        view.set(view.cell(0, 5), self.path[i][0]);
+        view.set(view.cell(0, 6), self.path[i][1]);
+        view.set(view.cell(0, 7), F::ZERO);
     }
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 1> for FullBinaryChip<F, C> {
     fn width(&self) -> usize {
-        std::cmp::max(self.decomposer.width(), self.stage_width())
+        Self::SELECTOR_WIDTH + self.hasher.width()
     }
 
     fn height(&self) -> usize {
-        self.decomposer.height() + self.stage_height() * 256
+        256
     }
 
     fn build<G: Field256<BaseField = F>>(
@@ -441,25 +486,19 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 1> for FullBinar
         inputs: [Option<Cell>; 2],
     ) -> Result<[Option<Cell>; 1]> {
         let [key, value] = inputs;
-        let bits = self.decomposer.build(view, [key])?;
-        let stage_width = self.stage_width();
-        let stage_height = self.stage_height();
+        let width = self.width();
         let mut hash = value;
         for i in 0..256 {
-            let bit = bits[i];
-            let mut view = view.sub(
-                self.decomposer.height() + stage_height * i,
-                0,
-                stage_width.into(),
-                stage_height.into(),
-            );
-            let inputs = std::array::from_fn(|i| view.cell(0, 3 + i).into());
+            let mut view = view.sub(i, 0, width.into(), Some(1));
+            let inputs = std::array::from_fn(|i| view.cell(0, 5 + i).into());
             [hash, _, _] = view
                 .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
-                    self.build_input_selector(view, hash, bit)
+                    self.build_input_selector(view, hash, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
         }
+        view.add_gate(0, var(3) + make_const(F::ONE));
+        view.connect(key, view.cell(255, 4).into());
         Ok([hash])
     }
 
@@ -469,23 +508,23 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 1> for FullBinar
         inputs: [CellOrUnconstrained<F>; 2],
     ) -> Result<[CellOrUnconstrained<F>; 1]> {
         let [key, value] = inputs;
-        let bits = self.decomposer.witness(view, [key])?;
-        let stage_width = self.stage_width();
-        let stage_height = self.stage_height();
+        let bits = xits::decompose_scalar_bits::<F, 256>(view.get(key));
+        let width = self.width();
         let mut hash = value;
         for i in 0..256 {
-            let mut view = view.sub(
-                self.decomposer.height() + stage_height * i,
-                0,
-                stage_width.into(),
-                stage_height.into(),
-            );
-            let inputs = std::array::from_fn(|i| view.cell(0, 3 + i).into());
+            let mut view = view.sub(i, 0, width.into(), Some(1));
+            let inputs = std::array::from_fn(|i| view.cell(0, 5 + i).into());
             [hash, _, _] = view
                 .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), Some(1), |view| {
                     self.witness_input_selector(view, &bits, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
+        }
+        let mut cmp = bits[255] - Self::modulus_bit(255);
+        view.set(view.cell(255, 3), cmp);
+        for i in (0..255).rev() {
+            cmp += (F::ONE - cmp.square()) * (bits[i] - Self::modulus_bit(i));
+            view.set(view.cell(i, 3), cmp);
         }
         Ok([hash])
     }
@@ -1432,10 +1471,8 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = FullBinaryChip::<Scalar, BlueSkyConfig3>::new(path);
-        assert_eq!(chip.stage_width(), 91);
-        assert_eq!(chip.stage_height(), 1);
-        assert_eq!(chip.width(), std::cmp::max(257, 91));
-        assert_eq!(chip.height(), 259);
+        assert_eq!(chip.width(), 93);
+        assert_eq!(chip.height(), 256);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
