@@ -6,6 +6,7 @@
 mod utils;
 
 pub mod merkle;
+pub mod merkle32;
 pub mod poseidon1;
 // pub mod poseidon2;
 // pub mod sponge;

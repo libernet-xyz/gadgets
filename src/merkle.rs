@@ -10,11 +10,9 @@ use starkom_poseidon::Config as PoseidonConfig;
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
-/// WARNING: `H` must be strictly less than 255. Do NOT use this chip if `H` spans the full BlueSky
+/// WARNING: `H` must be strictly less than 256. Do NOT use this chip if `H` spans the full `F`
 /// range, as in that case the bit decomposition of the key would be UNSAFE! Use the
 /// [`FullBinaryChip`] below instead.
-///
-/// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
 pub struct BinaryChip<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> {
     hasher: poseidon1::PermutationChip<F, C, 3>,
@@ -165,7 +163,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 3>> PlonkChip<F, 2, 
 
 /// Runs a Merkle lookup over a ternary Sparse Merkle Tree of height `H`.
 ///
-/// WARNING: `H` must be strictly less than 161. Do NOT use this chip if `H` spans the full BlueSky
+/// WARNING: `H` must be strictly less than 162. Do NOT use this chip if `H` spans the full `F`
 /// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
 /// [`FullTernaryChip`] below instead.
 #[derive(Debug, Clone)]
@@ -342,8 +340,6 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
 /// extra constraints.
 ///
 /// If you don't need 256- or 255-bit keys use [`BinaryChip`].
-///
-/// The generic argument `L` is the number of lanes (parallel hash stages) used by the chip.
 #[derive(Debug, Clone)]
 pub struct FullBinaryChip<F: PrimeField256, C: PoseidonConfig<F, 3>> {
     hasher: poseidon1::PermutationChip<F, C, 3>,
