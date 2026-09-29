@@ -1,7 +1,6 @@
 use crate::poseidon1;
 use crate::xits;
-use anyhow::Result;
-use primitive_types::U256;
+use anyhow::{Result, anyhow};
 use starkom_ff::{Field256, PrimeField32};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, make_const, rvar, var,
@@ -199,7 +198,7 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
         let mut hash = value;
         for i in 0..H {
             let mut view = view.sub(i, 0, width.into(), Some(1));
-            let inputs = std::array::from_fn(|i| view.cell(0, 18 + i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 19 + i).into());
             let output = view
                 .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), None, |view| {
                     self.build_input_selector(view, hash, i)
@@ -208,7 +207,7 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
             hash.copy_from_slice(&output[0..8]);
         }
         for i in 0..8 {
-            view.connect(key[i], view.cell(32 * (i + 1) - 1, 17).into());
+            view.connect(key[i], view.cell(32 * (i + 1) - 1, 18).into());
         }
         Ok(hash)
     }
@@ -218,22 +217,23 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
         view: &mut impl WitnessView<F>,
         inputs: [CellOrUnconstrained<F>; 16],
     ) -> Result<[CellOrUnconstrained<F>; 8]> {
-        let (key, value) = {
-            let modulus: U256 = F::MODULUS.parse().unwrap();
-            let mut key = U256::zero();
-            let mut value = [CellOrUnconstrained::Unconstrained(F::ZERO); 8];
-            for i in 0..8 {
-                key += view.get(inputs[i]).to_u256() * modulus.pow(i.into());
+        let key: [F; 8] = std::array::from_fn(|i| view.get(inputs[i]));
+        let value: [CellOrUnconstrained<F>; 8] = std::array::from_fn(|i| inputs[8 + i]);
+        let bits: [F; 256] = key
+            .map(|digit| xits::decompose_scalar_bits::<F, 32>(digit))
+            .concat()
+            .try_into()
+            .unwrap();
+        for i in H..256 {
+            if bits[i] != F::ZERO {
+                return Err(anyhow!("key overflow"));
             }
-            value.copy_from_slice(&inputs[8..16]);
-            (key, value)
-        };
-        let bits = xits::decompose_bits::<F, H>(key);
+        }
         let width = self.width();
         let mut hash = value;
         for i in 0..H {
             let mut view = view.sub(i, 0, width.into(), Some(1));
-            let inputs = std::array::from_fn(|i| view.cell(0, 18 + i).into());
+            let inputs = std::array::from_fn(|i| view.cell(0, 19 + i).into());
             let output = view
                 .sub_fn(0, 0, Self::SELECTOR_WIDTH.into(), None, |view| {
                     self.witness_input_selector(view, &bits, i)
@@ -259,7 +259,7 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
 #[cfg(all(test, feature = "koalabear"))]
 mod tests {
     use super::*;
-    use primitive_types::H256;
+    use primitive_types::{H256, U256};
     use starkom_ff::Field;
     use starkom_koalabear::{KB, KB8};
     use starkom_pcs::hash::Sha2Hash;
