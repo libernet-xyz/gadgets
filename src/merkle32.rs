@@ -208,7 +208,7 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
             hash.copy_from_slice(&output[0..8]);
         }
         for i in 0..8 {
-            view.connect(key[i], view.cell(32 * i - 1, 17).into());
+            view.connect(key[i], view.cell(32 * (i + 1) - 1, 17).into());
         }
         Ok(hash)
     }
@@ -240,6 +240,15 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?;
             hash.copy_from_slice(&output[0..8]);
+        }
+        let mut cmp = F::ZERO;
+        for i in (0..H).rev() {
+            if i & 31 != 31 {
+                cmp += (F::ONE - cmp.square()) * (bits[i] - Self::modulus_bit(i & 31));
+            } else {
+                cmp = bits[i] - Self::modulus_bit(31);
+            }
+            view.set(view.cell(i, 17), cmp);
         }
         Ok(hash)
     }
