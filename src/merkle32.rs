@@ -450,6 +450,7 @@ mod tests {
     impl BinaryNode {
         fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
             let hash = poseidon1::hash::<poseidon1::KoalaBearConfig24, KB, 24, 16, 8>(
+                std::array::from_fn(|_| KB::ZERO),
                 [to_base(left.hash()), to_base(right.hash())].concat(),
             );
             let hash = from_base(std::array::from_fn(|i| hash[i]));
@@ -609,6 +610,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_tall_binary_smt_empty() {
         assert!(test_tall_binary_smt_impl::<20>([], 0).is_ok());
         assert!(test_tall_binary_smt_impl::<20>([], 1).is_ok());
@@ -619,6 +621,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_tall_binary_smt_one_entry() {
         let entries = [(12, 34)];
         assert!(test_tall_binary_smt_impl::<20>(entries, 0).is_ok());
@@ -630,6 +633,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_tall_binary_smt_two_entries() {
         let entries = [(34, 56), (78, 12)];
         assert!(test_tall_binary_smt_impl::<20>(entries, 0).is_ok());

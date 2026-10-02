@@ -751,7 +751,7 @@ mod tests {
     use starkom_ff::Field;
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
-    use starkom_poseidon::{self as poseidon1, BlueSkyConfig3, BlueSkyConfig4};
+    use starkom_poseidon::{self as poseidon1, BlueSkyConfigT3X5, BlueSkyConfigT4X5};
     use std::collections::BTreeMap;
     use std::fmt::Debug;
     use std::sync::{Arc, LazyLock, Mutex};
@@ -771,7 +771,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = BinaryChip::<Scalar, H, BlueSkyConfig3>::new(path);
+        let chip = BinaryChip::<Scalar, H, BlueSkyConfigT3X5>::new(path);
         assert_eq!(chip.width(), 92);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
@@ -875,7 +875,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = TernaryChip::<Scalar, H, BlueSkyConfig4>::new(path);
+        let chip = TernaryChip::<Scalar, H, BlueSkyConfigT4X5>::new(path);
         assert_eq!(chip.width(), 104);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
@@ -1048,10 +1048,10 @@ mod tests {
 
     impl BinaryNode {
         fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
-            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfig3, Scalar, 3, 2, 1>([
-                left.hash(),
-                right.hash(),
-            ]);
+            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfigT3X5, Scalar, 3, 2, 1>(
+                [Scalar::ZERO],
+                [left.hash(), right.hash()],
+            );
             Arc::new(BinaryNode {
                 level,
                 hash,
@@ -1114,11 +1114,10 @@ mod tests {
 
     impl TernaryNode {
         fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<dyn Node> {
-            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfig4, Scalar, 4, 3, 1>([
-                children[0].hash(),
-                children[1].hash(),
-                children[2].hash(),
-            ]);
+            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfigT4X5, Scalar, 4, 3, 1>(
+                [Scalar::ZERO],
+                [children[0].hash(), children[1].hash(), children[2].hash()],
+            );
             Arc::new(TernaryNode {
                 level,
                 hash,
@@ -1242,7 +1241,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = BinaryChip::<Scalar, H, BlueSkyConfig3>::new(path);
+        let chip = BinaryChip::<Scalar, H, BlueSkyConfigT3X5>::new(path);
         assert_eq!(chip.width(), 92);
         assert_eq!(chip.height(), H);
 
@@ -1375,7 +1374,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip::<Scalar, H, BlueSkyConfig4>::new(path);
+        let chip = TernaryChip::<Scalar, H, BlueSkyConfigT4X5>::new(path);
         assert_eq!(chip.width(), 104);
         assert_eq!(chip.height(), H);
 
@@ -1508,7 +1507,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullBinaryChip::<Scalar, BlueSkyConfig3>::new(path);
+        let chip = FullBinaryChip::<Scalar, BlueSkyConfigT3X5>::new(path);
         assert_eq!(chip.width(), 93);
         assert_eq!(chip.height(), 256);
 
@@ -1607,8 +1606,8 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullTernaryChip::<Scalar, BlueSkyConfig4>::new(path);
-        assert_eq!(chip.width(), 105);
+        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT4X5>::new(path);
+        assert_eq!(chip.width(), 95);
         assert_eq!(chip.height(), 162);
 
         let mut builder = CircuitBuilder::default();

@@ -11,7 +11,7 @@ use std::marker::PhantomData;
 /// Generic Poseidon1 permutation chip.
 ///
 /// This chip achieves a full permutation in a single row using
-/// degree-[`ALPHA`](`PrimeField::ALPHA`) constraints. For example, this results in degree-5
+/// degree-[alpha](`poseidon1::Config::alpha`) constraints. For example, this results in degree-5
 /// constraints on BlueSky and degree-3 constraints on Schraderbrau.
 pub struct PermutationChip<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> {
     _data: PhantomData<(F, C)>,
@@ -43,7 +43,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
     for PermutationChip<F, C, T>
 {
     fn width(&self) -> usize {
-        T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
+        T * (2 + C::num_full_rounds_per_side() * 2) + C::num_partial_rounds() - 1
     }
 
     fn height(&self) -> usize {
@@ -59,16 +59,16 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
             view.connect(inputs[i], view.cell(0, i).into());
         }
 
-        let num_full_rounds = C::num_full_rounds();
+        let num_full_rounds_per_side = C::num_full_rounds_per_side();
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();
         let c = C::get_round_constants();
-        let a = F::ALPHA as isize;
+        let a = C::alpha() as isize;
         let m = C::get_mds_matrix();
         let m0_inv = m[0].invert_unwrap();
 
         let mut offset = 0;
-        for r in 0..num_full_rounds {
+        for r in 0..num_full_rounds_per_side {
             for i in 0..T {
                 view.add_gate(
                     0,
@@ -87,7 +87,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         let mut state: [Constraint<F>; T] = std::array::from_fn(|i| var(offset + i));
         offset += T;
 
-        for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
+        for r in num_full_rounds_per_side..(num_full_rounds_per_side + num_partial_rounds) {
             let linear: [Constraint<F>; T] = std::array::from_fn(|i| {
                 (1..T)
                     .map(|j| {
@@ -116,7 +116,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         }
         offset += T - 1;
 
-        for r in (num_full_rounds + num_partial_rounds)..num_total_rounds {
+        for r in (num_full_rounds_per_side + num_partial_rounds)..num_total_rounds {
             for i in 0..T {
                 view.add_gate(
                     0,
@@ -146,15 +146,15 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         }
         let mut state = inputs.map(|input| view.get(input));
 
-        let num_full_rounds = C::num_full_rounds();
+        let num_full_rounds_per_side = C::num_full_rounds_per_side();
         let num_partial_rounds = C::num_partial_rounds();
         let num_total_rounds = C::num_total_rounds();
         let c = C::get_round_constants();
-        let a = F::ALPHA;
+        let a = C::alpha();
         let m = C::get_mds_matrix();
 
         let mut offset = T;
-        for r in 0..num_full_rounds {
+        for r in 0..num_full_rounds_per_side {
             state = std::array::from_fn(|i| {
                 (0..T)
                     .map(|j| (c[r * T + j] + state[j]).pow_small(a) * m[i * T + j])
@@ -166,7 +166,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
             offset += T;
         }
 
-        for r in num_full_rounds..(num_full_rounds + num_partial_rounds) {
+        for r in num_full_rounds_per_side..(num_full_rounds_per_side + num_partial_rounds) {
             state = std::array::from_fn(|i| {
                 std::iter::once((c[r * T] + state[0]).pow_small(a) * m[i * T])
                     .chain((1..T).map(|j| (c[r * T + j] + state[j]) * m[i * T + j]))
@@ -181,7 +181,7 @@ impl<F: PrimeField, C: poseidon1::Config<F, T>, const T: usize> PlonkChip<F, T, 
         }
         offset += T - 1;
 
-        for r in (num_full_rounds + num_partial_rounds)..num_total_rounds {
+        for r in (num_full_rounds_per_side + num_partial_rounds)..num_total_rounds {
             state = std::array::from_fn(|i| {
                 (0..T)
                     .map(|j| (c[r * T + j] + state[j]).pow_small(a) * m[i * T + j])
@@ -233,7 +233,7 @@ mod tests {
         let chip = PermutationChip::<F, C, T>::default();
         assert_eq!(
             chip.width(),
-            T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
+            T * (2 + C::num_full_rounds_per_side() * 2) + C::num_partial_rounds() - 1
         );
         assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::<F, F>::default();
@@ -281,7 +281,7 @@ mod tests {
             parse("0x26e03abfcc62da0101516b07aede8bc676a10c47299a57bedc6d9fe80484f3da"),
         ];
         assert!(
-            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig3, 3>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfigT3X5, 3>(
                 inputs,
                 outputs,
                 1,
@@ -290,7 +290,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig3, 3>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfigT3X5, 3>(
                 inputs,
                 outputs,
                 2,
@@ -299,7 +299,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig3, 3>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfigT3X5, 3>(
                 inputs,
                 outputs,
                 3,
@@ -320,7 +320,7 @@ mod tests {
             parse("0x2580707d57a8c1c0cad368e8d5705ffd96f269d66e1cd6f1433f93a3c66d9bf8"),
         ];
         assert!(
-            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig4, 4>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfigT4X5, 4>(
                 inputs,
                 outputs,
                 1,
@@ -329,7 +329,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig4, 4>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfigT4X5, 4>(
                 inputs,
                 outputs,
                 2,
@@ -338,7 +338,7 @@ mod tests {
             .is_ok()
         );
         assert!(
-            test_permutation256_impl::<BS, poseidon1::BlueSkyConfig4, 4>(
+            test_permutation256_impl::<BS, poseidon1::BlueSkyConfigT4X5, 4>(
                 inputs,
                 outputs,
                 3,
@@ -439,7 +439,7 @@ mod tests {
         let chip = PermutationChip::<F, C, T>::default();
         assert_eq!(
             chip.width(),
-            T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
+            T * (2 + C::num_full_rounds_per_side() * 2) + C::num_partial_rounds() - 1
         );
         assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::<F, G>::default();
@@ -589,7 +589,7 @@ mod tests {
         let chip = PermutationChip::<F, C, T>::default();
         assert_eq!(
             chip.width(),
-            T * (2 + C::num_full_rounds() * 2) + C::num_partial_rounds() - 1
+            T * (2 + C::num_full_rounds_per_side() * 2) + C::num_partial_rounds() - 1
         );
         assert_eq!(chip.height(), 1);
         let mut builder = CircuitBuilder::<F, G>::default();
