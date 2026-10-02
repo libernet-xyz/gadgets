@@ -1607,7 +1607,7 @@ mod tests {
         let expected_root_hash = tree.hash();
 
         let chip = FullTernaryChip::<Scalar, BlueSkyConfigT4X5>::new(path);
-        assert_eq!(chip.width(), 95);
+        assert_eq!(chip.width(), 105);
         assert_eq!(chip.height(), 162);
 
         let mut builder = CircuitBuilder::default();
