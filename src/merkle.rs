@@ -750,7 +750,7 @@ mod tests {
     use starkom_bluesky::{Scalar, from_const, parse_scalar};
     use starkom_ff::Field;
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use starkom_plonk::{CircuitBuilder, CompilationOptions};
     use starkom_poseidon::{self as poseidon1, BlueSkyConfigT3X5, BlueSkyConfigT4X5};
     use std::collections::BTreeMap;
     use std::fmt::Debug;
@@ -781,6 +781,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         let mut witness = circuit.make_witness();
@@ -793,11 +794,8 @@ mod tests {
             _ => panic!(),
         };
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>();
         // assert_eq!(circuit.commitment(), circuit_commitment);  // TODO: re-enable
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
@@ -885,6 +883,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         let mut witness = circuit.make_witness();
@@ -897,11 +896,8 @@ mod tests {
             _ => panic!(),
         };
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>();
         // assert_eq!(circuit.commitment(), circuit_commitment);  // TODO: re-enable
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
@@ -1252,6 +1248,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -1269,11 +1266,8 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        let openings = circuit.verify(&proof, options)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
         Ok(())
@@ -1385,6 +1379,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -1402,11 +1397,8 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        let openings = circuit.verify(&proof, options)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
         Ok(())
@@ -1518,6 +1510,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -1536,11 +1529,8 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        let openings = circuit.verify(&proof, options)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
         Ok(())
@@ -1617,6 +1607,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -1635,11 +1626,8 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        let openings = circuit.verify(&proof, options)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
         Ok(())

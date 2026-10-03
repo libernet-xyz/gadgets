@@ -278,7 +278,7 @@ mod tests {
     use starkom_ff::Field;
     use starkom_koalabear::{KB, KB8};
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use starkom_plonk::{CircuitBuilder, CompilationOptions};
     use starkom_poseidon::{self as poseidon1, KoalaBearConfig24};
     use std::collections::BTreeMap;
     use std::fmt::Debug;
@@ -334,6 +334,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         let mut witness = circuit.make_witness();
@@ -351,11 +352,8 @@ mod tests {
             _ => panic!(),
         });
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<KB8>>(witness, options.clone())?;
-        let circuit = circuit.to_compressed::<Sha2Hash<KB8>>(options);
+        let proof = circuit.prove::<Sha2Hash<KB8>>(witness)?;
+        let circuit = circuit.to_compressed::<Sha2Hash<KB8>>();
         // assert_eq!(circuit.commitment(), circuit_commitment);  // TODO: re-enable
         let openings = circuit.verify(&proof)?;
         let expected_root_hash = to_base(expected_root_hash);
@@ -574,6 +572,7 @@ mod tests {
         let circuit = builder
             .build(CompilationOptions {
                 canonicalize_constraints: false,
+                blowup_log2: BLOWUP_LOG2,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -597,11 +596,8 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<KB8>>(witness, options.clone())?;
-        let openings = circuit.verify(&proof, options)?;
+        let proof = circuit.prove::<Sha2Hash<KB8>>(witness)?;
+        let openings = circuit.verify(&proof)?;
         for i in 0..8 {
             assert_eq!(openings[&root_hash[i]], expected_root_hash[i]);
         }

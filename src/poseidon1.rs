@@ -203,7 +203,7 @@ mod tests {
     use primitive_types::H256;
     use starkom_ff::{PrimeField32, PrimeField64, PrimeField256};
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use starkom_plonk::{CircuitBuilder, CompilationOptions};
     use starkom_poseidon::Config;
     use std::fmt::Debug;
     use std::str::FromStr;
@@ -241,22 +241,24 @@ mod tests {
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
+            blowup_log2,
         })?;
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), 4);
         assert_eq!(circuit.num_columns(), chip.width());
+        assert_eq!(circuit.get_max_gate_degree(), C::alpha());
+        let degree_bound = circuit.degree_bound();
+        assert!(degree_bound <= 256);
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 1);
-        assert_eq!(witness.degree_bound(), 4);
+        assert_eq!(witness.degree_bound(), degree_bound);
         assert_eq!(witness.num_columns(), chip.width());
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<F>>(witness, options.clone())?;
-        assert_eq!(proof.degree_bound(), 4);
+        let proof = circuit.prove::<Sha2Hash<F>>(witness)?;
+        assert_eq!(proof.degree_bound(), degree_bound);
         assert_eq!(proof.blowup_log2(), blowup_log2);
-        assert_eq!(proof.extended_domain_size(), 4 << blowup_log2);
-        let circuit = circuit.to_compressed::<Sha2Hash<F>>(options);
+        assert_eq!(proof.extended_domain_size(), degree_bound << blowup_log2);
+        let circuit = circuit.to_compressed::<Sha2Hash<F>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
         assert!(
@@ -285,7 +287,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xf38f43b1031d10fc36e7b5506f486676298303ec7089a04b4f977fa7aae2faca")
+                parse("0x0a9cf6350907ca98e7282840a3fa65394d2e6d361447500f8f456b27880d7caa")
             )
             .is_ok()
         );
@@ -294,7 +296,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x2c1468b45cd498a6fa8e297b51742d68a541e227f0fcedcc91201c7fd6ef78f5")
+                parse("0x87d0d59628fff256974de80e108c82dc98ed49b80ecf9dedad59e10be2b6518e")
             )
             .is_ok()
         );
@@ -303,7 +305,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xd7cf2642d50b23d2a67a85798949e0d2a8aa7e4b6ad867f75cc75d324c18fa8d")
+                parse("0x0a6b50802647c26d14604b76a96c6ca84bfc48f61a3d8516a5423eff2e5ca65e")
             )
             .is_ok()
         );
@@ -324,7 +326,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xb5dafcffa8b4ec594f36a1ba0b101d80a82fbac5a4a96561583bc2bb98c96c91")
+                parse("0x32f749697ad6d374c71c1a9d137b9101ca4cafa10746f79ad7b7f63b2a289dc4")
             )
             .is_ok()
         );
@@ -333,7 +335,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x39ccda5c4a841ee8fbf39403b4414d38cf8fa5aadc3aa554caeaf01019473716")
+                parse("0x4f3837c2f9f45ef0d598c559b5a40faeb9f5ca9ce51b1a93eecc607c5cc0ddba")
             )
             .is_ok()
         );
@@ -342,7 +344,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x4d60c26877c88738f171b4899c8c320c118da828eb7a65fead14fef87f6aed35")
+                parse("0xa81c3e2fef859b42fc606d3baa55dbe0f0a2a0e549fc018e8eec8a644f5519eb")
             )
             .is_ok()
         );
@@ -362,7 +364,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x6cbdfb134e3be4606502e7a77faf60f863e8951a2fc4ed2a4d1c1154e76cb072")
+                parse("0xd0302cbf95489a1244ccc48b7926cab2eb7f2179e73c509ae31b1c85568524b0")
             )
             .is_ok()
         );
@@ -371,7 +373,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xc822adf88e0162ff0321f5184887d77f5747d157d2ed74530e1cf87af913480d")
+                parse("0x0f91fa62551cdd383df5695e01971536f47d5100ecbb536e4b7e1808e518f14d")
             )
             .is_ok()
         );
@@ -380,7 +382,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x721332b6ca26baf6d8ad8c8ca675e6895e0c066b020c81fe6d7766cf9e587f83")
+                parse("0xf387f81b81454f778d0f699ab7091532b9e0640ac5b878624ed5713e54887a9d")
             )
             .is_ok()
         );
@@ -401,7 +403,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xa5eba6d8a98b0c08160cd211c6dd0ca165ce7e69dd5b73ced08178bd4c3e167c")
+                parse("0x907964f96c40b3223e320feeffa46de538c272102697326788f44e9eabebe067")
             )
             .is_ok()
         );
@@ -410,7 +412,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xa45a0ccc8a371133d2666365f34560bc5b0c6d1a42cfde3b3d403438a94718f2")
+                parse("0x51d07ecc2513fcd7e90967756bf462f1cd1be323fcbf60002d09dc93104047a0")
             )
             .is_ok()
         );
@@ -419,7 +421,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xae2fd35f72c75ea4db8bd7a0e19d970a3b90eee6c8e7032d3f0af1a988b0522d")
+                parse("0x74ff6d3f960d868bdd091c7913a84ae659551015fe27c84613ccc7abd2ae3fc1")
             )
             .is_ok()
         );
@@ -447,22 +449,24 @@ mod tests {
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
+            blowup_log2,
         })?;
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), 16);
         assert_eq!(circuit.num_columns(), chip.width());
+        assert_eq!(circuit.get_max_gate_degree(), C::alpha());
+        let degree_bound = circuit.degree_bound();
+        assert!(degree_bound <= 1024);
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 1);
-        assert_eq!(witness.degree_bound(), 16);
+        assert_eq!(witness.degree_bound(), degree_bound);
         assert_eq!(witness.num_columns(), chip.width());
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
-        assert_eq!(proof.degree_bound(), 16);
+        let proof = circuit.prove::<Sha2Hash<G>>(witness)?;
+        assert_eq!(proof.degree_bound(), degree_bound);
         assert_eq!(proof.blowup_log2(), blowup_log2);
-        assert_eq!(proof.extended_domain_size(), 16 << blowup_log2);
-        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        assert_eq!(proof.extended_domain_size(), degree_bound << blowup_log2);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
         assert!(
@@ -479,7 +483,7 @@ mod tests {
 
     #[cfg(feature = "goldilocks")]
     #[test]
-    fn test_permutation_t12_hw() {
+    fn test_permutation_t12_gl() {
         let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             gl(0x056bda38ad308e78),
@@ -500,7 +504,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x96c37ae8089e392cf888bef6bce5ec9984429e3f6599f7ba94a35cdb9b274855")
+                parse("0x15ed082dd6f39f5e649e624c4c18a79e1027de5a7ab21d47c1d3209cd8899592")
             )
             .is_ok()
         );
@@ -509,7 +513,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x821585f96b9af782405b3f1931c34c51eaa1bfed81e3b3ab95bdef9e831aa651")
+                parse("0xd6552fbbfe8df549bed280d48bb85a50af6bf13a494c5c6c4fce0014956398e0")
             )
             .is_ok()
         );
@@ -518,7 +522,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x943216ede1aca48240f963cffac6bb951f40154a18ef7cfe8e3af126329ada8b")
+                parse("0x7e047c73acd07137e419634800f98715cbac401d48e5813ecdd880b8e44a00ec")
             )
             .is_ok()
         );
@@ -526,7 +530,7 @@ mod tests {
 
     #[cfg(feature = "goldilocks")]
     #[test]
-    fn test_permutation_t16_hw() {
+    fn test_permutation_t16_gl() {
         let inputs = std::array::from_fn(|i| i.try_into().unwrap());
         let outputs = [
             gl(0x6a84bf02be1f328d),
@@ -551,7 +555,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xeb296b91f3415bc8eab2e18a3b4084c9f7f0a3d79f34af8528806e3288ce3c0b")
+                parse("0x2d49bf32a7b5961288968a27ee8d69ba998572f589080be609dcc7ed4c490d63")
             )
             .is_ok()
         );
@@ -560,7 +564,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x580bbaf22cc0e8977704d58890e38607ca7cfdaf2842acaee9aa646a49bcce15")
+                parse("0xf4f2ed24921af7cd19e935b03e003aaebe994d7e502aa5bd780fdf33f383ecdc")
             )
             .is_ok()
         );
@@ -569,7 +573,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xafb2727920f5b9877476705b03137eb67c28d87190a7755fdf8d904b90375fd7")
+                parse("0xe150d518610dff6852b2f2ca4ceb37aa2f7a0eb23108bc4bf550b0a39a2c1e66")
             )
             .is_ok()
         );
@@ -597,22 +601,24 @@ mod tests {
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(CompilationOptions {
             canonicalize_constraints: false,
+            blowup_log2,
         })?;
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), 32);
         assert_eq!(circuit.num_columns(), chip.width());
+        assert_eq!(circuit.get_max_gate_degree(), C::alpha());
+        let degree_bound = circuit.degree_bound();
+        assert!(degree_bound <= 2048);
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 1);
-        assert_eq!(witness.degree_bound(), 32);
+        assert_eq!(witness.degree_bound(), degree_bound);
         assert_eq!(witness.num_columns(), chip.width());
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions { blowup_log2 };
-        let proof = circuit.prove::<Sha2Hash<G>>(witness, options.clone())?;
-        assert_eq!(proof.degree_bound(), 32);
+        let proof = circuit.prove::<Sha2Hash<G>>(witness)?;
+        assert_eq!(proof.degree_bound(), degree_bound);
         assert_eq!(proof.blowup_log2(), blowup_log2);
-        assert_eq!(proof.extended_domain_size(), 32 << blowup_log2);
-        let circuit = circuit.to_compressed::<Sha2Hash<G>>(options);
+        assert_eq!(proof.extended_domain_size(), degree_bound << blowup_log2);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
         assert!(
@@ -662,7 +668,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xaa07e62436079cfefecfc42070bb63f8101726b2b87bf4d1a1ae860be0589d5f")
+                parse("0x095fb1085128e552e1b97f032b9e688552caeb54ef72e2d2b95a9d45fe3f6e10")
             )
             .is_ok()
         );
@@ -671,7 +677,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xf9a0f4bc7cf733bf1933d16eab1ab75d957852bb5a9f619d9501faf0a1688ba2")
+                parse("0x216d05f6ff07cc2a408dc911d38105c374d70ec0254922ad4d11eb1361babbf3")
             )
             .is_ok()
         );
@@ -680,7 +686,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x77d1af53fcb23c6ee510b23e03e8f3cdfbee7ffd8d78ef46137d8ed2ee292304")
+                parse("0xf951b8e214136fea98e663a270afe2d9b51517387607bbe1595495efda1b4263")
             )
             .is_ok()
         );
@@ -729,7 +735,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xead7a05ae16a0643a94214297c3565dc78a9513937433b83bc517ae2b3a4f7c4")
+                parse("0xd91e7aea435092efd5280d05518545a5eb5bea3c7a52386851f2341fa381f56a")
             )
             .is_ok()
         );
@@ -738,7 +744,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x1c060a56f5fb0177be4c9ae8565905a981be15aa276a614cab0a5f2c21d6a6fb")
+                parse("0xfc7d89a22734a9200fb057a6b1eae2e7ffebdb40eaa5e1b9b0b062a958e1c2e6")
             )
             .is_ok()
         );
@@ -747,7 +753,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x22b05bbdba463cd8f47a6e157fe8af9d7775ecf96771dccd8461515af77bdfac")
+                parse("0x6ea20cebee9aab271c4ae691dc848aa4d17efbfdd6b72a3ab5ed29c9137db2c2")
             )
             .is_ok()
         );
