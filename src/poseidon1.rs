@@ -203,7 +203,7 @@ mod tests {
     use primitive_types::H256;
     use starkom_ff::{PrimeField32, PrimeField64, PrimeField256};
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CompilationOptions};
+    use starkom_plonk::{CircuitBuilder, Options};
     use starkom_poseidon::Config;
     use std::fmt::Debug;
     use std::str::FromStr;
@@ -239,9 +239,10 @@ mod tests {
         let mut builder = CircuitBuilder::<F, F>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
-        let circuit = builder.build(CompilationOptions {
+        let circuit = builder.build(Options {
             canonicalize_constraints: false,
             blowup_log2,
+            blind: false,
         })?;
         assert_eq!(circuit.num_rows(), 1);
         assert_eq!(circuit.num_columns(), chip.width());
@@ -287,7 +288,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x0a9cf6350907ca98e7282840a3fa65394d2e6d361447500f8f456b27880d7caa")
+                parse("0x40acf2684a471326e807ff0e43c437d38a9b3fd7a24bb3256c98ee58a051ea80")
             )
             .is_ok()
         );
@@ -296,7 +297,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x87d0d59628fff256974de80e108c82dc98ed49b80ecf9dedad59e10be2b6518e")
+                parse("0xb2ee68e3c6970d3392869bcfbffa4c18250e78752db55ca6a90af0cd5a66be2d")
             )
             .is_ok()
         );
@@ -305,7 +306,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x0a6b50802647c26d14604b76a96c6ca84bfc48f61a3d8516a5423eff2e5ca65e")
+                parse("0x2817de83b0e8f56e37fe1f1562a8f08f4ec5e0ebf81cfd35747d35951943a619")
             )
             .is_ok()
         );
@@ -326,7 +327,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x32f749697ad6d374c71c1a9d137b9101ca4cafa10746f79ad7b7f63b2a289dc4")
+                parse("0x9799218f87b6a8020745a73b4ec41c2a007e25b312b1eade8d2344175a670828")
             )
             .is_ok()
         );
@@ -335,7 +336,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x4f3837c2f9f45ef0d598c559b5a40faeb9f5ca9ce51b1a93eecc607c5cc0ddba")
+                parse("0x316a67b93769e3e0b694b07561486cf3aa72ba5745b97b2c093c6213531ee027")
             )
             .is_ok()
         );
@@ -344,7 +345,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xa81c3e2fef859b42fc606d3baa55dbe0f0a2a0e549fc018e8eec8a644f5519eb")
+                parse("0x8b87c6b7902721bea0d0038425c0a5ce6474acc03e2db26ee69db52db6965da5")
             )
             .is_ok()
         );
@@ -364,7 +365,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xd0302cbf95489a1244ccc48b7926cab2eb7f2179e73c509ae31b1c85568524b0")
+                parse("0x5202c1d2ea4d3c1299f93ceacedca485471d883dba799a6db3e9f0ddd6c28eb9")
             )
             .is_ok()
         );
@@ -373,7 +374,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x0f91fa62551cdd383df5695e01971536f47d5100ecbb536e4b7e1808e518f14d")
+                parse("0x7b938504861a638935e8a556d54c66c64bd634d2fa7011becd93bb89c526458d")
             )
             .is_ok()
         );
@@ -382,7 +383,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xf387f81b81454f778d0f699ab7091532b9e0640ac5b878624ed5713e54887a9d")
+                parse("0x0ba57d5dd30ed28ac5943d33002cb5d0ccf4c93f5c1e9e86a9fa9e81c88b8caf")
             )
             .is_ok()
         );
@@ -403,7 +404,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x907964f96c40b3223e320feeffa46de538c272102697326788f44e9eabebe067")
+                parse("0x79a0844d1884d7cdbbf130b13527cc135c55aa2326e7c8aee1bb8e013158bfba")
             )
             .is_ok()
         );
@@ -412,7 +413,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x51d07ecc2513fcd7e90967756bf462f1cd1be323fcbf60002d09dc93104047a0")
+                parse("0xef54fb794abc9be4eca67d3af59f8316ba0f2a1558d1e502a0a59e5b9c53f1d2")
             )
             .is_ok()
         );
@@ -421,7 +422,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x74ff6d3f960d868bdd091c7913a84ae659551015fe27c84613ccc7abd2ae3fc1")
+                parse("0xa0b438c9a5f1b03ab81de629f4788188928eba7cd7d5bce96353b9b04f96d4dc")
             )
             .is_ok()
         );
@@ -447,9 +448,10 @@ mod tests {
         let mut builder = CircuitBuilder::<F, G>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
-        let circuit = builder.build(CompilationOptions {
+        let circuit = builder.build(Options {
             canonicalize_constraints: false,
             blowup_log2,
+            blind: false,
         })?;
         assert_eq!(circuit.num_rows(), 1);
         assert_eq!(circuit.num_columns(), chip.width());
@@ -504,7 +506,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x15ed082dd6f39f5e649e624c4c18a79e1027de5a7ab21d47c1d3209cd8899592")
+                parse("0xc80218b2043f25f7918f327cff34ac65ad4e5eb35b71a9b4f89ba773b9c6a426")
             )
             .is_ok()
         );
@@ -513,7 +515,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xd6552fbbfe8df549bed280d48bb85a50af6bf13a494c5c6c4fce0014956398e0")
+                parse("0x1a1c2a77c690b3984638158d6fccb5ac5ac09e5232080425004fe6a1619d7212")
             )
             .is_ok()
         );
@@ -522,7 +524,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x7e047c73acd07137e419634800f98715cbac401d48e5813ecdd880b8e44a00ec")
+                parse("0x87d3a501547c70b32701fb00d37bffb8446afd29974bed95739e441b401b204c")
             )
             .is_ok()
         );
@@ -555,7 +557,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x2d49bf32a7b5961288968a27ee8d69ba998572f589080be609dcc7ed4c490d63")
+                parse("0x77fe88f27de30e85a825037ceabd4df2208108c1fc7dcb5ef7a06c9b2fe9a2ff")
             )
             .is_ok()
         );
@@ -564,7 +566,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xf4f2ed24921af7cd19e935b03e003aaebe994d7e502aa5bd780fdf33f383ecdc")
+                parse("0xaea91fd2c9b9ee38937496fb729f07afc60b6053a5e7fa5d514c75d35cf55703")
             )
             .is_ok()
         );
@@ -573,7 +575,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xe150d518610dff6852b2f2ca4ceb37aa2f7a0eb23108bc4bf550b0a39a2c1e66")
+                parse("0xcf23d0e330c4f3ac3bd04672eb52243dd5a2d562832c71337b8eb3bac4413147")
             )
             .is_ok()
         );
@@ -599,9 +601,10 @@ mod tests {
         let mut builder = CircuitBuilder::<F, G>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
-        let circuit = builder.build(CompilationOptions {
+        let circuit = builder.build(Options {
             canonicalize_constraints: false,
             blowup_log2,
+            blind: false,
         })?;
         assert_eq!(circuit.num_rows(), 1);
         assert_eq!(circuit.num_columns(), chip.width());
@@ -668,7 +671,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0x095fb1085128e552e1b97f032b9e688552caeb54ef72e2d2b95a9d45fe3f6e10")
+                parse("0x5dd5182f1e3eaffa4f0b7aa17f9831a92f7dfbdbe85dd143a97dc3a48c9e075f")
             )
             .is_ok()
         );
@@ -677,7 +680,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0x216d05f6ff07cc2a408dc911d38105c374d70ec0254922ad4d11eb1361babbf3")
+                parse("0x85e848a234b6bdb0213acac022c5571a68bac494abd7c9d999b21b2548ccba4d")
             )
             .is_ok()
         );
@@ -686,7 +689,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0xf951b8e214136fea98e663a270afe2d9b51517387607bbe1595495efda1b4263")
+                parse("0x4ef4a8fff2c2d0ab6ad46cb6ffea53ae8957b2fa32068b4016f9e6ba95d8ae66")
             )
             .is_ok()
         );
@@ -735,7 +738,7 @@ mod tests {
                 inputs,
                 outputs,
                 1,
-                parse("0xd91e7aea435092efd5280d05518545a5eb5bea3c7a52386851f2341fa381f56a")
+                parse("0x7bc5960fc93e9122007b04d900f5f7422f95e62f5b33fcfdb63fa8ad6c672bdf")
             )
             .is_ok()
         );
@@ -744,7 +747,7 @@ mod tests {
                 inputs,
                 outputs,
                 2,
-                parse("0xfc7d89a22734a9200fb057a6b1eae2e7ffebdb40eaa5e1b9b0b062a958e1c2e6")
+                parse("0x645903a8682c2ee5f580ce3c21a61c26d19bb92e535dd59f43f160ac30917ecb")
             )
             .is_ok()
         );
@@ -753,7 +756,7 @@ mod tests {
                 inputs,
                 outputs,
                 3,
-                parse("0x6ea20cebee9aab271c4ae691dc848aa4d17efbfdd6b72a3ab5ed29c9137db2c2")
+                parse("0x77c0e83d89f841590d75c85c1956396f8b7a7f5b3f9aee38b427395d07ef2bc3")
             )
             .is_ok()
         );

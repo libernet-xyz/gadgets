@@ -750,7 +750,7 @@ mod tests {
     use starkom_bluesky::{Scalar, from_const, parse_scalar};
     use starkom_ff::Field;
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CompilationOptions};
+    use starkom_plonk::{CircuitBuilder, Options};
     use starkom_poseidon::{self as poseidon1, BlueSkyConfigT3X5, BlueSkyConfigT4X5};
     use std::collections::BTreeMap;
     use std::fmt::Debug;
@@ -779,9 +779,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                blind: true,
             })
             .unwrap();
         let mut witness = circuit.make_witness();
@@ -881,9 +882,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                blind: true,
             })
             .unwrap();
         let mut witness = circuit.make_witness();
@@ -1246,9 +1248,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                blind: true,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -1377,9 +1380,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                blind: true,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -1508,9 +1512,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                blind: true,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
@@ -1605,9 +1610,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                blind: true,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
