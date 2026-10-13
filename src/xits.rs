@@ -1062,21 +1062,21 @@ mod tests {
 
     #[test]
     fn test_bit_decomposer_chip_bluesky_1() {
-        let c = parse_hash("0xdc14c67633d5b395003630393a38431efede5b70f66a9ba7f2545751a95787b7");
+        let c = parse_hash("0xce993f75f842a96e47f58bf8d2553d6a8949b289218c31a0b7e7195cd43be4be");
         test_bit_decomposer_chip::<BS, BS, 1>(0, 2, c);
         test_bit_decomposer_chip::<BS, BS, 1>(1, 2, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_goldilocks_1() {
-        let c = parse_hash("0xba7f20698c555604a69fe1d3359b4606d37dfa6eb4a452b7b198ae7eadfae6df");
+        let c = parse_hash("0xab5ee55b0470c26602b6daf8fb65241e3d9a56984d1b40e2fbb30d69a67094ab");
         test_bit_decomposer_chip::<GL, GL4, 1>(0, 2, c);
         test_bit_decomposer_chip::<GL, GL4, 1>(1, 2, c);
     }
 
     #[test]
     fn test_bit_decomposer_chip_bluesky_2() {
-        let c = parse_hash("0x06a21a9eb71dffbc38b809ac6267c6519e3ce0beeac41ab8522b9b6a41d67a04");
+        let c = parse_hash("0x1f26b6463ed3c0466fb72fd4308257da402e541ee041aab9790572ac9a30c4b3");
         test_bit_decomposer_chip::<BS, BS, 2>(0, 2, c);
         test_bit_decomposer_chip::<BS, BS, 2>(1, 2, c);
         test_bit_decomposer_chip::<BS, BS, 2>(2, 2, c);
@@ -1085,7 +1085,7 @@ mod tests {
 
     #[test]
     fn test_bit_decomposer_chip_goldilocks_2() {
-        let c = parse_hash("0x07c2e9a289c5a99fc0a6f6fced028b06f6faca261e7d5fcf5054fde074d4e1bf");
+        let c = parse_hash("0xc29777eac826a5adb909e32e46ea9f7d344c6f54f0b70fe8eb2532ffc4c553f8");
         test_bit_decomposer_chip::<GL, GL4, 2>(0, 2, c);
         test_bit_decomposer_chip::<GL, GL4, 2>(1, 2, c);
         test_bit_decomposer_chip::<GL, GL4, 2>(2, 2, c);
@@ -1094,7 +1094,7 @@ mod tests {
 
     #[test]
     fn test_bit_decomposer_chip_bluesky_3() {
-        let c = parse_hash("0x3a7ca4209d00270b379b76458c0dc3f5179e166b438a946802da520e287c6d11");
+        let c = parse_hash("0x72307bc86c621ffe1424339d53026f310332c8b4fef06112327ef4fef44d7fd5");
         test_bit_decomposer_chip::<BS, BS, 3>(0, 2, c);
         test_bit_decomposer_chip::<BS, BS, 3>(1, 2, c);
         test_bit_decomposer_chip::<BS, BS, 3>(2, 2, c);
@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn test_bit_decomposer_chip_goldilocks_3() {
-        let c = parse_hash("0xae3660f5d31368727052219f7bce7844dd72c94027f08043abe466be958a3d2d");
+        let c = parse_hash("0xcd2e447c612bf69ec867d540bb725527a3a5649848bfc9ad5a4c92a1dfd7e1e0");
         test_bit_decomposer_chip::<GL, GL4, 3>(0, 2, c);
         test_bit_decomposer_chip::<GL, GL4, 3>(1, 2, c);
         test_bit_decomposer_chip::<GL, GL4, 3>(2, 2, c);
@@ -1173,7 +1173,7 @@ mod tests {
 
     #[test]
     fn test_const_bit_comparator_chip_bluesky_1() {
-        let c = parse_hash("0x3284d10bd08d027345d4deb12d2bb761e6607e8201c813967b55137b4f31ea4e");
+        let c = parse_hash("0xc4279e22dbe5e7fbb22ed71b62f0689bda193c42905db1231165a4257fccd38c");
         test_const_bit_comparator_chip::<BS, BS, 1>(0, 0, 4, c);
         test_const_bit_comparator_chip::<BS, BS, 1>(1, 0, 4, c);
         test_const_bit_comparator_chip::<BS, BS, 1>(0, 1, 4, c);
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[test]
     fn test_const_bit_comparator_chip_goldilocks_1() {
-        let c = parse_hash("0x2f225916217af558e21e57a4478c83153d3f16c6a20ce09d766542a5e172f467");
+        let c = parse_hash("0xc5f72cb6435421e0758f0e643b5598fffad2f867035bde8f039190cf265c0aa8");
         test_const_bit_comparator_chip::<GL, GL4, 1>(0, 0, 4, c);
         test_const_bit_comparator_chip::<GL, GL4, 1>(1, 0, 4, c);
         test_const_bit_comparator_chip::<GL, GL4, 1>(0, 1, 4, c);
@@ -1191,7 +1191,7 @@ mod tests {
 
     #[test]
     fn test_const_bit_comparator_chip_bluesky_2() {
-        let c = parse_hash("0x95e03b1867d1810cea10c732bde9688357ed443b4074ff465634fd38ce8c275f");
+        let c = parse_hash("0xfce1cdeb93b42d84782fea7b4fc494b23e2410ace2f78b42b39f2f64bf4ac27a");
         test_const_bit_comparator_chip::<BS, BS, 2>(0, 0, 4, c);
         test_const_bit_comparator_chip::<BS, BS, 2>(1, 0, 4, c);
         test_const_bit_comparator_chip::<BS, BS, 2>(2, 0, 4, c);
@@ -1212,7 +1212,7 @@ mod tests {
 
     #[test]
     fn test_const_bit_comparator_chip_goldilocks_2() {
-        let c = parse_hash("0x31aac105af8e62d8564c533afb0113d24f389436eb7b1d2fa99eb6a5f7a7ff51");
+        let c = parse_hash("0xe34241c4fd12373572fa42a57f24206e8469342560eedd677caca9fad23094a0");
         test_const_bit_comparator_chip::<GL, GL4, 2>(0, 0, 4, c);
         test_const_bit_comparator_chip::<GL, GL4, 2>(1, 0, 4, c);
         test_const_bit_comparator_chip::<GL, GL4, 2>(2, 0, 4, c);
@@ -1277,7 +1277,7 @@ mod tests {
     #[test]
     fn test_full_bit_decomposer_chip_bluesky() {
         type Chip = FullBitDecomposerChip256<BS>;
-        let c = parse_hash("0x12d8ab57282ec992b7e59c232c3ab2efeea3f1169d77a02eac3692f19e99eeaa");
+        let c = parse_hash("0x8a6783a390148cc5528f85bb71f95f3799a2db24a721726bba0a7595166e73eb");
         test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(0, 4, c);
         test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(1, 4, c);
         test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(2, 4, c);
@@ -1291,7 +1291,7 @@ mod tests {
     #[test]
     fn test_full_bit_decomposer_chip_goldilocks() {
         type Chip = FullBitDecomposerChip64<GL>;
-        let c = parse_hash("0x41a664b29157ba96b68dc23569008ebd300bb8c5b3f24245f72f30df991b47e9");
+        let c = parse_hash("0x97bcbe99f8d05bdc76619fb259957a1a3de981d18c36a60af06dd3ccec8e7a8b");
         test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(0, 4, c);
         test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(1, 4, c);
         test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(2, 4, c);
@@ -1305,7 +1305,7 @@ mod tests {
     #[test]
     fn test_full_bit_decomposer_chip_koalabear() {
         type Chip = FullBitDecomposerChip32<KB>;
-        let c = parse_hash("0xb3cd374e95df821c23027f238801e77c7cfd7b0d5094a93197d61f5e7891ce5c");
+        let c = parse_hash("0xfd0d8150ba0c13cce72726af793edba029f2b31ce9bc73a1428fe6937a62ec67");
         test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(0, 4, c);
         test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(1, 4, c);
         test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(2, 4, c);
@@ -1533,7 +1533,7 @@ mod tests {
 
     #[test]
     fn test_trit_decomposer_chip_bluesky_1() {
-        let c = parse_hash("0xdc14c67633d5b395003630393a38431efede5b70f66a9ba7f2545751a95787b7");
+        let c = parse_hash("0xce993f75f842a96e47f58bf8d2553d6a8949b289218c31a0b7e7195cd43be4be");
         test_trit_decomposer_chip::<BS, BS, 1>(0, 2, c);
         test_trit_decomposer_chip::<BS, BS, 1>(1, 2, c);
         test_trit_decomposer_chip::<BS, BS, 1>(2, 2, c);
@@ -1541,7 +1541,7 @@ mod tests {
 
     #[test]
     fn test_trit_decomposer_chip_goldilocks_1() {
-        let c = parse_hash("0xba7f20698c555604a69fe1d3359b4606d37dfa6eb4a452b7b198ae7eadfae6df");
+        let c = parse_hash("0xab5ee55b0470c26602b6daf8fb65241e3d9a56984d1b40e2fbb30d69a67094ab");
         test_trit_decomposer_chip::<GL, GL4, 1>(0, 2, c);
         test_trit_decomposer_chip::<GL, GL4, 1>(1, 2, c);
         test_trit_decomposer_chip::<GL, GL4, 1>(2, 2, c);
@@ -1549,7 +1549,7 @@ mod tests {
 
     #[test]
     fn test_trit_decomposer_chip_bluesky_2() {
-        let c = parse_hash("0x06a21a9eb71dffbc38b809ac6267c6519e3ce0beeac41ab8522b9b6a41d67a04");
+        let c = parse_hash("0x1f26b6463ed3c0466fb72fd4308257da402e541ee041aab9790572ac9a30c4b3");
         test_trit_decomposer_chip::<BS, BS, 2>(0, 2, c);
         test_trit_decomposer_chip::<BS, BS, 2>(1, 2, c);
         test_trit_decomposer_chip::<BS, BS, 2>(2, 2, c);
@@ -1563,7 +1563,7 @@ mod tests {
 
     #[test]
     fn test_trit_decomposer_chip_goldilocks_2() {
-        let c = parse_hash("0x07c2e9a289c5a99fc0a6f6fced028b06f6faca261e7d5fcf5054fde074d4e1bf");
+        let c = parse_hash("0xc29777eac826a5adb909e32e46ea9f7d344c6f54f0b70fe8eb2532ffc4c553f8");
         test_trit_decomposer_chip::<GL, GL4, 2>(0, 2, c);
         test_trit_decomposer_chip::<GL, GL4, 2>(1, 2, c);
         test_trit_decomposer_chip::<GL, GL4, 2>(2, 2, c);
@@ -1577,7 +1577,7 @@ mod tests {
 
     #[test]
     fn test_trit_decomposer_chip_bluesky_3() {
-        let c = parse_hash("0x3a7ca4209d00270b379b76458c0dc3f5179e166b438a946802da520e287c6d11");
+        let c = parse_hash("0x72307bc86c621ffe1424339d53026f310332c8b4fef06112327ef4fef44d7fd5");
         test_trit_decomposer_chip::<BS, BS, 3>(0, 2, c);
         test_trit_decomposer_chip::<BS, BS, 3>(1, 2, c);
         test_trit_decomposer_chip::<BS, BS, 3>(2, 2, c);
@@ -1609,7 +1609,7 @@ mod tests {
 
     #[test]
     fn test_trit_decomposer_chip_goldilocks_3() {
-        let c = parse_hash("0xae3660f5d31368727052219f7bce7844dd72c94027f08043abe466be958a3d2d");
+        let c = parse_hash("0xcd2e447c612bf69ec867d540bb725527a3a5649848bfc9ad5a4c92a1dfd7e1e0");
         test_trit_decomposer_chip::<GL, GL4, 3>(0, 2, c);
         test_trit_decomposer_chip::<GL, GL4, 3>(1, 2, c);
         test_trit_decomposer_chip::<GL, GL4, 3>(2, 2, c);
@@ -1694,7 +1694,7 @@ mod tests {
 
     #[test]
     fn test_const_trit_comparator_chip_bluesky_1() {
-        let c = parse_hash("0x4b359bece2aeaa0d815ed51d66798bb4c8eb99922585e8470f4a4cd4e650fa18");
+        let c = parse_hash("0x3f9021a54c07edaac909eeef3cd6a19dce3ed5eba0fc5e5e32bed6ec10a29ca8");
         test_const_trit_comparator_chip::<BS, BS, 1>(0, 0, 4, c);
         test_const_trit_comparator_chip::<BS, BS, 1>(1, 0, 4, c);
         test_const_trit_comparator_chip::<BS, BS, 1>(2, 0, 4, c);
@@ -1708,7 +1708,7 @@ mod tests {
 
     #[test]
     fn test_const_trit_comparator_chip_goldilocks_1() {
-        let c = parse_hash("0x95feb533cc15d44e29e6e5c019881adec19d72736bf5a53a17e0742393878c18");
+        let c = parse_hash("0x0bdffae6740df40f4df4b7534689312e58245243a78cdd48d3da7482db23e9f7");
         test_const_trit_comparator_chip::<GL, GL4, 1>(0, 0, 4, c);
         test_const_trit_comparator_chip::<GL, GL4, 1>(1, 0, 4, c);
         test_const_trit_comparator_chip::<GL, GL4, 1>(2, 0, 4, c);
@@ -1722,7 +1722,7 @@ mod tests {
 
     #[test]
     fn test_const_trit_comparator_chip_bluesky_2() {
-        let c = parse_hash("0xe71bafef60cfd6df00da4a434dbb72d443fa8f56cf0ff26a52e6fa99a3383017");
+        let c = parse_hash("0xae3776b45539b4925b088bda49eb2a244929e3a955eedb761689a2aedc78b13a");
         for i in 0..9 {
             for j in 0..9 {
                 test_const_trit_comparator_chip::<BS, BS, 2>(i, j, 4, c);
@@ -1732,7 +1732,7 @@ mod tests {
 
     #[test]
     fn test_const_trit_comparator_chip_goldilocks_2() {
-        let c = parse_hash("0x4e6ac69f2c6649d6217cceb7d203b54cf34bd08c7202e21b84a1ea6c947eb81a");
+        let c = parse_hash("0xfff84edcf03256367e48ddb80eb655bca6ffc4d631fc6caa04d7427a651af175");
         for i in 0..9 {
             for j in 0..9 {
                 test_const_trit_comparator_chip::<GL, GL4, 2>(i, j, 4, c);
@@ -1786,7 +1786,7 @@ mod tests {
     #[test]
     fn test_full_trit_decomposer_chip_bluesky() {
         type Chip = FullTritDecomposerChip256<BS>;
-        let c = parse_hash("0x74254fa4297fe0e848462886f58e08f32f0b20bc1d73965b9d67c014499f5ea9");
+        let c = parse_hash("0x820e6832ce3b27021968d5ab471eed0ad581273745c2cac1fe4b4d9e0cb34bc3");
         test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(0, 4, c);
         test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(1, 4, c);
         test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(2, 4, c);
@@ -1804,7 +1804,7 @@ mod tests {
     #[test]
     fn test_full_trit_decomposer_chip_goldilocks() {
         type Chip = FullTritDecomposerChip64<GL>;
-        let c = parse_hash("0xda770da42421fb74bc9d87d907cdded42a7aa795f0eaa1a31d9cd54bbd04d084");
+        let c = parse_hash("0x4e050d9f5ddc82a16f384c720127a1e3d34bdcc80f2090c548e0eaf389e6a717");
         test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(0, 4, c);
         test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(1, 4, c);
         test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(2, 4, c);
@@ -1822,7 +1822,7 @@ mod tests {
     #[test]
     fn test_full_trit_decomposer_chip_koalabear() {
         type Chip = FullTritDecomposerChip32<KB>;
-        let c = parse_hash("0xa2ad1f596c4fc73cebf75ed02aaf9d3950dea1b704c63917bd17d94ebd8562b0");
+        let c = parse_hash("0xc69d307594ed65ab9c989034d8b83087e7faadee1d4161979b9b6a87dcdf49ad");
         test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(0, 4, c);
         test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(1, 4, c);
         test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(2, 4, c);
