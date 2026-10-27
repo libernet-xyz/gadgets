@@ -749,11 +749,15 @@ mod tests {
     use primitive_types::{H256, U256};
     use starkom_bluesky::{Scalar, from_const, parse_scalar};
     use starkom_ff::Field;
-    use starkom_pcs::hash::Sha2Hash;
+    use starkom_pcs::hash::{Keccak256Hash, Sha2Hash};
     use starkom_plonk::{CircuitBuilder, Options};
-    use starkom_poseidon::{self as poseidon1, BlueSkyConfigT3X5, BlueSkyConfigT4X5};
+    use starkom_poseidon::{
+        self as poseidon1, BlueSkyConfigT3X5, BlueSkyConfigT4X5, BlueSkyConfigT4X7,
+    };
+    use std::any::TypeId;
     use std::collections::BTreeMap;
     use std::fmt::Debug;
+    use std::marker::PhantomData;
     use std::sync::{Arc, LazyLock, Mutex};
 
     const BLOWUP_LOG2: usize = 3;
@@ -1042,25 +1046,38 @@ mod tests {
         }
     }
 
-    #[derive(Debug)]
-    struct BinaryNode {
+    /// A node of a binary tree hashed with the Poseidon configuration `C`, which must match the one
+    /// of the chip under test.
+    struct BinaryNode<C: PoseidonConfig<Scalar, 3> + 'static> {
         level: usize,
         hash: Scalar,
         left: Arc<dyn Node>,
         right: Arc<dyn Node>,
+        _data: PhantomData<fn() -> C>,
     }
 
-    impl BinaryNode {
+    impl<C: PoseidonConfig<Scalar, 3> + 'static> Debug for BinaryNode<C> {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("BinaryNode")
+                .field("level", &self.level)
+                .field("hash", &self.hash)
+                .field("left", &self.left)
+                .field("right", &self.right)
+                .finish()
+        }
+    }
+
+    impl<C: PoseidonConfig<Scalar, 3> + 'static> BinaryNode<C> {
         fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
-            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfigT3X5, Scalar, 3, 2, 1>(
-                [Scalar::ZERO],
-                [left.hash(), right.hash()],
-            );
-            Arc::new(BinaryNode {
+            let hash =
+                poseidon1::hash0::<C, Scalar, 3, 2, 1>([Scalar::ZERO], [left.hash(), right.hash()]);
+            Arc::new(BinaryNode::<C> {
                 level,
                 hash,
                 left,
                 right,
+                _data: PhantomData,
             })
         }
 
@@ -1069,7 +1086,7 @@ mod tests {
         }
     }
 
-    impl Node for BinaryNode {
+    impl<C: PoseidonConfig<Scalar, 3> + 'static> Node for BinaryNode<C> {
         fn hash(&self) -> Scalar {
             self.hash
         }
@@ -1109,23 +1126,37 @@ mod tests {
         }
     }
 
-    #[derive(Debug)]
-    struct TernaryNode {
+    /// A node of a ternary tree hashed with the Poseidon configuration `C`, which must match the
+    /// one of the chip under test.
+    struct TernaryNode<C: PoseidonConfig<Scalar, 4> + 'static> {
         level: usize,
         hash: Scalar,
         children: [Arc<dyn Node>; 3],
+        _data: PhantomData<fn() -> C>,
     }
 
-    impl TernaryNode {
+    impl<C: PoseidonConfig<Scalar, 4> + 'static> Debug for TernaryNode<C> {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("TernaryNode")
+                .field("level", &self.level)
+                .field("hash", &self.hash)
+                .field("children", &self.children)
+                .finish()
+        }
+    }
+
+    impl<C: PoseidonConfig<Scalar, 4> + 'static> TernaryNode<C> {
         fn new(level: usize, children: [Arc<dyn Node>; 3]) -> Arc<dyn Node> {
-            let hash = poseidon1::hash0::<poseidon1::BlueSkyConfigT4X5, Scalar, 4, 3, 1>(
+            let hash = poseidon1::hash0::<C, Scalar, 4, 3, 1>(
                 [Scalar::ZERO],
                 [children[0].hash(), children[1].hash(), children[2].hash()],
             );
-            Arc::new(TernaryNode {
+            Arc::new(TernaryNode::<C> {
                 level,
                 hash,
                 children,
+                _data: PhantomData,
             })
         }
 
@@ -1135,7 +1166,7 @@ mod tests {
         }
     }
 
-    impl Node for TernaryNode {
+    impl<C: PoseidonConfig<Scalar, 4> + 'static> Node for TernaryNode<C> {
         fn hash(&self) -> Scalar {
             self.hash
         }
@@ -1171,7 +1202,7 @@ mod tests {
         }
     }
 
-    fn get_empty_binary_tree_locked(
+    fn get_empty_binary_tree_locked<C: PoseidonConfig<Scalar, 3> + 'static>(
         nodes_by_level: &mut BTreeMap<usize, Arc<dyn Node>>,
         level: usize,
     ) -> Arc<dyn Node> {
@@ -1179,8 +1210,8 @@ mod tests {
             Some(node) => node.clone(),
             None => {
                 let node = if level > 0 {
-                    let child = get_empty_binary_tree_locked(nodes_by_level, level - 1);
-                    BinaryNode::new(level, child.clone(), child.clone())
+                    let child = get_empty_binary_tree_locked::<C>(nodes_by_level, level - 1);
+                    BinaryNode::<C>::new(level, child.clone(), child.clone())
                 } else {
                     Arc::new(Leaf::default())
                 };
@@ -1190,14 +1221,17 @@ mod tests {
         }
     }
 
-    fn get_empty_binary_tree(level: usize) -> Arc<dyn Node> {
-        static NODES_BY_LEVEL: LazyLock<Mutex<BTreeMap<usize, Arc<dyn Node>>>> =
+    fn get_empty_binary_tree<C: PoseidonConfig<Scalar, 3> + 'static>(
+        level: usize,
+    ) -> Arc<dyn Node> {
+        static NODES: LazyLock<Mutex<BTreeMap<TypeId, BTreeMap<usize, Arc<dyn Node>>>>> =
             LazyLock::new(|| Mutex::new(BTreeMap::default()));
-        let mut nodes_by_level = NODES_BY_LEVEL.lock().unwrap();
-        get_empty_binary_tree_locked(&mut nodes_by_level, level)
+        let mut nodes_by_config = NODES.lock().unwrap();
+        let nodes_by_level = nodes_by_config.entry(TypeId::of::<C>()).or_default();
+        get_empty_binary_tree_locked::<C>(nodes_by_level, level)
     }
 
-    fn get_empty_ternary_tree_locked(
+    fn get_empty_ternary_tree_locked<C: PoseidonConfig<Scalar, 4> + 'static>(
         nodes_by_level: &mut BTreeMap<usize, Arc<dyn Node>>,
         level: usize,
     ) -> Arc<dyn Node> {
@@ -1205,8 +1239,8 @@ mod tests {
             Some(node) => node.clone(),
             None => {
                 let node = if level > 0 {
-                    let child = get_empty_ternary_tree_locked(nodes_by_level, level - 1);
-                    TernaryNode::new(level, [child.clone(), child.clone(), child.clone()])
+                    let child = get_empty_ternary_tree_locked::<C>(nodes_by_level, level - 1);
+                    TernaryNode::<C>::new(level, [child.clone(), child.clone(), child.clone()])
                 } else {
                     Arc::new(Leaf::default())
                 };
@@ -1216,11 +1250,14 @@ mod tests {
         }
     }
 
-    fn get_empty_ternary_tree(level: usize) -> Arc<dyn Node> {
-        static NODES_BY_LEVEL: LazyLock<Mutex<BTreeMap<usize, Arc<dyn Node>>>> =
+    fn get_empty_ternary_tree<C: PoseidonConfig<Scalar, 4> + 'static>(
+        level: usize,
+    ) -> Arc<dyn Node> {
+        static NODES: LazyLock<Mutex<BTreeMap<TypeId, BTreeMap<usize, Arc<dyn Node>>>>> =
             LazyLock::new(|| Mutex::new(BTreeMap::default()));
-        let mut nodes_by_level = NODES_BY_LEVEL.lock().unwrap();
-        get_empty_ternary_tree_locked(&mut nodes_by_level, level)
+        let mut nodes_by_config = NODES.lock().unwrap();
+        let nodes_by_level = nodes_by_config.entry(TypeId::of::<C>()).or_default();
+        get_empty_ternary_tree_locked::<C>(nodes_by_level, level)
     }
 
     fn test_tall_binary_smt_impl<const H: usize>(
@@ -1228,7 +1265,7 @@ mod tests {
         key: u64,
     ) -> Result<()> {
         let tree = {
-            let mut tree = get_empty_binary_tree(H);
+            let mut tree = get_empty_binary_tree::<BlueSkyConfigT3X5>(H);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1363,7 +1400,7 @@ mod tests {
         key: u64,
     ) -> Result<()> {
         let tree = {
-            let mut tree = get_empty_ternary_tree(H);
+            let mut tree = get_empty_ternary_tree::<BlueSkyConfigT4X5>(H);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1498,7 +1535,7 @@ mod tests {
         key: u64,
     ) -> Result<()> {
         let tree = {
-            let mut tree = get_empty_binary_tree(256);
+            let mut tree = get_empty_binary_tree::<BlueSkyConfigT3X5>(256);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1599,7 +1636,7 @@ mod tests {
         key: u64,
     ) -> Result<()> {
         let tree = {
-            let mut tree = get_empty_ternary_tree(162);
+            let mut tree = get_empty_ternary_tree::<BlueSkyConfigT4X5>(162);
             for (key, value) in entries {
                 tree = tree.put(key.into(), value.into());
             }
@@ -1693,5 +1730,69 @@ mod tests {
         assert!(test_full_ternary_smt_impl(entries, 77).is_ok());
         assert!(test_full_ternary_smt_impl(entries, 78).is_ok());
         assert!(test_full_ternary_smt_impl(entries, 79).is_ok());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_full_ternary_smt_with_large_blowup() {
+        let tree = {
+            let mut tree = get_empty_ternary_tree::<BlueSkyConfigT4X7>(162);
+            tree = tree.put(from_const(12), from_const(34));
+            tree = tree.put(from_const(34), from_const(56));
+            tree = tree.put(from_const(56), from_const(78));
+            tree = tree.put(from_const(78), from_const(90));
+            tree = tree.put(from_const(90), from_const(12));
+            tree
+        };
+        let key = from_const(56);
+        let value = from_const(78);
+        let path: [[Scalar; 3]; 162] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected_root_hash = tree.hash();
+
+        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT4X7>::new(path);
+        assert_eq!(chip.width(), 95);
+        assert_eq!(chip.height(), 162);
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs).unwrap();
+        builder.declare_public_cells([root_hash.unwrap()]);
+        let circuit = builder
+            .build(Options {
+                canonicalize_constraints: false,
+                blowup_log2: 8,
+                fri_fold_rate: 1,
+                max_fri_rounds: 0,
+                grinding_bits: 20,
+                blind: true,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.pcs_config().degree_bound, 256);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness
+            .sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))
+            .unwrap();
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let proof = circuit.prove::<Keccak256Hash<Scalar>>(witness).unwrap();
+        let openings = circuit.verify(&proof).unwrap();
+        assert_eq!(openings[&root_hash], expected_root_hash);
     }
 }
