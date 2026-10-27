@@ -1681,17 +1681,17 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn test_full_ternary_smt_two_entries() {
         let entries = [(34, 56), (78, 12)];
-        // assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
-        // assert!(test_full_ternary_smt_impl(entries, 1).is_ok());
-        // assert!(test_full_ternary_smt_impl(entries, 2).is_ok());
-        // assert!(test_full_ternary_smt_impl(entries, 33).is_ok());
-        // assert!(test_full_ternary_smt_impl(entries, 34).is_ok());
-        // assert!(test_full_ternary_smt_impl(entries, 35).is_ok());
-        // assert!(test_full_ternary_smt_impl(entries, 77).is_ok());
-        // assert!(test_full_ternary_smt_impl(entries, 78).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 1).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 2).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 33).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 34).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 35).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 77).is_ok());
+        assert!(test_full_ternary_smt_impl(entries, 78).is_ok());
         assert!(test_full_ternary_smt_impl(entries, 79).is_ok());
     }
 }
