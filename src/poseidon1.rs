@@ -242,12 +242,15 @@ mod tests {
         let circuit = builder.build(Options {
             canonicalize_constraints: false,
             blowup_log2,
+            fri_fold_rate: 1,
+            max_fri_rounds: usize::MAX,
+            grinding_bits: 0,
             blind: false,
         })?;
         assert_eq!(circuit.num_rows(), 1);
         assert_eq!(circuit.num_columns(), chip.width());
         assert_eq!(circuit.get_max_gate_degree(), C::alpha());
-        let degree_bound = circuit.degree_bound();
+        let degree_bound = circuit.pcs_config().degree_bound;
         assert!(degree_bound <= 256);
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 1);
@@ -256,9 +259,7 @@ mod tests {
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let proof = circuit.prove::<Sha2Hash<F>>(witness)?;
-        assert_eq!(proof.degree_bound(), degree_bound);
-        assert_eq!(proof.blowup_log2(), blowup_log2);
-        assert_eq!(proof.extended_domain_size(), degree_bound << blowup_log2);
+        assert!(proof.pcs_config().satisfies(circuit.pcs_config()));
         let circuit = circuit.to_compressed::<Sha2Hash<F>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
@@ -451,12 +452,15 @@ mod tests {
         let circuit = builder.build(Options {
             canonicalize_constraints: false,
             blowup_log2,
+            fri_fold_rate: 1,
+            max_fri_rounds: usize::MAX,
+            grinding_bits: 0,
             blind: false,
         })?;
         assert_eq!(circuit.num_rows(), 1);
         assert_eq!(circuit.num_columns(), chip.width());
         assert_eq!(circuit.get_max_gate_degree(), C::alpha());
-        let degree_bound = circuit.degree_bound();
+        let degree_bound = circuit.pcs_config().degree_bound;
         assert!(degree_bound <= 1024);
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 1);
@@ -465,9 +469,7 @@ mod tests {
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let proof = circuit.prove::<Sha2Hash<G>>(witness)?;
-        assert_eq!(proof.degree_bound(), degree_bound);
-        assert_eq!(proof.blowup_log2(), blowup_log2);
-        assert_eq!(proof.extended_domain_size(), degree_bound << blowup_log2);
+        assert!(proof.pcs_config().satisfies(circuit.pcs_config()));
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;
@@ -604,12 +606,15 @@ mod tests {
         let circuit = builder.build(Options {
             canonicalize_constraints: false,
             blowup_log2,
+            fri_fold_rate: 1,
+            max_fri_rounds: usize::MAX,
+            grinding_bits: 0,
             blind: false,
         })?;
         assert_eq!(circuit.num_rows(), 1);
         assert_eq!(circuit.num_columns(), chip.width());
         assert_eq!(circuit.get_max_gate_degree(), C::alpha());
-        let degree_bound = circuit.degree_bound();
+        let degree_bound = circuit.pcs_config().degree_bound;
         assert!(degree_bound <= 2048);
         let mut witness = circuit.make_witness();
         assert_eq!(witness.num_rows(), 1);
@@ -618,9 +623,7 @@ mod tests {
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
         let proof = circuit.prove::<Sha2Hash<G>>(witness)?;
-        assert_eq!(proof.degree_bound(), degree_bound);
-        assert_eq!(proof.blowup_log2(), blowup_log2);
-        assert_eq!(proof.extended_domain_size(), degree_bound << blowup_log2);
+        assert!(proof.pcs_config().satisfies(circuit.pcs_config()));
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let public_inputs = circuit.verify(&proof)?;

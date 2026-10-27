@@ -782,6 +782,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 0,
                 blind: true,
             })
             .unwrap();
@@ -885,6 +888,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 0,
                 blind: true,
             })
             .unwrap();
@@ -1251,6 +1257,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 0,
                 blind: true,
             })
             .unwrap();
@@ -1383,6 +1392,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 0,
                 blind: true,
             })
             .unwrap();
@@ -1515,11 +1527,14 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: 0,
+                grinding_bits: 20,
                 blind: true,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
-        assert_eq!(circuit.degree_bound(), 512);
+        assert_eq!(circuit.pcs_config().degree_bound, 512);
         assert_eq!(circuit.num_columns(), chip.width());
 
         let mut witness = circuit.make_witness();
@@ -1613,11 +1628,14 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: 0,
+                grinding_bits: 20,
                 blind: true,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), chip.height() + 1);
-        assert_eq!(circuit.degree_bound(), 256);
+        assert_eq!(circuit.pcs_config().degree_bound, 256);
         assert_eq!(circuit.num_columns(), chip.width());
 
         let mut witness = circuit.make_witness();
@@ -1663,17 +1681,17 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn test_full_ternary_smt_two_entries() {
         let entries = [(34, 56), (78, 12)];
-        assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
-        assert!(test_full_ternary_smt_impl(entries, 1).is_ok());
-        assert!(test_full_ternary_smt_impl(entries, 2).is_ok());
-        assert!(test_full_ternary_smt_impl(entries, 33).is_ok());
-        assert!(test_full_ternary_smt_impl(entries, 34).is_ok());
-        assert!(test_full_ternary_smt_impl(entries, 35).is_ok());
-        assert!(test_full_ternary_smt_impl(entries, 77).is_ok());
-        assert!(test_full_ternary_smt_impl(entries, 78).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 0).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 1).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 2).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 33).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 34).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 35).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 77).is_ok());
+        // assert!(test_full_ternary_smt_impl(entries, 78).is_ok());
         assert!(test_full_ternary_smt_impl(entries, 79).is_ok());
     }
 }

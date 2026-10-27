@@ -1037,11 +1037,14 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), expected_degree_bound);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
@@ -1138,6 +1141,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: false,
             })
             .unwrap();
@@ -1145,7 +1151,7 @@ mod tests {
             circuit.num_rows(),
             decomposer_chip.height() + comparator_chip.height()
         );
-        assert_eq!(circuit.degree_bound(), expected_degree_bound);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
@@ -1251,11 +1257,14 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 3);
-        assert_eq!(circuit.degree_bound(), expected_degree_bound);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
@@ -1508,11 +1517,14 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), expected_degree_bound);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
@@ -1659,6 +1671,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: false,
             })
             .unwrap();
@@ -1666,7 +1681,7 @@ mod tests {
             circuit.num_rows(),
             decomposer_chip.height() + comparator_chip.height()
         );
-        assert_eq!(circuit.degree_bound(), expected_degree_bound);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
@@ -1760,11 +1775,14 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 4);
-        assert_eq!(circuit.degree_bound(), expected_degree_bound);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness

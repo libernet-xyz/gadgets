@@ -335,6 +335,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: true,
             })
             .unwrap();
@@ -574,6 +577,9 @@ mod tests {
             .build(Options {
                 canonicalize_constraints: false,
                 blowup_log2: BLOWUP_LOG2,
+                fri_fold_rate: 1,
+                max_fri_rounds: usize::MAX,
+                grinding_bits: 20,
                 blind: true,
             })
             .unwrap();
