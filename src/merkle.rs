@@ -760,6 +760,7 @@ mod tests {
     use std::marker::PhantomData;
     use std::sync::{Arc, LazyLock, Mutex};
 
+    const SECURITY_BITS: usize = 128;
     const BLOWUP_LOG2: usize = 3;
 
     fn parse_hash(s: &'static str) -> H256 {
@@ -785,6 +786,7 @@ mod tests {
         let circuit = builder
             .build(Options {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
                 fri_fold_rate: 1,
                 max_fri_rounds: usize::MAX,
@@ -891,6 +893,7 @@ mod tests {
         let circuit = builder
             .build(Options {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
                 fri_fold_rate: 1,
                 max_fri_rounds: usize::MAX,
@@ -1293,6 +1296,7 @@ mod tests {
         let circuit = builder
             .build(Options {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
                 fri_fold_rate: 1,
                 max_fri_rounds: usize::MAX,
@@ -1428,6 +1432,7 @@ mod tests {
         let circuit = builder
             .build(Options {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
                 fri_fold_rate: 1,
                 max_fri_rounds: usize::MAX,
@@ -1563,6 +1568,7 @@ mod tests {
         let circuit = builder
             .build(Options {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
                 fri_fold_rate: 1,
                 max_fri_rounds: 0,
@@ -1664,6 +1670,7 @@ mod tests {
         let circuit = builder
             .build(Options {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
                 fri_fold_rate: 1,
                 max_fri_rounds: 0,
@@ -1766,6 +1773,7 @@ mod tests {
         let circuit = builder
             .build(Options {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
                 blowup_log2: 8,
                 fri_fold_rate: 1,
                 max_fri_rounds: 0,

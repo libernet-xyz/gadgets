@@ -220,6 +220,8 @@ mod tests {
     #[cfg(feature = "schraderbrau")]
     use starkom_schraderbrau::Scalar as SB;
 
+    const SECURITY_BITS: usize = 128;
+
     fn parse<T: FromStr<Err: Debug>>(s: &'static str) -> T {
         s.parse().unwrap()
     }
@@ -241,6 +243,7 @@ mod tests {
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(Options {
             canonicalize_constraints: false,
+            security_bits: SECURITY_BITS,
             blowup_log2,
             fri_fold_rate: 1,
             max_fri_rounds: usize::MAX,
@@ -451,6 +454,7 @@ mod tests {
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(Options {
             canonicalize_constraints: false,
+            security_bits: SECURITY_BITS,
             blowup_log2,
             fri_fold_rate: 1,
             max_fri_rounds: usize::MAX,
@@ -605,6 +609,7 @@ mod tests {
         builder.declare_public_cells(output.into_iter().flatten());
         let circuit = builder.build(Options {
             canonicalize_constraints: false,
+            security_bits: SECURITY_BITS,
             blowup_log2,
             fri_fold_rate: 1,
             max_fri_rounds: usize::MAX,
