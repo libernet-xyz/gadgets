@@ -805,7 +805,7 @@ mod tests {
     use starkom_goldilocks::{GL, GL4};
     use starkom_koalabear::{KB, KB8};
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, Options};
+    use starkom_plonk::{CircuitBuilder, CircuitOptions};
     use std::cmp::Ordering;
 
     const SECURITY_BITS: usize = 128;
@@ -1035,12 +1035,10 @@ mod tests {
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 20,
                 blind: false,
             })
@@ -1058,7 +1056,9 @@ mod tests {
             });
         assert_eq!(bits, decompose_bits::<F, N>(value.into())[0..N]);
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness).unwrap();
+        let proof = circuit
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
+            .unwrap();
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
@@ -1140,12 +1140,10 @@ mod tests {
             .unwrap();
         builder.declare_public_cells([cmp.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 20,
                 blind: false,
             })
@@ -1166,7 +1164,9 @@ mod tests {
                 .is_ok()
         );
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness).unwrap();
+        let proof = circuit
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
+            .unwrap();
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
@@ -1257,12 +1257,10 @@ mod tests {
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 20,
                 blind: false,
             })
@@ -1280,7 +1278,9 @@ mod tests {
             });
         assert_eq!(bits, decompose_bits::<F, N>(value.into()));
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness).unwrap();
+        let proof = circuit
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
+            .unwrap();
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
@@ -1518,12 +1518,10 @@ mod tests {
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 20,
                 blind: false,
             })
@@ -1541,7 +1539,9 @@ mod tests {
             });
         assert_eq!(trits, decompose_trits::<F, N>(value.into())[0..N]);
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness).unwrap();
+        let proof = circuit
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
+            .unwrap();
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
@@ -1673,12 +1673,10 @@ mod tests {
             .unwrap();
         builder.declare_public_cells([cmp.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 20,
                 blind: false,
             })
@@ -1699,7 +1697,9 @@ mod tests {
                 .is_ok()
         );
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness).unwrap();
+        let proof = circuit
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
+            .unwrap();
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
@@ -1778,12 +1778,10 @@ mod tests {
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
         builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 20,
                 blind: false,
             })
@@ -1801,7 +1799,9 @@ mod tests {
             });
         assert_eq!(trits, decompose_trits::<F, N>(value.into()));
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness).unwrap();
+        let proof = circuit
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
+            .unwrap();
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();

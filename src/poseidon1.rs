@@ -203,7 +203,7 @@ mod tests {
     use primitive_types::H256;
     use starkom_ff::{PrimeField32, PrimeField64, PrimeField256};
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, Options};
+    use starkom_plonk::{CircuitBuilder, CircuitOptions};
     use starkom_poseidon::Config;
     use std::fmt::Debug;
     use std::str::FromStr;
@@ -241,12 +241,10 @@ mod tests {
         let mut builder = CircuitBuilder::<F, F>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
-        let circuit = builder.build(Options {
+        let circuit = builder.build(CircuitOptions {
             canonicalize_constraints: false,
             security_bits: SECURITY_BITS,
             blowup_log2,
-            fri_fold_rate: 1,
-            max_fri_rounds: usize::MAX,
             grinding_bits: 0,
             blind: false,
         })?;
@@ -261,7 +259,7 @@ mod tests {
         assert_eq!(witness.num_columns(), chip.width());
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<F>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<F>>(witness, &circuit.default_proof_options())?;
         assert!(proof.pcs_config().satisfies(circuit.pcs_config()));
         let circuit = circuit.to_compressed::<Sha2Hash<F>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
@@ -452,12 +450,10 @@ mod tests {
         let mut builder = CircuitBuilder::<F, G>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
-        let circuit = builder.build(Options {
+        let circuit = builder.build(CircuitOptions {
             canonicalize_constraints: false,
             security_bits: SECURITY_BITS,
             blowup_log2,
-            fri_fold_rate: 1,
-            max_fri_rounds: usize::MAX,
             grinding_bits: 0,
             blind: false,
         })?;
@@ -472,7 +468,7 @@ mod tests {
         assert_eq!(witness.num_columns(), chip.width());
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())?;
         assert!(proof.pcs_config().satisfies(circuit.pcs_config()));
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
@@ -607,12 +603,10 @@ mod tests {
         let mut builder = CircuitBuilder::<F, G>::default();
         let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
         builder.declare_public_cells(output.into_iter().flatten());
-        let circuit = builder.build(Options {
+        let circuit = builder.build(CircuitOptions {
             canonicalize_constraints: false,
             security_bits: SECURITY_BITS,
             blowup_log2,
-            fri_fold_rate: 1,
-            max_fri_rounds: usize::MAX,
             grinding_bits: 0,
             blind: false,
         })?;
@@ -627,7 +621,7 @@ mod tests {
         assert_eq!(witness.num_columns(), chip.width());
         let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<G>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())?;
         assert!(proof.pcs_config().satisfies(circuit.pcs_config()));
         let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);

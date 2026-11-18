@@ -750,7 +750,7 @@ mod tests {
     use starkom_bluesky::{Scalar, from_const, parse_scalar};
     use starkom_ff::Field;
     use starkom_pcs::hash::{Keccak256Hash, Sha2Hash};
-    use starkom_plonk::{CircuitBuilder, Options};
+    use starkom_plonk::{CircuitBuilder, CircuitOptions, ProofOptions};
     use starkom_poseidon::{
         self as poseidon1, BlueSkyConfigT3X5, BlueSkyConfigT4X5, BlueSkyConfigT4X7,
     };
@@ -784,12 +784,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 0,
                 blind: true,
             })
@@ -804,7 +802,7 @@ mod tests {
             _ => panic!(),
         };
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, &circuit.default_proof_options())?;
         let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>();
         // assert_eq!(circuit.commitment(), circuit_commitment);  // TODO: re-enable
         let openings = circuit.verify(&proof)?;
@@ -891,12 +889,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 0,
                 blind: true,
             })
@@ -911,7 +907,7 @@ mod tests {
             _ => panic!(),
         };
         circuit.check_witness(&witness).unwrap();
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, &circuit.default_proof_options())?;
         let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>();
         // assert_eq!(circuit.commitment(), circuit_commitment);  // TODO: re-enable
         let openings = circuit.verify(&proof)?;
@@ -1294,12 +1290,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 0,
                 blind: true,
             })
@@ -1319,7 +1313,7 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, &circuit.default_proof_options())?;
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
@@ -1430,12 +1424,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: usize::MAX,
                 grinding_bits: 0,
                 blind: true,
             })
@@ -1455,7 +1447,7 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, &circuit.default_proof_options())?;
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
@@ -1566,12 +1558,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: 0,
                 grinding_bits: 20,
                 blind: true,
             })
@@ -1592,7 +1582,13 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(
+            witness,
+            &ProofOptions {
+                max_fri_rounds: 0,
+                ..circuit.default_proof_options()
+            },
+        )?;
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
@@ -1668,12 +1664,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs)?;
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: BLOWUP_LOG2,
-                fri_fold_rate: 1,
-                max_fri_rounds: 0,
                 grinding_bits: 20,
                 blind: true,
             })
@@ -1694,7 +1688,13 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness)?;
+        let proof = circuit.prove::<Sha2Hash<Scalar>>(
+            witness,
+            &ProofOptions {
+                max_fri_rounds: 0,
+                ..circuit.default_proof_options()
+            },
+        )?;
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
 
@@ -1771,12 +1771,10 @@ mod tests {
         let [root_hash] = builder.sub_chip(1, 0, &chip, inputs).unwrap();
         builder.declare_public_cells([root_hash.unwrap()]);
         let circuit = builder
-            .build(Options {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: 8,
-                fri_fold_rate: 1,
-                max_fri_rounds: 0,
                 grinding_bits: 20,
                 blind: true,
             })
@@ -1799,7 +1797,15 @@ mod tests {
 
         circuit.check_witness(&witness).unwrap();
 
-        let proof = circuit.prove::<Keccak256Hash<Scalar>>(witness).unwrap();
+        let proof = circuit
+            .prove::<Keccak256Hash<Scalar>>(
+                witness,
+                &ProofOptions {
+                    max_fri_rounds: 0,
+                    ..circuit.default_proof_options()
+                },
+            )
+            .unwrap();
         let openings = circuit.verify(&proof).unwrap();
         assert_eq!(openings[&root_hash], expected_root_hash);
     }
