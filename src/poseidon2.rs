@@ -170,9 +170,11 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> PlonkChip<F, T, 
         let mut offset = T * 2;
 
         for r in 0..num_full_rounds_per_side {
-            let sbox_outputs: [F; T] =
-                std::array::from_fn(|j| (c[r * T + j] + state[j]).pow_small(a));
-            state = std::array::from_fn(|i| (0..T).map(|j| sbox_outputs[j] * em[i * T + j]).sum());
+            state = std::array::from_fn(|i| {
+                (0..T)
+                    .map(|j| (c[r * T + j] + state[j]).pow_small(a) * em[i * T + j])
+                    .sum()
+            });
             for i in 0..T {
                 view.set(view.cell(0, offset + i), state[i]);
             }
@@ -180,9 +182,8 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> PlonkChip<F, T, 
         }
 
         for r in num_full_rounds_per_side..(num_full_rounds_per_side + num_partial_rounds) {
-            let sbox_output = (c[r * T] + state[0]).pow_small(a);
             state = std::array::from_fn(|i| {
-                std::iter::once(sbox_output * im[i * T])
+                std::iter::once((c[r * T] + state[0]).pow_small(a) * im[i * T])
                     .chain((1..T).map(|j| state[j] * im[i * T + j]))
                     .sum()
             });
@@ -196,9 +197,11 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> PlonkChip<F, T, 
         offset += T - 1;
 
         for r in (num_full_rounds_per_side + num_partial_rounds)..num_total_rounds {
-            let sbox_outputs: [F; T] =
-                std::array::from_fn(|j| (c[r * T + j] + state[j]).pow_small(a));
-            state = std::array::from_fn(|i| (0..T).map(|j| sbox_outputs[j] * em[i * T + j]).sum());
+            state = std::array::from_fn(|i| {
+                (0..T)
+                    .map(|j| (c[r * T + j] + state[j]).pow_small(a) * em[i * T + j])
+                    .sum()
+            });
             for i in 0..T {
                 view.set(view.cell(0, offset + i), state[i]);
             }
