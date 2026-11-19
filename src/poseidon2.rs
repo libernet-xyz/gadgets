@@ -125,13 +125,14 @@ impl<F: PrimeField, C: poseidon2::Config<F, T>, const T: usize> PlonkChip<F, T, 
         offset += T - 1;
 
         for r in (num_full_rounds_per_side + num_partial_rounds)..num_total_rounds {
-            let sbox_outputs: [Constraint<F>; T] =
-                std::array::from_fn(|j| (make_const(c[r * T + j]) + state[j].clone()) ^ a);
             for i in 0..T {
                 view.add_gate(
                     0,
                     (0..T)
-                        .map(|j| sbox_outputs[j].clone() * make_const(em[i * T + j]))
+                        .map(|j| {
+                            ((make_const(c[r * T + j]) + state[j].clone()) ^ a)
+                                * make_const(em[i * T + j])
+                        })
                         .sum::<Constraint<F>>()
                         - var(offset + i),
                 );
