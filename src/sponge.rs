@@ -1,5 +1,5 @@
 use anyhow::Result;
-use starkom_ff::{Field, Field256};
+use starkom_ff::{Field256, PrimeField};
 use starkom_plonk::{Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, var};
 use std::marker::PhantomData;
 
@@ -54,7 +54,7 @@ use std::marker::PhantomData;
 /// columns are just a waste and it's cheaper to use the permutation chip directly.
 #[derive(Debug, Clone, Copy)]
 pub struct SpongeChip<
-    F: Field,
+    F: PrimeField,
     P: PlonkChip<F, T, T>,
     const T: usize,
     const R: usize,
@@ -66,7 +66,7 @@ pub struct SpongeChip<
 }
 
 impl<
-    F: Field,
+    F: PrimeField,
     P: PlonkChip<F, T, T>,
     const T: usize,
     const R: usize,
@@ -93,7 +93,7 @@ impl<
 }
 
 impl<
-    F: Field,
+    F: PrimeField,
     P: PlonkChip<F, T, T> + Default,
     const T: usize,
     const R: usize,
@@ -107,7 +107,7 @@ impl<
 }
 
 impl<
-    F: Field,
+    F: PrimeField,
     P: PlonkChip<F, T, T>,
     const T: usize,
     const R: usize,
@@ -135,10 +135,10 @@ impl<
         for block in 0..Self::NUM_BLOCKS {
             let mut view = view.sub(block * block_height, 0, Some(width), Some(block_height));
             for i in 0..R {
-                if block == 0 {
-                    view.add_gate(0, var(R + i));
-                } else {
+                if block != 0 {
                     view.connect(state[i], view.cell(0, R + i).into());
+                } else {
+                    view.add_gate(0, var(R + i));
                 }
                 match inputs.get(C + block * R + i) {
                     Some(&message) => view.connect(message, view.cell(0, 2 * R + i).into()),
@@ -164,11 +164,11 @@ impl<
         for block in 0..Self::NUM_BLOCKS {
             let mut view = view.sub(block * block_height, 0, Some(width), Some(block_height));
             for i in 0..R {
-                let previous = if block == 0 {
+                let previous = if block != 0 {
+                    view.copy(state[i], view.cell(0, R + i))
+                } else {
                     view.set(view.cell(0, R + i), F::ZERO);
                     F::ZERO
-                } else {
-                    view.copy(state[i], view.cell(0, R + i))
                 };
                 let message = match inputs.get(C + block * R + i) {
                     Some(&message) => view.copy(message, view.cell(0, 2 * R + i)),
@@ -189,8 +189,10 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{poseidon1, poseidon2};
+    use crate::poseidon1;
+    use crate::poseidon2;
     use primitive_types::H256;
+    use starkom_ff::Field;
     use starkom_pcs::hash::Sha2Hash;
     use starkom_plonk::{Circuit, CircuitBuilder, CircuitOptions, Witness};
     use std::fmt::Debug;
@@ -253,7 +255,7 @@ mod tests {
     ///
     /// The expected outputs used in the tests below have been calculated off-circuit by running
     /// [`starkom_poseidon::hash`] and [`starkom_poseidon2::hash`] on these inputs.
-    fn make_inputs<F: Field, const C: usize, const I: usize>() -> [F; I] {
+    fn make_inputs<F: PrimeField, const C: usize, const I: usize>() -> [F; I] {
         std::array::from_fn(|i| {
             if i < C {
                 F::from(100 + i as u16)
@@ -269,7 +271,7 @@ mod tests {
     /// and output cells of the sponge are public. The witness is generated honestly from the
     /// inputs returned by [`make_inputs`].
     struct SpongeFixture<
-        F: Field,
+        F: PrimeField,
         G: Field256<BaseField = F>,
         P: PlonkChip<F, T, T>,
         const T: usize,
@@ -287,7 +289,7 @@ mod tests {
     }
 
     impl<
-        F: Field,
+        F: PrimeField,
         G: Field256<BaseField = F>,
         P: PlonkChip<F, T, T> + Default,
         const T: usize,
@@ -359,7 +361,7 @@ mod tests {
     }
 
     fn test_sponge_impl<
-        F: Field,
+        F: PrimeField,
         G: Field256<BaseField = F>,
         P: PlonkChip<F, T, T> + Default,
         const T: usize,
@@ -402,7 +404,7 @@ mod tests {
     }
 
     fn test_tampered_input_impl<
-        F: Field,
+        F: PrimeField,
         G: Field256<BaseField = F>,
         P: PlonkChip<F, T, T> + Default,
         const T: usize,
@@ -420,7 +422,7 @@ mod tests {
     }
 
     fn test_forged_last_block_impl<
-        F: Field,
+        F: PrimeField,
         G: Field256<BaseField = F>,
         P: PlonkChip<F, T, T> + Default,
         const T: usize,
