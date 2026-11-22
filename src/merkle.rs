@@ -1527,6 +1527,77 @@ mod tests {
         assert!(test_tall_ternary_smt_impl::<101>(entries, 79).is_ok());
     }
 
+    #[test]
+    #[ignore]
+    fn test_taller_ternary_smt_with_large_blowup() {
+        let tree = {
+            let mut tree = get_empty_ternary_tree::<BlueSkyConfigT4X7>(102);
+            tree = tree.put(from_const(12), from_const(34));
+            tree = tree.put(from_const(34), from_const(56));
+            tree = tree.put(from_const(56), from_const(78));
+            tree = tree.put(from_const(78), from_const(90));
+            tree = tree.put(from_const(90), from_const(12));
+            tree
+        };
+        let key = from_const(56);
+        let value = from_const(78);
+        let path: [[Scalar; 3]; 102] = tree
+            .get_merkle_path(key.into())
+            .into_iter()
+            .map(|entry| entry.try_into().unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected_root_hash = tree.hash();
+
+        let chip = TernaryChip::<Scalar, 102, BlueSkyConfigT4X7>::new(path);
+        assert_eq!(chip.width(), 94);
+        assert_eq!(chip.height(), 102);
+
+        let mut builder = CircuitBuilder::default();
+        let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
+        let [root_hash] = builder.sub_chip(1, 0, &chip, inputs).unwrap();
+        builder.declare_public_cells([root_hash.unwrap()]);
+        let circuit = builder
+            .build(CircuitOptions {
+                canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
+                blowup_log2: 8,
+                grinding_bits: 20,
+                blind: true,
+            })
+            .unwrap();
+        assert_eq!(circuit.num_rows(), chip.height() + 1);
+        assert_eq!(circuit.pcs_config().degree_bound, 128);
+        assert_eq!(circuit.num_columns(), chip.width());
+
+        let mut witness = circuit.make_witness();
+        let inputs = [witness.cell(0, 0), witness.cell(0, 1)];
+        witness.set(inputs[0], key);
+        witness.set(inputs[1], value);
+        let [root_hash] = witness
+            .sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))
+            .unwrap();
+        let root_hash = match root_hash {
+            CellOrUnconstrained::Cell(cell) => cell,
+            _ => panic!(),
+        };
+
+        circuit.check_witness(&witness).unwrap();
+
+        let proof = circuit
+            .prove::<Keccak256Hash<Scalar>>(
+                witness,
+                &ProofOptions {
+                    max_fri_rounds: 0,
+                    ..circuit.default_proof_options()
+                },
+            )
+            .unwrap();
+        let openings = circuit.verify(&proof).unwrap();
+        assert_eq!(openings[&root_hash], expected_root_hash);
+    }
+
     fn test_full_binary_smt_impl<I: IntoIterator<Item = (u64, u64)>>(
         entries: I,
         key: u64,
