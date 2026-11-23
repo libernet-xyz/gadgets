@@ -1,3 +1,11 @@
+//! Merkle lookups over Sparse Merkle Trees whose keys and values are elements of the 256-bit
+//! extension of a 32-bit field.
+//!
+//! Every chip hashes the tree nodes with a Poseidon1 permutation whose state holds the children
+//! followed by 16 capacity elements (~512 bits), warranting ~128 bits of preimage resistance in a
+//! quantum setting. A child takes 8 elements, so the state width of the permutation is 32 in the
+//! binary chip. The hash of a node is made of the first 8 elements of the output.
+
 use crate::poseidon1;
 use crate::xits;
 use anyhow::{Result, anyhow};
@@ -10,23 +18,23 @@ use starkom_poseidon::Config as PoseidonConfig;
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
 /// Key and values of the Merkle tree are defined over the 256-bit extension field and must be
-/// decomposed into 32 bit base field elements off-circuit. The Poseidon permutation chip must
-/// support T=24 so that 8 input elements are used for each child hash and 8 more are used for
-/// capacity.
+/// decomposed into 32-bit base field elements off-circuit. Every node is hashed with the Poseidon1
+/// permutation of state width 32: the input state holds the two children (8 elements each) followed
+/// by 16 zeros.
 #[derive(Debug, Clone)]
-pub struct BinaryChip<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> {
-    hasher: poseidon1::PermutationChip<F, C, 24>,
+pub struct BinaryChip<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 32>> {
+    hasher: poseidon1::PermutationChip<F, C, 32>,
     path: [[F; 16]; H],
 }
 
-impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> Default for BinaryChip<F, H, C> {
+impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 32>> Default for BinaryChip<F, H, C> {
     fn default() -> Self {
         Self::new([[F::ZERO; 16]; H])
     }
 }
 
-impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H, C> {
-    const SELECTOR_WIDTH: usize = 43;
+impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 32>> BinaryChip<F, H, C> {
+    const SELECTOR_WIDTH: usize = 51;
 
     pub fn new(path: [[F; 16]; H]) -> Self {
         assert!(H <= 256);
@@ -48,10 +56,10 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H,
 
     /// Selector layout:
     ///
-    /// 0        8        16   17   18   19       27       35       43
-    /// +--------+--------+----+----+----+--------+--------+--------+
-    /// |   H1   |   H2   | B  | C  | S  |   I1   |   I2   |   0    |
-    /// +--------+--------+----+----+----+--------+--------+--------+
+    /// 0        8        16   17   18   19       27       35               51
+    /// +--------+--------+----+----+----+--------+--------+----------------+
+    /// |   H1   |   H2   | B  | C  | S  |   I1   |   I2   |       0        |
+    /// +--------+--------+----+----+----+--------+--------+----------------+
     ///
     /// H1 = leaf-to-root path hash (8 digits)
     /// H2 = peer hash (8 digits, unconstrained)
@@ -60,12 +68,12 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H,
     /// S = key bit sum (1 digit)
     /// I1 = left-hand-side input hash (8 digits, either H1 or H2)
     /// I2 = right-hand-side input hash (8 digits, either H1 or H2)
-    /// 0 = a zero scalar used as input capacity (8 digits)
+    /// 0 = the zero scalars used as input capacity (16 digits)
     ///
-    /// Total [selector width](`Self::SELECTOR_WIDTH`): 43 field elements.
+    /// Total [selector width](`Self::SELECTOR_WIDTH`): 51 field elements.
     ///
     /// The lookup key is an octet from the 256-bit extension field and it's decomposed into its
-    /// 32-bit base field elements off-circuit, in little-endia order. The chip further decomposes
+    /// 32-bit base field elements off-circuit, in little-endian order. The chip further decomposes
     /// each base field element (or "digit") into its 32 bits using the full decomposition pattern,
     /// similar to [`xits::FullBitDecomposerChip256`]. The B column contains all 256 decomposed bits
     /// in little-endian order, with each group of 32 bits representing a base field element (even
@@ -75,10 +83,15 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H,
     /// bit of the second-least significant digit, and so on up to the last (256th) row which
     /// contains the most significant bit of the most significant digit and of the whole key.
     ///
-    /// The S column is used to reconstruct the original base field elements of the key by summing
-    /// the decomposed bits weighted by the corresponding powers of two. The 8 reconstructed digits
-    /// are located at rows `32i-1`: 31, 63, 95, 127, 159, 191, 223, and 255. Once reconstructed,
-    /// each digit must be constrained to equal the corresponding one in the original key.
+    /// The S column reconstructs the original base field elements of the key with Horner's method,
+    /// from the most significant bit of each digit to the least significant one: every row holds
+    /// twice the S value of the next row plus its own bit, except for the rows of the most
+    /// significant bits of the digits (and the last row of the chip), which hold just their bit.
+    /// So the 8 reconstructed digits are located at rows `32i`: 0, 32, 64, 96, 128, 160, 192, and
+    /// 224, and each of them must be constrained to equal the corresponding digit of the original
+    /// key. That way all rows but one in 32 (and the last one) have the same S constraint, so they
+    /// share the same selector. If `H` is less than 256 the most significant digits of the key that
+    /// don't have any rows in the chip are constrained to zero.
     ///
     /// Since the S sum only proves *congruency* rather than absolute equality, a malicious prover
     /// might inject key digits that only equal the provided lookup key after wraparound. To prevent
@@ -90,11 +103,11 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H,
     ///
     /// NOTE: since the rows of the chip are ordered in little-endian (the first row calculates the
     /// leaf hash with the least significant bit of the key, the last row calculates the root hash
-    /// with the most significant bit of the key), each C bit must refer to the *next* one
-    /// (`rvar(3, +1)`) to determine whether or not the comparison has been already resolved by a
-    /// higher bit.
+    /// with the most significant bit of the key), each C cell must refer to the *next* one
+    /// (`rvar(17, 1)`) to determine whether or not the comparison has been already resolved by a
+    /// higher bit. Likewise, each S cell refers to the next one (`rvar(18, 1)`).
     ///
-    /// The last three elements of the selector are the permutation input state vector.
+    /// Note that the last 32 elements of the selector are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
         &self,
         view: &mut impl CircuitView<F, G>,
@@ -115,19 +128,17 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H,
                         * (var(16) - make_const(Self::modulus_bit(j)))
                     - var(17),
             );
-        } else if Self::modulus_has_bits_above(j) {
-            view.add_gate(0, var(17) + make_const(F::ONE));
+            view.add_gate(0, rvar(18, 1) * 2 + var(16) - var(18));
         } else {
-            view.add_gate(0, var(16) - make_const(Self::modulus_bit(j)) - var(17));
-        }
-        if j != 0 {
-            view.add_gate(
-                0,
-                var(16) * (make_const(F::from(2u8)) ^ (j as isize)) + rvar(18, -1) - var(18),
-            );
-        } else {
-            view.add_gate(0, var(17) + make_const(F::ONE));
+            if Self::modulus_has_bits_above(j) {
+                view.add_gate(0, var(17) + make_const(F::ONE));
+            } else {
+                view.add_gate(0, var(16) - make_const(Self::modulus_bit(j)) - var(17));
+            }
             view.add_gate(0, var(16) - var(18));
+        }
+        if j == 0 {
+            view.add_gate(0, var(17) + make_const(F::ONE));
         }
 
         for j in 0..8 {
@@ -139,15 +150,17 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H,
                 0,
                 var(16) * var(j) + (make_const(F::ONE) - var(16)) * var(8 + j) - var(27 + j),
             );
+        }
+        for j in 0..16 {
             view.add_gate(0, var(35 + j));
         }
     }
 
     /// See [`Self::build_input_selector`] for the layout.
     ///
-    /// This function fills in all selector cells of the i-th row except the C column, which cannot
-    /// be determined without knowing the entry from the next row. The C column is filled in
-    /// separately by the caller.
+    /// This function fills in all selector cells of the i-th row except the C and S columns, which
+    /// cannot be determined without knowing the entries from the next row. The C and S columns are
+    /// filled in separately by the caller.
     fn witness_input_selector(&self, view: &mut impl WitnessView<F>, bits: &[F], i: usize) {
         let bit = bits[i];
         if bit != F::ZERO {
@@ -162,23 +175,17 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> BinaryChip<F, H,
             }
         }
         view.set(view.cell(0, 16), bit);
-        if i & 31 != 0 {
-            view.set(
-                view.cell(0, 18),
-                bit * F::from(2u8).pow_small(i & 31) + view.get_at(view.cell(-1, 18)),
-            );
-        } else {
-            view.copy(view.cell(0, 16).into(), view.cell(0, 18));
-        }
         for j in 0..8 {
             view.set(view.cell(0, 19 + j), self.path[i][j]);
             view.set(view.cell(0, 27 + j), self.path[i][8 + j]);
+        }
+        for j in 0..16 {
             view.set(view.cell(0, 35 + j), F::ZERO);
         }
     }
 }
 
-impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16, 8>
+impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 32>> PlonkChip<F, 16, 8>
     for BinaryChip<F, H, C>
 {
     fn width(&self) -> usize {
@@ -215,10 +222,10 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
         }
         for i in 0..8 {
             if 32 * i < H {
-                view.connect(
-                    key[i],
-                    view.cell(std::cmp::min(H, 32 * (i + 1)) - 1, 18).into(),
-                );
+                view.connect(key[i], view.cell(32 * i, 18).into());
+            } else {
+                // The first capacity zero of the first row.
+                view.connect(key[i], view.cell(0, 35).into());
             }
         }
         Ok(hash)
@@ -254,16 +261,22 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 24>> PlonkChip<F, 16,
             hash.copy_from_slice(&output[0..8]);
         }
         let mut cmp = F::ZERO;
+        let mut sum = F::ZERO;
         for i in (0..H).rev() {
             let j = i & 31;
             if j != 31 && i < H - 1 {
                 cmp += (F::ONE - cmp.square()) * (bits[i] - Self::modulus_bit(j));
-            } else if Self::modulus_has_bits_above(j) {
-                cmp = -F::ONE;
+                sum = sum * F::from(2u8) + bits[i];
             } else {
-                cmp = bits[i] - Self::modulus_bit(j);
+                if Self::modulus_has_bits_above(j) {
+                    cmp = -F::ONE;
+                } else {
+                    cmp = bits[i] - Self::modulus_bit(j);
+                }
+                sum = bits[i];
             }
             view.set(view.cell(i, 17), cmp);
+            view.set(view.cell(i, 18), sum);
         }
         Ok(hash)
     }
@@ -278,8 +291,8 @@ mod tests {
     use starkom_ff::Field;
     use starkom_koalabear::{KB, KB8};
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CircuitOptions};
-    use starkom_poseidon::{self as poseidon1, KoalaBearConfig24};
+    use starkom_plonk::{Circuit, CircuitBuilder, CircuitOptions, Witness};
+    use starkom_poseidon::{self as poseidon1, KoalaBearConfig32};
     use std::collections::BTreeMap;
     use std::fmt::Debug;
     use std::str::FromStr;
@@ -325,8 +338,8 @@ mod tests {
         circuit_commitment: H256,
     ) -> Result<()> {
         let key = KB::from(key);
-        let chip = BinaryChip::<KB, H, KoalaBearConfig24>::new(path);
-        assert_eq!(chip.width(), 305);
+        let chip = BinaryChip::<KB, H, KoalaBearConfig32>::new(path);
+        assert_eq!(chip.width(), 401);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
         let inputs: [Option<Cell>; 16] = std::array::from_fn(|i| builder.cell(0, i).into());
@@ -390,10 +403,131 @@ mod tests {
             from_const(12),
         ];
         let path = [[value1, value2].concat().try_into().unwrap()];
-        let root_hash = parse("0x00c03655dbea831f4c18656ba25917cd7bc030ea4f0c6b72045b0425c3d6593b");
+        let root_hash = parse("0x00eb59cb6aea53a95e9ed4b4eeb46e5beb46e2e5ac005b31e81ec52d72fd41d9");
         let c = parse("0x003b5e8f62e8189a985dd38d93c152d4107e8ac4777a9768398ce204b46b68ae");
         assert!(test_binary_smt::<1>(0, value1, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, value2, path, root_hash, c).is_ok());
+    }
+
+    /// The height of [`BinarySmtFixture`], the smallest one spanning two digits of the key.
+    const FIXTURE_HEIGHT: usize = 33;
+
+    /// The circuit of a [`BinaryChip`] of height [`FIXTURE_HEIGHT`]. Building the circuit is slow,
+    /// so the fixture is shared and only checks witnesses, without proving.
+    struct BinarySmtFixture {
+        circuit: Circuit<KB, KB8>,
+    }
+
+    impl BinarySmtFixture {
+        fn new() -> Self {
+            let chip = BinaryChip::<KB, FIXTURE_HEIGHT, KoalaBearConfig32>::default();
+            let mut builder = CircuitBuilder::default();
+            let inputs = std::array::from_fn(|i| builder.cell(0, i).into());
+            let root_hash = builder.sub_chip(1, 0, &chip, inputs).unwrap();
+            builder.declare_public_cells(root_hash.map(|digit| digit.unwrap()));
+            let circuit = builder
+                .build(CircuitOptions {
+                    canonicalize_constraints: false,
+                    security_bits: SECURITY_BITS,
+                    blowup_log2: BLOWUP_LOG2,
+                    grinding_bits: 20,
+                    blind: true,
+                })
+                .unwrap();
+            Self { circuit }
+        }
+
+        fn get() -> &'static Self {
+            static FIXTURE: LazyLock<BinarySmtFixture> = LazyLock::new(BinarySmtFixture::new);
+            &FIXTURE
+        }
+
+        /// Fills in a witness looking up `key` (whose digits are in the first 8 cells of the first
+        /// row) and a zero value in a tree whose other nodes are all zero.
+        ///
+        /// The path follows the bits of the digits of the key like the chip does, which is not the
+        /// order of the bits of the 256-bit key used by the [`Node`] trees.
+        fn make_witness(&self, key: [KB; 8]) -> Result<Witness<KB>> {
+            let bits: Vec<KB> = key
+                .into_iter()
+                .flat_map(xits::decompose_scalar_bits::<KB, 32>)
+                .collect();
+            let mut hash = [KB::ZERO; 8];
+            let path: [[KB; 16]; FIXTURE_HEIGHT] = std::array::from_fn(|i| {
+                let children = if bits[i] != KB::ZERO {
+                    [[KB::ZERO; 8], hash]
+                } else {
+                    [hash, [KB::ZERO; 8]]
+                };
+                let children: [KB; 16] = children.concat().try_into().unwrap();
+                let output =
+                    poseidon1::hash::<KoalaBearConfig32, KB, 32, 16, 16>([KB::ZERO; 16], children);
+                hash = std::array::from_fn(|j| output[j]);
+                children
+            });
+            let chip = BinaryChip::<KB, FIXTURE_HEIGHT, KoalaBearConfig32>::new(path);
+            let mut witness = self.circuit.make_witness();
+            let inputs: [Cell; 16] = std::array::from_fn(|i| witness.cell(0, i));
+            for i in 0..8 {
+                witness.set(inputs[i], key[i]);
+                witness.set(inputs[8 + i], KB::ZERO);
+            }
+            witness.sub_chip(1, 0, &chip, inputs.map(CellOrUnconstrained::Cell))?;
+            Ok(witness)
+        }
+    }
+
+    /// A key spanning all 33 bits of [`BinarySmtFixture`]: the first digit is the largest one.
+    const FIXTURE_KEY: [KB; 8] = [
+        from_const(0x7f000000),
+        from_const(1),
+        from_const(0),
+        from_const(0),
+        from_const(0),
+        from_const(0),
+        from_const(0),
+        from_const(0),
+    ];
+
+    #[test]
+    fn test_binary_smt_witness() {
+        let fixture = BinarySmtFixture::get();
+        let witness = fixture.make_witness(FIXTURE_KEY).unwrap();
+        assert!(fixture.circuit.check_witness(&witness).is_ok());
+    }
+
+    #[test]
+    fn test_binary_smt_witness_key_overflow() {
+        let fixture = BinarySmtFixture::get();
+        assert!(
+            fixture
+                .make_witness([
+                    from_const(0),
+                    from_const(2),
+                    from_const(0),
+                    from_const(0),
+                    from_const(0),
+                    from_const(0),
+                    from_const(0),
+                    from_const(0),
+                ])
+                .is_err()
+        );
+    }
+
+    fn test_binary_smt_witness_tampered_digit_impl(digit: usize, value: u32) {
+        let fixture = BinarySmtFixture::get();
+        let mut witness = fixture.make_witness(FIXTURE_KEY).unwrap();
+        witness.set(witness.cell(0, digit), from_const(value));
+        assert!(fixture.circuit.check_witness(&witness).is_err());
+    }
+
+    #[test]
+    fn test_binary_smt_witness_tampered_digit() {
+        test_binary_smt_witness_tampered_digit_impl(0, 0x7effffff);
+        test_binary_smt_witness_tampered_digit_impl(1, 0);
+        test_binary_smt_witness_tampered_digit_impl(2, 1);
+        test_binary_smt_witness_tampered_digit_impl(7, 1);
     }
 
     // TODO
@@ -451,7 +585,7 @@ mod tests {
 
     impl BinaryNode {
         fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
-            let hash = poseidon1::hash::<poseidon1::KoalaBearConfig24, KB, 24, 16, 8>(
+            let hash = poseidon1::hash::<KoalaBearConfig32, KB, 32, 16, 16>(
                 std::array::from_fn(|_| KB::ZERO),
                 [to_base(left.hash()), to_base(right.hash())].concat(),
             );
@@ -565,8 +699,8 @@ mod tests {
             .unwrap();
         let expected_root_hash = to_base(tree.hash());
 
-        let chip = BinaryChip::<KB, H, KoalaBearConfig24>::new(path);
-        assert_eq!(chip.width(), 305);
+        let chip = BinaryChip::<KB, H, KoalaBearConfig32>::new(path);
+        assert_eq!(chip.width(), 401);
         assert_eq!(chip.height(), H);
 
         let mut builder = CircuitBuilder::default();
