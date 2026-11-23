@@ -61,9 +61,12 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
     /// I2 = right-hand-side input hash (either H1 or H2)
     /// 0 = the two zero scalars used as input capacity
     ///
-    /// The B column holds the decomposed bits of the key and the S column is used to reconstruct
-    /// the original key by summing the decomposed bits weighted by the corresponding powers of two.
-    /// Once reconstructed, the sum must be constrained to equal the original key.
+    /// The B column holds the decomposed bits of the key and the S column reconstructs the original
+    /// key with Horner's method, from the most significant bit in the last row to the least
+    /// significant one in the first row: every row but the last holds twice the S value of the next
+    /// row plus its own bit, so the first row holds the whole key, which must be constrained to
+    /// equal the original key. That way all rows but the last have the same constraints, so they
+    /// share the same selector.
     ///
     /// Note that the last four elements of the selector are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
@@ -74,11 +77,8 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
     ) {
         view.connect(hash, view.cell(0, 0).into());
         view.add_gate(0, var(2) * (var(2) - make_const(F::ONE)));
-        if i > 0 {
-            view.add_gate(
-                0,
-                var(2) * (make_const(F::from(2u8)) ^ (i as isize)) + rvar(3, -1) - var(3),
-            );
+        if i < H - 1 {
+            view.add_gate(0, rvar(3, 1) * 2 + var(2) - var(3));
         } else {
             view.add_gate(0, var(2) - var(3));
         }
@@ -95,6 +95,9 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
     }
 
     /// See [`Self::build_input_selector`] for the layout.
+    ///
+    /// This function fills in all selector cells of the i-th row except the S column, which depends
+    /// on the next row. The S column is filled in separately by the caller.
     fn witness_input_selector(&self, view: &mut impl WitnessView<F>, bits: &[F], i: usize) {
         let bit = bits[i];
         if bit != F::ZERO {
@@ -105,14 +108,6 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
             view.set(view.cell(0, 1), self.path[i][1]);
         }
         view.set(view.cell(0, 2), bit);
-        if i > 0 {
-            view.set(
-                view.cell(0, 3),
-                bit * F::from(2u8).pow_small(i) + view.get_at(view.cell(-1, 3)),
-            );
-        } else {
-            view.copy(view.cell(0, 2).into(), view.cell(0, 3));
-        }
         view.set(view.cell(0, 4), self.path[i][0]);
         view.set(view.cell(0, 5), self.path[i][1]);
         view.set(view.cell(0, 6), F::ZERO);
@@ -148,7 +143,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?[0];
         }
-        view.connect(key, view.cell(H - 1, 3).into());
+        view.connect(key, view.cell(0, 3).into());
         Ok([hash])
     }
 
@@ -169,6 +164,11 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
                     self.witness_input_selector(view, &bits, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?[0];
+        }
+        let mut sum = F::ZERO;
+        for i in (0..H).rev() {
+            sum = sum * F::from(2u8) + bits[i];
+            view.set(view.cell(i, 3), sum);
         }
         Ok([hash])
     }
@@ -222,9 +222,12 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
     /// I3 = third input hash (one of H1, H2, or H3)
     /// 0 = the two zero scalars used as input capacity
     ///
-    /// The T column holds the decomposed trits of the key and the S column is used to reconstruct
-    /// the original key by summing the decomposed trits weighted by the corresponding powers of
-    /// three. Once reconstructed, the sum must be constrained to equal the original key.
+    /// The T column holds the decomposed trits of the key and the S column reconstructs the
+    /// original key with Horner's method, from the most significant trit in the last row to the
+    /// least significant one in the first row: every row but the last holds three times the S value
+    /// of the next row plus its own trit, so the first row holds the whole key, which must be
+    /// constrained to equal the original key. That way all rows but the last have the same
+    /// constraints, so they share the same selector.
     ///
     /// Note that the last five elements of the selector are the permutation input state vector.
     fn build_input_selector<G: Field256<BaseField = F>>(
@@ -238,11 +241,8 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
             0,
             var(3) * (var(3) - make_const(F::ONE)) * (var(3) - make_const(F::from(2u8))),
         );
-        if i > 0 {
-            view.add_gate(
-                0,
-                var(3) * (make_const(F::from(3u8)) ^ (i as isize)) + rvar(4, -1) - var(4),
-            );
+        if i < H - 1 {
+            view.add_gate(0, rvar(4, 1) * 3 + var(3) - var(4));
         } else {
             view.add_gate(0, var(3) - var(4));
         }
@@ -263,6 +263,9 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
     }
 
     /// See [`Self::build_input_selector`] for the layout.
+    ///
+    /// This function fills in all selector cells of the i-th row except the S column, which
+    /// depends on the next row. The S column is filled in separately by the caller.
     fn witness_input_selector(&self, view: &mut impl WitnessView<F>, trits: &[F], i: usize) {
         let trit = trits[i];
         if trit == F::from(0u8) {
@@ -281,14 +284,6 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
             panic!("invalid trit value {}", trit);
         }
         view.set(view.cell(0, 3).into(), trit);
-        if i > 0 {
-            view.set(
-                view.cell(0, 4),
-                trit * F::from(3u8).pow_small(i) + view.get_at(view.cell(-1, 4)),
-            );
-        } else {
-            view.copy(view.cell(0, 3).into(), view.cell(0, 4));
-        }
         view.set(view.cell(0, 5), self.path[i][0]);
         view.set(view.cell(0, 6), self.path[i][1]);
         view.set(view.cell(0, 7), self.path[i][2]);
@@ -325,7 +320,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> PlonkChip<F, 2, 
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?[0];
         }
-        view.connect(key, view.cell(H - 1, 4).into());
+        view.connect(key, view.cell(0, 4).into());
         Ok([hash])
     }
 
@@ -346,6 +341,11 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> PlonkChip<F, 2, 
                     self.witness_input_selector(view, &trits, i)
                 })
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?[0];
+        }
+        let mut sum = F::ZERO;
+        for i in (0..H).rev() {
+            sum = sum * F::from(3u8) + trits[i];
+            view.set(view.cell(i, 4), sum);
         }
         Ok([hash])
     }
@@ -402,9 +402,10 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
     /// I2 = right-hand-side input hash (either H1 or H2)
     /// 0 = the two zero scalars used as input capacity
     ///
-    /// The B column holds the decomposed bits of the key and the S column is used to reconstruct
-    /// the original key by summing the decomposed bits weighted by the corresponding powers of two.
-    /// Once reconstructed, the sum must be constrained to equal the original key.
+    /// The B column holds the decomposed bits of the key and the S column reconstructs the original
+    /// key with Horner's method, like in [`BinaryChip`]: every row but the last holds twice the S
+    /// value of the next row plus its own bit, so the first row holds the whole key, which must be
+    /// constrained to equal the original key.
     ///
     /// Since this chip can handle large keys we need to explicitly compare the key against the
     /// field modulus bit by bit in order to prevent aliasing. Without the constraints enforced by
@@ -436,15 +437,9 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
                         * (var(2) - make_const(Self::modulus_bit(i)))
                     - var(3),
             );
+            view.add_gate(0, rvar(4, 1) * 2 + var(2) - var(4));
         } else {
             view.add_gate(0, var(2) - make_const(Self::modulus_bit(255)) - var(3));
-        }
-        if i > 0 {
-            view.add_gate(
-                0,
-                var(2) * (make_const(F::from(2u8)) ^ (i as isize)) + rvar(4, -1) - var(4),
-            );
-        } else {
             view.add_gate(0, var(2) - var(4));
         }
         view.add_gate(
@@ -461,9 +456,9 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
 
     /// See [`Self::build_input_selector`] for the layout.
     ///
-    /// This function fills in all selector cells of the i-th row except the C column, which cannot
-    /// be determined without knowing the entry from the next row. The C column is filled in
-    /// separately by the caller.
+    /// This function fills in all selector cells of the i-th row except the C and S columns, which
+    /// cannot be determined without knowing the entries from the next row. The C and S columns are
+    /// filled in separately by the caller.
     fn witness_input_selector(&self, view: &mut impl WitnessView<F>, bits: &[F], i: usize) {
         let bit = bits[i];
         if bit != F::ZERO {
@@ -474,14 +469,6 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
             view.set(view.cell(0, 1), self.path[i][1]);
         }
         view.set(view.cell(0, 2), bit);
-        if i > 0 {
-            view.set(
-                view.cell(0, 4),
-                bit * F::from(2u8).pow_small(i) + view.get_at(view.cell(-1, 4)),
-            );
-        } else {
-            view.set(view.cell(0, 4), bit);
-        }
         view.set(view.cell(0, 5), self.path[i][0]);
         view.set(view.cell(0, 6), self.path[i][1]);
         view.set(view.cell(0, 7), F::ZERO);
@@ -516,7 +503,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullBinar
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?[0];
         }
         view.add_gate(0, var(3) + make_const(F::ONE));
-        view.connect(key, view.cell(255, 4).into());
+        view.connect(key, view.cell(0, 4).into());
         Ok([hash])
     }
 
@@ -543,6 +530,11 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullBinar
         for i in (0..255).rev() {
             cmp += (F::ONE - cmp.square()) * (bits[i] - Self::modulus_bit(i));
             view.set(view.cell(i, 3), cmp);
+        }
+        let mut sum = F::ZERO;
+        for i in (0..256).rev() {
+            sum = sum * F::from(2u8) + bits[i];
+            view.set(view.cell(i, 4), sum);
         }
         Ok([hash])
     }
@@ -602,9 +594,10 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
     /// I3 = third input hash (one of H1, H2, or H3)
     /// 0 = the two zero scalars used as input capacity
     ///
-    /// The T column holds the decomposed trits of the key and the S column is used to reconstruct
-    /// the original key by summing the decomposed trits weighted by the corresponding powers of
-    /// three. Once reconstructed, the sum must be constrained to equal the original key.
+    /// The T column holds the decomposed trits of the key and the S column reconstructs the
+    /// original key with Horner's method, like in [`TernaryChip`]: every row but the last holds
+    /// three times the S value of the next row plus its own trit, so the first row holds the whole
+    /// key, which must be constrained to equal the original key.
     ///
     /// Since this chip can handle large keys we need to explicitly compare the key against the
     /// field modulus trit by trit in order to prevent aliasing. Without the constraints enforced by
@@ -640,16 +633,9 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
                 0,
                 rvar(4, 1) + (make_const(F::ONE) - (rvar(4, 1) ^ 2)) * cmp - var(4),
             );
+            view.add_gate(0, rvar(5, 1) * 3 + var(3) - var(5));
         } else {
             view.add_gate(0, cmp - var(4));
-        }
-
-        if i > 0 {
-            view.add_gate(
-                0,
-                var(3) * (make_const(F::from(3u8)) ^ (i as isize)) + rvar(5, -1) - var(5),
-            );
-        } else {
             view.add_gate(0, var(3) - var(5));
         }
 
@@ -671,9 +657,9 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
 
     /// See [`Self::build_input_selector`] for the layout.
     ///
-    /// This function fills in all selector cells of the i-th row except the C column, which cannot
-    /// be determined without knowing the entry from the next row. The C column is filled in
-    /// separately by the caller.
+    /// This function fills in all selector cells of the i-th row except the C and S columns, which
+    /// cannot be determined without knowing the entries from the next row. The C and S columns are
+    /// filled in separately by the caller.
     fn witness_input_selector(&self, view: &mut impl WitnessView<F>, trits: &[F], i: usize) {
         let trit = trits[i];
         if trit == F::from(0u8) {
@@ -692,14 +678,6 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
             panic!("invalid trit value {}", trit);
         }
         view.set(view.cell(0, 3).into(), trit);
-        if i > 0 {
-            view.set(
-                view.cell(0, 5),
-                trit * F::from(3u8).pow_small(i) + view.get_at(view.cell(-1, 5)),
-            );
-        } else {
-            view.set(view.cell(0, 5), trit);
-        }
         view.set(view.cell(0, 6), self.path[i][0]);
         view.set(view.cell(0, 7), self.path[i][1]);
         view.set(view.cell(0, 8), self.path[i][2]);
@@ -735,7 +713,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> PlonkChip<F, 2, 1> for FullTerna
                 .sub_chip(0, Self::SELECTOR_WIDTH, &self.hasher, inputs)?[0];
         }
         view.add_gate(0, var(4) + make_const(F::ONE));
-        view.connect(key, view.cell(161, 5).into());
+        view.connect(key, view.cell(0, 5).into());
         Ok([hash])
     }
 
@@ -764,6 +742,11 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> PlonkChip<F, 2, 1> for FullTerna
             let diff = trits[i] - Self::modulus_trit(i);
             cmp += (F::ONE - cmp.square()) * ((diff * F::from(7u8) - diff.cube()) / F::from(6u8));
             view.set(view.cell(i, 4), cmp);
+        }
+        let mut sum = F::ZERO;
+        for i in (0..162).rev() {
+            sum = sum * F::from(3u8) + trits[i];
+            view.set(view.cell(i, 5), sum);
         }
         Ok([hash])
     }
@@ -1638,7 +1621,7 @@ mod tests {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: 8,
-                grinding_bits: 20,
+                grinding_bits: 16,
                 blind: true,
             })
             .unwrap();
@@ -1921,7 +1904,7 @@ mod tests {
                 canonicalize_constraints: false,
                 security_bits: SECURITY_BITS,
                 blowup_log2: 8,
-                grinding_bits: 24,
+                grinding_bits: 16,
                 blind: true,
             })
             .unwrap();
