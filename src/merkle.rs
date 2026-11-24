@@ -3,8 +3,9 @@
 //! Every chip hashes the tree nodes with a Poseidon1 permutation whose state holds the children
 //! followed by two capacity elements, warranting ~128 bits of preimage resistance in a quantum
 //! setting. The state width of the permutation is therefore 4 in the binary chips and 5 in the
-//! ternary ones. The hash of a node is the first element of the output (same squeeze as
-//! [`hash0`](`starkom_poseidon::hash0`)).
+//! ternary ones. The capacity elements of every permutation are initialized with the two domain
+//! separator tags (DSTs) passed to the chip, and the hash of a node is the first element of the
+//! output (same squeeze as [`hash0`](`starkom_poseidon::hash0`)).
 
 use crate::poseidon1;
 use crate::xits;
@@ -18,8 +19,8 @@ use starkom_poseidon::Config as PoseidonConfig;
 
 /// Runs a Merkle lookup over a binary Sparse Merkle Tree of height `H`.
 ///
-/// Every node is hashed with the Poseidon1 permutation of state width 4: the input state holds the
-/// two children followed by two zeros.
+/// Every node is hashed with the Poseidon1 permutation of state width 4. The input state holds the
+/// two children followed by the two DSTs of the chip.
 ///
 /// WARNING: `H` must be strictly less than 256. Do NOT use this chip if `H` spans the full `F`
 /// range, as in that case the bit decomposition of the key would be UNSAFE! Use the
@@ -27,22 +28,26 @@ use starkom_poseidon::Config as PoseidonConfig;
 #[derive(Debug, Clone)]
 pub struct BinaryChip<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> {
     hasher: poseidon1::PermutationChip<F, C, 4>,
+    dst: [F; 2],
     path: [[F; 2]; H],
 }
 
 impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> Default for BinaryChip<F, H, C> {
     fn default() -> Self {
-        Self::new([[F::ZERO; 2]; H])
+        Self::new([F::ZERO; 2], [[F::ZERO; 2]; H])
     }
 }
 
 impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H, C> {
     const SELECTOR_WIDTH: usize = 8;
 
-    pub fn new(path: [[F; 2]; H]) -> Self {
+    /// Makes a chip that looks up a key through the Merkle `path`, initializing the capacity of
+    /// every permutation with the domain separator tags `dst`.
+    pub fn new(dst: [F; 2], path: [[F; 2]; H]) -> Self {
         assert!(H < F::NUM_BITS);
         Self {
             hasher: poseidon1::PermutationChip::default(),
+            dst,
             path,
         }
     }
@@ -50,7 +55,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
     /// Selector layout:
     ///
     /// +----+----+----+----+----+----+----+----+
-    /// | H1 | H2 | B  | S  | I1 | I2 | 0  | 0  |
+    /// | H1 | H2 | B  | S  | I1 | I2 | D1 | D2 |
     /// +----+----+----+----+----+----+----+----+
     ///
     /// H1 = leaf-to-root path hash
@@ -59,7 +64,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
     /// S = key bit sum
     /// I1 = left-hand-side input hash (either H1 or H2)
     /// I2 = right-hand-side input hash (either H1 or H2)
-    /// 0 = the two zero scalars used as input capacity
+    /// D1, D2 = the two DSTs of the chip, used as input capacity
     ///
     /// The B column holds the decomposed bits of the key and the S column reconstructs the original
     /// key with Horner's method, from the most significant bit in the last row to the least
@@ -90,8 +95,8 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
             0,
             var(2) * var(0) + (make_const(F::ONE) - var(2)) * var(1) - var(5),
         );
-        view.add_gate(0, var(6));
-        view.add_gate(0, var(7));
+        view.add_gate(0, var(6) - make_const(self.dst[0]));
+        view.add_gate(0, var(7) - make_const(self.dst[1]));
     }
 
     /// See [`Self::build_input_selector`] for the layout.
@@ -110,8 +115,8 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> BinaryChip<F, H,
         view.set(view.cell(0, 2), bit);
         view.set(view.cell(0, 4), self.path[i][0]);
         view.set(view.cell(0, 5), self.path[i][1]);
-        view.set(view.cell(0, 6), F::ZERO);
-        view.set(view.cell(0, 7), F::ZERO);
+        view.set(view.cell(0, 6), self.dst[0]);
+        view.set(view.cell(0, 7), self.dst[1]);
     }
 }
 
@@ -176,8 +181,8 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
 
 /// Runs a Merkle lookup over a ternary Sparse Merkle Tree of height `H`.
 ///
-/// Every node is hashed with the Poseidon1 permutation of state width 5: the input state holds the
-/// three children followed by two zeros.
+/// Every node is hashed with the Poseidon1 permutation of state width 5. The input state holds the
+/// three children followed by the two DSTs of the chip.
 ///
 /// WARNING: `H` must be strictly less than 162. Do NOT use this chip if `H` spans the full `F`
 /// range, as in that case the trit decomposition of the key would be UNSAFE! Use the
@@ -185,23 +190,27 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 
 #[derive(Debug, Clone)]
 pub struct TernaryChip<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> {
     hasher: poseidon1::PermutationChip<F, C, 5>,
+    dst: [F; 2],
     path: [[F; 3]; H],
 }
 
 impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> Default for TernaryChip<F, H, C> {
     fn default() -> Self {
-        Self::new([[F::ZERO; 3]; H])
+        Self::new([F::ZERO; 2], [[F::ZERO; 3]; H])
     }
 }
 
 impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H, C> {
     const SELECTOR_WIDTH: usize = 10;
 
-    pub fn new(path: [[F; 3]; H]) -> Self {
+    /// Makes a chip that looks up a key through the Merkle `path`, initializing the capacity of
+    /// every permutation with the domain separator tags `dst`.
+    pub fn new(dst: [F; 2], path: [[F; 3]; H]) -> Self {
         // TODO: assert that H is strictly less than the number of trits required to represent a
         // scalar.
         Self {
             hasher: poseidon1::PermutationChip::default(),
+            dst,
             path,
         }
     }
@@ -209,7 +218,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
     /// Selector layout:
     ///
     /// +----+----+----+----+----+----+----+----+----+----+
-    /// | H1 | H2 | H3 | T  | S  | I1 | I2 | I3 | 0  | 0  |
+    /// | H1 | H2 | H3 | T  | S  | I1 | I2 | I3 | D1 | D2 |
     /// +----+----+----+----+----+----+----+----+----+----+
     ///
     /// H1 = leaf-to-root path hash
@@ -220,7 +229,7 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
     /// I1 = first input hash (one of H1, H2, or H3)
     /// I2 = second input hash (one of H1, H2, or H3)
     /// I3 = third input hash (one of H1, H2, or H3)
-    /// 0 = the two zero scalars used as input capacity
+    /// D1, D2 = the two DSTs of the chip, used as input capacity
     ///
     /// The T column holds the decomposed trits of the key and the S column reconstructs the
     /// original key with Horner's method, from the most significant trit in the last row to the
@@ -258,8 +267,8 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
             l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(6),
         );
         view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(7));
-        view.add_gate(0, var(8));
-        view.add_gate(0, var(9));
+        view.add_gate(0, var(8) - make_const(self.dst[0]));
+        view.add_gate(0, var(9) - make_const(self.dst[1]));
     }
 
     /// See [`Self::build_input_selector`] for the layout.
@@ -287,8 +296,8 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> TernaryChip<F, H
         view.set(view.cell(0, 5), self.path[i][0]);
         view.set(view.cell(0, 6), self.path[i][1]);
         view.set(view.cell(0, 7), self.path[i][2]);
-        view.set(view.cell(0, 8), F::ZERO);
-        view.set(view.cell(0, 9), F::ZERO);
+        view.set(view.cell(0, 8), self.dst[0]);
+        view.set(view.cell(0, 9), self.dst[1]);
     }
 }
 
@@ -363,21 +372,25 @@ impl<F: PrimeField256, const H: usize, C: PoseidonConfig<F, 5>> PlonkChip<F, 2, 
 #[derive(Debug, Clone)]
 pub struct FullBinaryChip<F: PrimeField256, C: PoseidonConfig<F, 4>> {
     hasher: poseidon1::PermutationChip<F, C, 4>,
+    dst: [F; 2],
     path: [[F; 2]; 256],
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 4>> Default for FullBinaryChip<F, C> {
     fn default() -> Self {
-        Self::new([[F::ZERO; 2]; 256])
+        Self::new([F::ZERO; 2], [[F::ZERO; 2]; 256])
     }
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
     const SELECTOR_WIDTH: usize = 9;
 
-    pub fn new(path: [[F; 2]; 256]) -> Self {
+    /// Makes a chip that looks up a key through the Merkle `path`, initializing the capacity of
+    /// every permutation with the domain separator tags `dst`.
+    pub fn new(dst: [F; 2], path: [[F; 2]; 256]) -> Self {
         Self {
             hasher: poseidon1::PermutationChip::default(),
+            dst,
             path,
         }
     }
@@ -390,7 +403,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
     /// Selector layout:
     ///
     /// +----+----+----+----+----+----+----+----+----+
-    /// | H1 | H2 | B  | C  | S  | I1 | I2 | 0  | 0  |
+    /// | H1 | H2 | B  | C  | S  | I1 | I2 | D1 | D2 |
     /// +----+----+----+----+----+----+----+----+----+
     ///
     /// H1 = leaf-to-root path hash
@@ -400,7 +413,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
     /// S = key bit sum
     /// I1 = left-hand-side input hash (either H1 or H2)
     /// I2 = right-hand-side input hash (either H1 or H2)
-    /// 0 = the two zero scalars used as input capacity
+    /// D1, D2 = the two DSTs of the chip, used as input capacity
     ///
     /// The B column holds the decomposed bits of the key and the S column reconstructs the original
     /// key with Horner's method, like in [`BinaryChip`]: every row but the last holds twice the S
@@ -450,8 +463,8 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
             0,
             var(2) * var(0) + (make_const(F::ONE) - var(2)) * var(1) - var(6),
         );
-        view.add_gate(0, var(7));
-        view.add_gate(0, var(8));
+        view.add_gate(0, var(7) - make_const(self.dst[0]));
+        view.add_gate(0, var(8) - make_const(self.dst[1]));
     }
 
     /// See [`Self::build_input_selector`] for the layout.
@@ -471,8 +484,8 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> FullBinaryChip<F, C> {
         view.set(view.cell(0, 2), bit);
         view.set(view.cell(0, 5), self.path[i][0]);
         view.set(view.cell(0, 6), self.path[i][1]);
-        view.set(view.cell(0, 7), F::ZERO);
-        view.set(view.cell(0, 8), F::ZERO);
+        view.set(view.cell(0, 7), self.dst[0]);
+        view.set(view.cell(0, 8), self.dst[1]);
     }
 }
 
@@ -552,21 +565,25 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 4>> PlonkChip<F, 2, 1> for FullBinar
 #[derive(Debug, Clone)]
 pub struct FullTernaryChip<F: PrimeField256, C: PoseidonConfig<F, 5>> {
     hasher: poseidon1::PermutationChip<F, C, 5>,
+    dst: [F; 2],
     path: [[F; 3]; 162],
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 5>> Default for FullTernaryChip<F, C> {
     fn default() -> Self {
-        Self::new([[F::ZERO; 3]; 162])
+        Self::new([F::ZERO; 2], [[F::ZERO; 3]; 162])
     }
 }
 
 impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
     const SELECTOR_WIDTH: usize = 11;
 
-    pub fn new(path: [[F; 3]; 162]) -> Self {
+    /// Makes a chip that looks up a key through the Merkle `path`, initializing the capacity of
+    /// every permutation with the domain separator tags `dst`.
+    pub fn new(dst: [F; 2], path: [[F; 3]; 162]) -> Self {
         Self {
             hasher: poseidon1::PermutationChip::default(),
+            dst,
             path,
         }
     }
@@ -580,7 +597,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
     /// Selector layout:
     ///
     /// +----+----+----+----+----+----+----+----+----+----+----+
-    /// | H1 | H2 | H3 | T  | C  | S  | I1 | I2 | I3 | 0  | 0  |
+    /// | H1 | H2 | H3 | T  | C  | S  | I1 | I2 | I3 | D1 | D2 |
     /// +----+----+----+----+----+----+----+----+----+----+----+
     ///
     /// H1 = leaf-to-root path hash
@@ -592,7 +609,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
     /// I1 = first input hash (one of H1, H2, or H3)
     /// I2 = second input hash (one of H1, H2, or H3)
     /// I3 = third input hash (one of H1, H2, or H3)
-    /// 0 = the two zero scalars used as input capacity
+    /// D1, D2 = the two DSTs of the chip, used as input capacity
     ///
     /// The T column holds the decomposed trits of the key and the S column reconstructs the
     /// original key with Horner's method, like in [`TernaryChip`]: every row but the last holds
@@ -651,8 +668,8 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
             l0.clone() * var(1) + l1.clone() * var(0) + l2.clone() * var(2) - var(7),
         );
         view.add_gate(0, l0 * var(2) + l1 * var(2) + l2 * var(0) - var(8));
-        view.add_gate(0, var(9));
-        view.add_gate(0, var(10));
+        view.add_gate(0, var(9) - make_const(self.dst[0]));
+        view.add_gate(0, var(10) - make_const(self.dst[1]));
     }
 
     /// See [`Self::build_input_selector`] for the layout.
@@ -681,8 +698,8 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> FullTernaryChip<F, C> {
         view.set(view.cell(0, 6), self.path[i][0]);
         view.set(view.cell(0, 7), self.path[i][1]);
         view.set(view.cell(0, 8), self.path[i][2]);
-        view.set(view.cell(0, 9), F::ZERO);
-        view.set(view.cell(0, 10), F::ZERO);
+        view.set(view.cell(0, 9), self.dst[0]);
+        view.set(view.cell(0, 10), self.dst[1]);
     }
 }
 
@@ -773,6 +790,9 @@ mod tests {
     const SECURITY_BITS: usize = 128;
     const BLOWUP_LOG2: usize = 3;
 
+    /// The domain separator tags of the chips under test and of the trees hashed like them.
+    const DST: [Scalar; 2] = [from_const(0x6d65726b6c65), from_const(0x7472656573)];
+
     fn parse_hash(s: &'static str) -> H256 {
         s.parse().unwrap()
     }
@@ -786,7 +806,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = BinaryChip::<Scalar, H, BlueSkyConfigT4X5>::new(path);
+        let chip = BinaryChip::<Scalar, H, BlueSkyConfigT4X5>::new(DST, path);
         assert_eq!(chip.width(), 103);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
@@ -824,7 +844,7 @@ mod tests {
     fn test_binary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34)]];
         let root_hash =
-            parse_scalar("0x6fda95845c8b151a4ec3317c5023a03da1e4d8404d1d8442897978cf7597cedb");
+            parse_scalar("0x77c55a2de7bc1a8f6edfdea829c7af3eff3d7a930613c06e013125ce5e8123b1");
         let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 34, path, root_hash, c).is_ok());
@@ -834,7 +854,7 @@ mod tests {
     fn test_binary_smt_height_one_2() {
         let path = [[from_const(34), from_const(12)]];
         let root_hash =
-            parse_scalar("0x05218bd05f5d72c7b7e48a238958558240c4f0d75a1cf8420d8afa54450adb90");
+            parse_scalar("0x697b05ee2f02103e5dd2c6c09ea8bea682a930a6b1928166181bd0d6020ec041");
         let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1>(0, 34, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 12, path, root_hash, c).is_ok());
@@ -844,7 +864,7 @@ mod tests {
     fn test_binary_smt_height_one_3() {
         let path = [[from_const(56), from_const(78)]];
         let root_hash =
-            parse_scalar("0x1b628b3a11fb92c9f1c91f399032b8305982d30472369b46c1aa0074d171d656");
+            parse_scalar("0x29ba8edbf2266243a0c262c8e591c4df300ada3a64202a5a2881c0a7b631f410");
         let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1>(0, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 78, path, root_hash, c).is_ok());
@@ -855,12 +875,12 @@ mod tests {
         let path = [
             [from_const(12), from_const(34)],
             [
-                parse_scalar("0x6fda95845c8b151a4ec3317c5023a03da1e4d8404d1d8442897978cf7597cedb"),
-                parse_scalar("0x1b628b3a11fb92c9f1c91f399032b8305982d30472369b46c1aa0074d171d656"),
+                parse_scalar("0x77c55a2de7bc1a8f6edfdea829c7af3eff3d7a930613c06e013125ce5e8123b1"),
+                parse_scalar("0x29ba8edbf2266243a0c262c8e591c4df300ada3a64202a5a2881c0a7b631f410"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x2e886c4632e99d2a65f883c331851679ebe661fcfcc3e637e602fce958023655");
+            parse_scalar("0x1703f27ed91e0696137a8d352b3800258e3cb7a29a3b4bc73865b83117191b08");
         let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
         assert!(test_binary_smt::<2>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2>(1, 34, path, root_hash, c).is_ok());
@@ -871,12 +891,12 @@ mod tests {
         let path = [
             [from_const(56), from_const(78)],
             [
-                parse_scalar("0x6fda95845c8b151a4ec3317c5023a03da1e4d8404d1d8442897978cf7597cedb"),
-                parse_scalar("0x1b628b3a11fb92c9f1c91f399032b8305982d30472369b46c1aa0074d171d656"),
+                parse_scalar("0x77c55a2de7bc1a8f6edfdea829c7af3eff3d7a930613c06e013125ce5e8123b1"),
+                parse_scalar("0x29ba8edbf2266243a0c262c8e591c4df300ada3a64202a5a2881c0a7b631f410"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x2e886c4632e99d2a65f883c331851679ebe661fcfcc3e637e602fce958023655");
+            parse_scalar("0x1703f27ed91e0696137a8d352b3800258e3cb7a29a3b4bc73865b83117191b08");
         let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
         assert!(test_binary_smt::<2>(2, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2>(3, 78, path, root_hash, c).is_ok());
@@ -891,7 +911,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = TernaryChip::<Scalar, H, BlueSkyConfigT5X5>::new(path);
+        let chip = TernaryChip::<Scalar, H, BlueSkyConfigT5X5>::new(DST, path);
         assert_eq!(chip.width(), 115);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
@@ -929,7 +949,7 @@ mod tests {
     fn test_ternary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34), from_const(56)]];
         let root_hash =
-            parse_scalar("0x1df1b926f5bd592c863b0ea8632954b0f976c89215818c9692eb81968fdf26a8");
+            parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5");
         let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
         assert!(test_ternary_smt::<1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 34, path, root_hash, c).is_ok());
@@ -940,7 +960,7 @@ mod tests {
     fn test_ternary_smt_height_one_2() {
         let path = [[from_const(34), from_const(56), from_const(12)]];
         let root_hash =
-            parse_scalar("0x738073db4e3c430cb6aeff06693c4437181639b30e2c596e835cb1ca7c5e77ad");
+            parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45");
         let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
         assert!(test_ternary_smt::<1>(0, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 56, path, root_hash, c).is_ok());
@@ -951,7 +971,7 @@ mod tests {
     fn test_ternary_smt_height_one_3() {
         let path = [[from_const(56), from_const(78), from_const(90)]];
         let root_hash =
-            parse_scalar("0x7dc8e51623769b69de378ce7beafa5a2e7f588bb16ad0c985a8a36bd76341ed7");
+            parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b");
         let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
         assert!(test_ternary_smt::<1>(0, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 78, path, root_hash, c).is_ok());
@@ -963,13 +983,13 @@ mod tests {
         let path = [
             [from_const(12), from_const(34), from_const(56)],
             [
-                parse_scalar("0x1df1b926f5bd592c863b0ea8632954b0f976c89215818c9692eb81968fdf26a8"),
-                parse_scalar("0x738073db4e3c430cb6aeff06693c4437181639b30e2c596e835cb1ca7c5e77ad"),
-                parse_scalar("0x7dc8e51623769b69de378ce7beafa5a2e7f588bb16ad0c985a8a36bd76341ed7"),
+                parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5"),
+                parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45"),
+                parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x386b6f57e4eff121cdf80ec52dffc9ec98a9fd7d65df2f6875441451da64c098");
+            parse_scalar("0x066baff0dcf9b2a4709d384a505cd5d5a4a729856ec319e4e00aac50881b1675");
         let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
         assert!(test_ternary_smt::<2>(0, 12, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(1, 34, path, root_hash, c).is_ok());
@@ -981,13 +1001,13 @@ mod tests {
         let path = [
             [from_const(34), from_const(56), from_const(12)],
             [
-                parse_scalar("0x1df1b926f5bd592c863b0ea8632954b0f976c89215818c9692eb81968fdf26a8"),
-                parse_scalar("0x738073db4e3c430cb6aeff06693c4437181639b30e2c596e835cb1ca7c5e77ad"),
-                parse_scalar("0x7dc8e51623769b69de378ce7beafa5a2e7f588bb16ad0c985a8a36bd76341ed7"),
+                parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5"),
+                parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45"),
+                parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x386b6f57e4eff121cdf80ec52dffc9ec98a9fd7d65df2f6875441451da64c098");
+            parse_scalar("0x066baff0dcf9b2a4709d384a505cd5d5a4a729856ec319e4e00aac50881b1675");
         let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
         assert!(test_ternary_smt::<2>(3, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(4, 56, path, root_hash, c).is_ok());
@@ -999,13 +1019,13 @@ mod tests {
         let path = [
             [from_const(56), from_const(78), from_const(90)],
             [
-                parse_scalar("0x1df1b926f5bd592c863b0ea8632954b0f976c89215818c9692eb81968fdf26a8"),
-                parse_scalar("0x738073db4e3c430cb6aeff06693c4437181639b30e2c596e835cb1ca7c5e77ad"),
-                parse_scalar("0x7dc8e51623769b69de378ce7beafa5a2e7f588bb16ad0c985a8a36bd76341ed7"),
+                parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5"),
+                parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45"),
+                parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x386b6f57e4eff121cdf80ec52dffc9ec98a9fd7d65df2f6875441451da64c098");
+            parse_scalar("0x066baff0dcf9b2a4709d384a505cd5d5a4a729856ec319e4e00aac50881b1675");
         let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
         assert!(test_ternary_smt::<2>(6, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(7, 78, path, root_hash, c).is_ok());
@@ -1079,7 +1099,7 @@ mod tests {
 
     impl<C: PoseidonConfig<Scalar, 4> + 'static> BinaryNode<C> {
         fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
-            let state = [left.hash(), right.hash(), Scalar::ZERO, Scalar::ZERO];
+            let state = [left.hash(), right.hash(), DST[0], DST[1]];
             let hash = poseidon1::permutation::<C, Scalar, 4>(state)[0];
             Arc::new(BinaryNode::<C> {
                 level,
@@ -1161,8 +1181,8 @@ mod tests {
                 children[0].hash(),
                 children[1].hash(),
                 children[2].hash(),
-                Scalar::ZERO,
-                Scalar::ZERO,
+                DST[0],
+                DST[1],
             ];
             let hash = poseidon1::permutation::<C, Scalar, 5>(state)[0];
             Arc::new(TernaryNode::<C> {
@@ -1299,7 +1319,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = BinaryChip::<Scalar, H, C>::new(path);
+        let chip = BinaryChip::<Scalar, H, C>::new(DST, path);
         assert_eq!(chip.width(), W);
         assert_eq!(chip.height(), H);
 
@@ -1452,7 +1472,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip::<Scalar, H, C>::new(path);
+        let chip = TernaryChip::<Scalar, H, C>::new(DST, path);
         assert_eq!(chip.width(), W);
         assert_eq!(chip.height(), H);
 
@@ -1608,7 +1628,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip::<Scalar, 102, BlueSkyConfigT5X7>::new(path);
+        let chip = TernaryChip::<Scalar, 102, BlueSkyConfigT5X7>::new(DST, path);
         assert_eq!(chip.width(), 105);
         assert_eq!(chip.height(), 102);
 
@@ -1678,7 +1698,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullBinaryChip::<Scalar, BlueSkyConfigT4X5>::new(path);
+        let chip = FullBinaryChip::<Scalar, BlueSkyConfigT4X5>::new(DST, path);
         assert_eq!(chip.width(), 104);
         assert_eq!(chip.height(), 256);
 
@@ -1784,7 +1804,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X5>::new(path);
+        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X5>::new(DST, path);
         assert_eq!(chip.width(), 116);
         assert_eq!(chip.height(), 162);
 
@@ -1891,7 +1911,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X7>::new(path);
+        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X7>::new(DST, path);
         assert_eq!(chip.width(), 106);
         assert_eq!(chip.height(), 162);
 
