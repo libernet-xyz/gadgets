@@ -772,6 +772,7 @@ impl<F: PrimeField256, C: PoseidonConfig<F, 5>> PlonkChip<F, 2, 1> for FullTerna
 #[cfg(all(test, feature = "bluesky"))]
 mod tests {
     use super::*;
+    use crate::utils::hash_to_scalar;
     use primitive_types::{H256, U256};
     use starkom_bluesky::{Scalar, from_const, parse_scalar};
     use starkom_ff::Field;
@@ -791,7 +792,8 @@ mod tests {
     const BLOWUP_LOG2: usize = 3;
 
     /// The domain separator tags of the chips under test and of the trees hashed like them.
-    const DST: [Scalar; 2] = [from_const(0x6d65726b6c65), from_const(0x7472656573)];
+    static DST: LazyLock<[Scalar; 2]> =
+        LazyLock::new(|| [hash_to_scalar(b"test/dst/0"), hash_to_scalar(b"test/dst/1")]);
 
     fn parse_hash(s: &'static str) -> H256 {
         s.parse().unwrap()
@@ -806,7 +808,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = BinaryChip::<Scalar, H, BlueSkyConfigT4X5>::new(DST, path);
+        let chip = BinaryChip::<Scalar, H, BlueSkyConfigT4X5>::new(*DST, path);
         assert_eq!(chip.width(), 103);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
@@ -844,7 +846,7 @@ mod tests {
     fn test_binary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34)]];
         let root_hash =
-            parse_scalar("0x77c55a2de7bc1a8f6edfdea829c7af3eff3d7a930613c06e013125ce5e8123b1");
+            parse_scalar("0x5c7e89842c3aaeea2f048e1d6de663af6ad11dce7d98d17b19cec47bf53c37b0");
         let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 34, path, root_hash, c).is_ok());
@@ -854,7 +856,7 @@ mod tests {
     fn test_binary_smt_height_one_2() {
         let path = [[from_const(34), from_const(12)]];
         let root_hash =
-            parse_scalar("0x697b05ee2f02103e5dd2c6c09ea8bea682a930a6b1928166181bd0d6020ec041");
+            parse_scalar("0x24f2dd48eeacd81ea136caab8718c4a9aa9447bef333bdb57b22cd3260923157");
         let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1>(0, 34, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 12, path, root_hash, c).is_ok());
@@ -864,7 +866,7 @@ mod tests {
     fn test_binary_smt_height_one_3() {
         let path = [[from_const(56), from_const(78)]];
         let root_hash =
-            parse_scalar("0x29ba8edbf2266243a0c262c8e591c4df300ada3a64202a5a2881c0a7b631f410");
+            parse_scalar("0x76eb513de049a9f257d5e041ba17f3c7ce2e4a9341d39336df809ca1f1e23e1f");
         let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
         assert!(test_binary_smt::<1>(0, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 78, path, root_hash, c).is_ok());
@@ -875,12 +877,12 @@ mod tests {
         let path = [
             [from_const(12), from_const(34)],
             [
-                parse_scalar("0x77c55a2de7bc1a8f6edfdea829c7af3eff3d7a930613c06e013125ce5e8123b1"),
-                parse_scalar("0x29ba8edbf2266243a0c262c8e591c4df300ada3a64202a5a2881c0a7b631f410"),
+                parse_scalar("0x5c7e89842c3aaeea2f048e1d6de663af6ad11dce7d98d17b19cec47bf53c37b0"),
+                parse_scalar("0x76eb513de049a9f257d5e041ba17f3c7ce2e4a9341d39336df809ca1f1e23e1f"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x1703f27ed91e0696137a8d352b3800258e3cb7a29a3b4bc73865b83117191b08");
+            parse_scalar("0x6f84a941a15c857ea77930bf2d3dddf58fbe61d29eb9d3da229d2158bdbd7445");
         let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
         assert!(test_binary_smt::<2>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2>(1, 34, path, root_hash, c).is_ok());
@@ -891,12 +893,12 @@ mod tests {
         let path = [
             [from_const(56), from_const(78)],
             [
-                parse_scalar("0x77c55a2de7bc1a8f6edfdea829c7af3eff3d7a930613c06e013125ce5e8123b1"),
-                parse_scalar("0x29ba8edbf2266243a0c262c8e591c4df300ada3a64202a5a2881c0a7b631f410"),
+                parse_scalar("0x5c7e89842c3aaeea2f048e1d6de663af6ad11dce7d98d17b19cec47bf53c37b0"),
+                parse_scalar("0x76eb513de049a9f257d5e041ba17f3c7ce2e4a9341d39336df809ca1f1e23e1f"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x1703f27ed91e0696137a8d352b3800258e3cb7a29a3b4bc73865b83117191b08");
+            parse_scalar("0x6f84a941a15c857ea77930bf2d3dddf58fbe61d29eb9d3da229d2158bdbd7445");
         let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
         assert!(test_binary_smt::<2>(2, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2>(3, 78, path, root_hash, c).is_ok());
@@ -911,7 +913,7 @@ mod tests {
     ) -> Result<()> {
         let key = Scalar::from(key);
         let value = Scalar::from(value);
-        let chip = TernaryChip::<Scalar, H, BlueSkyConfigT5X5>::new(DST, path);
+        let chip = TernaryChip::<Scalar, H, BlueSkyConfigT5X5>::new(*DST, path);
         assert_eq!(chip.width(), 115);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
@@ -949,7 +951,7 @@ mod tests {
     fn test_ternary_smt_height_one_1() {
         let path = [[from_const(12), from_const(34), from_const(56)]];
         let root_hash =
-            parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5");
+            parse_scalar("0x475927bdf7f82c894db3074d32f1602b36df740779717e47b4cb035660f234ff");
         let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
         assert!(test_ternary_smt::<1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 34, path, root_hash, c).is_ok());
@@ -960,7 +962,7 @@ mod tests {
     fn test_ternary_smt_height_one_2() {
         let path = [[from_const(34), from_const(56), from_const(12)]];
         let root_hash =
-            parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45");
+            parse_scalar("0x18ae6c0c541342ec2a98f155ad29bd056f7e10ca4aa384ff0fadd598d0e1a2a4");
         let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
         assert!(test_ternary_smt::<1>(0, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 56, path, root_hash, c).is_ok());
@@ -971,7 +973,7 @@ mod tests {
     fn test_ternary_smt_height_one_3() {
         let path = [[from_const(56), from_const(78), from_const(90)]];
         let root_hash =
-            parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b");
+            parse_scalar("0x72297995c4fb54677035c53979a65dc027d50573af8489f3e9b1ac4b070a382a");
         let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
         assert!(test_ternary_smt::<1>(0, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 78, path, root_hash, c).is_ok());
@@ -983,13 +985,13 @@ mod tests {
         let path = [
             [from_const(12), from_const(34), from_const(56)],
             [
-                parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5"),
-                parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45"),
-                parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b"),
+                parse_scalar("0x475927bdf7f82c894db3074d32f1602b36df740779717e47b4cb035660f234ff"),
+                parse_scalar("0x18ae6c0c541342ec2a98f155ad29bd056f7e10ca4aa384ff0fadd598d0e1a2a4"),
+                parse_scalar("0x72297995c4fb54677035c53979a65dc027d50573af8489f3e9b1ac4b070a382a"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x066baff0dcf9b2a4709d384a505cd5d5a4a729856ec319e4e00aac50881b1675");
+            parse_scalar("0x2d1ebbf130db703af5cc8013102a7da3df135585a8cc686d1134a1663909fdaf");
         let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
         assert!(test_ternary_smt::<2>(0, 12, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(1, 34, path, root_hash, c).is_ok());
@@ -1001,13 +1003,13 @@ mod tests {
         let path = [
             [from_const(34), from_const(56), from_const(12)],
             [
-                parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5"),
-                parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45"),
-                parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b"),
+                parse_scalar("0x475927bdf7f82c894db3074d32f1602b36df740779717e47b4cb035660f234ff"),
+                parse_scalar("0x18ae6c0c541342ec2a98f155ad29bd056f7e10ca4aa384ff0fadd598d0e1a2a4"),
+                parse_scalar("0x72297995c4fb54677035c53979a65dc027d50573af8489f3e9b1ac4b070a382a"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x066baff0dcf9b2a4709d384a505cd5d5a4a729856ec319e4e00aac50881b1675");
+            parse_scalar("0x2d1ebbf130db703af5cc8013102a7da3df135585a8cc686d1134a1663909fdaf");
         let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
         assert!(test_ternary_smt::<2>(3, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(4, 56, path, root_hash, c).is_ok());
@@ -1019,13 +1021,13 @@ mod tests {
         let path = [
             [from_const(56), from_const(78), from_const(90)],
             [
-                parse_scalar("0x181f30d2037be1a231755e5c726611084a42e797cd6cf8ceac938e278af4e7a5"),
-                parse_scalar("0x29e2bcf9ff9c5dceed80f7d14495531191c46cda600e4777b9a77ddf554c5f45"),
-                parse_scalar("0x1ee89cceabeb15c0bb8cdb9724de055db1eb4d4e6eae836b719e1e206e9df72b"),
+                parse_scalar("0x475927bdf7f82c894db3074d32f1602b36df740779717e47b4cb035660f234ff"),
+                parse_scalar("0x18ae6c0c541342ec2a98f155ad29bd056f7e10ca4aa384ff0fadd598d0e1a2a4"),
+                parse_scalar("0x72297995c4fb54677035c53979a65dc027d50573af8489f3e9b1ac4b070a382a"),
             ],
         ];
         let root_hash =
-            parse_scalar("0x066baff0dcf9b2a4709d384a505cd5d5a4a729856ec319e4e00aac50881b1675");
+            parse_scalar("0x2d1ebbf130db703af5cc8013102a7da3df135585a8cc686d1134a1663909fdaf");
         let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
         assert!(test_ternary_smt::<2>(6, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(7, 78, path, root_hash, c).is_ok());
@@ -1319,7 +1321,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = BinaryChip::<Scalar, H, C>::new(DST, path);
+        let chip = BinaryChip::<Scalar, H, C>::new(*DST, path);
         assert_eq!(chip.width(), W);
         assert_eq!(chip.height(), H);
 
@@ -1472,7 +1474,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip::<Scalar, H, C>::new(DST, path);
+        let chip = TernaryChip::<Scalar, H, C>::new(*DST, path);
         assert_eq!(chip.width(), W);
         assert_eq!(chip.height(), H);
 
@@ -1628,7 +1630,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip::<Scalar, 102, BlueSkyConfigT5X7>::new(DST, path);
+        let chip = TernaryChip::<Scalar, 102, BlueSkyConfigT5X7>::new(*DST, path);
         assert_eq!(chip.width(), 105);
         assert_eq!(chip.height(), 102);
 
@@ -1698,7 +1700,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullBinaryChip::<Scalar, BlueSkyConfigT4X5>::new(DST, path);
+        let chip = FullBinaryChip::<Scalar, BlueSkyConfigT4X5>::new(*DST, path);
         assert_eq!(chip.width(), 104);
         assert_eq!(chip.height(), 256);
 
@@ -1804,7 +1806,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X5>::new(DST, path);
+        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X5>::new(*DST, path);
         assert_eq!(chip.width(), 116);
         assert_eq!(chip.height(), 162);
 
@@ -1911,7 +1913,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X7>::new(DST, path);
+        let chip = FullTernaryChip::<Scalar, BlueSkyConfigT5X7>::new(*DST, path);
         assert_eq!(chip.width(), 106);
         assert_eq!(chip.height(), 162);
 

@@ -296,6 +296,7 @@ impl<F: PrimeField32, const H: usize, C: PoseidonConfig<F, 32>> PlonkChip<F, 16,
 #[cfg(all(test, feature = "koalabear"))]
 mod tests {
     use super::*;
+    use crate::utils::hash_to_scalar;
     use primitive_types::{H256, U256};
     use starkom_ff::Field;
     use starkom_koalabear::{KB, KB8};
@@ -310,25 +311,17 @@ mod tests {
     const SECURITY_BITS: usize = 128;
     const BLOWUP_LOG2: usize = 3;
 
-    /// The domain separator tags of the chips under test and of the trees hashed like them.
-    const DST: [KB; 16] = [
-        from_const(31),
-        from_const(41),
-        from_const(59),
-        from_const(26),
-        from_const(53),
-        from_const(58),
-        from_const(97),
-        from_const(93),
-        from_const(23),
-        from_const(84),
-        from_const(62),
-        from_const(64),
-        from_const(33),
-        from_const(83),
-        from_const(27),
-        from_const(95),
-    ];
+    /// The domain separator tags of the chips under test and of the trees hashed like them: the
+    /// base field digits of two hashed 256-bit scalars.
+    static DST: LazyLock<[KB; 16]> = LazyLock::new(|| {
+        [
+            to_base(hash_to_scalar(b"test/dst/0")),
+            to_base(hash_to_scalar(b"test/dst/1")),
+        ]
+        .concat()
+        .try_into()
+        .unwrap()
+    });
 
     #[inline]
     const fn from_const(value: u32) -> KB {
@@ -367,7 +360,7 @@ mod tests {
         circuit_commitment: H256,
     ) -> Result<()> {
         let key = KB::from(key);
-        let chip = BinaryChip::<KB, H, KoalaBearConfig32>::new(DST, path);
+        let chip = BinaryChip::<KB, H, KoalaBearConfig32>::new(*DST, path);
         assert_eq!(chip.width(), 402);
         assert_eq!(chip.height(), H);
         let mut builder = CircuitBuilder::default();
@@ -432,7 +425,7 @@ mod tests {
             from_const(12),
         ];
         let path = [[value1, value2].concat().try_into().unwrap()];
-        let root_hash = parse("0x009cedd720caab4210d32165a3e8d162ee15209827957cb31c16b45fad12b617");
+        let root_hash = parse("0x00e30d6f6ad384d7a0c77f10c9a8ab90ede3dbc5c68844a663841990d622fd8e");
         let c = parse("0x003b5e8f62e8189a985dd38d93c152d4107e8ac4777a9768398ce204b46b68ae");
         assert!(test_binary_smt::<1>(0, value1, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, value2, path, root_hash, c).is_ok());
@@ -450,7 +443,7 @@ mod tests {
     impl BinarySmtFixture {
         fn new() -> Self {
             let chip = BinaryChip::<KB, FIXTURE_HEIGHT, KoalaBearConfig32>::new(
-                DST,
+                *DST,
                 [[KB::ZERO; 16]; FIXTURE_HEIGHT],
             );
             let mut builder = CircuitBuilder::default();
@@ -492,11 +485,11 @@ mod tests {
                     [hash, [KB::ZERO; 8]]
                 };
                 let children: [KB; 16] = children.concat().try_into().unwrap();
-                let output = poseidon1::hash::<KoalaBearConfig32, KB, 32, 16, 16>(DST, children);
+                let output = poseidon1::hash::<KoalaBearConfig32, KB, 32, 16, 16>(*DST, children);
                 hash = std::array::from_fn(|j| output[j]);
                 children
             });
-            let chip = BinaryChip::<KB, FIXTURE_HEIGHT, KoalaBearConfig32>::new(DST, path);
+            let chip = BinaryChip::<KB, FIXTURE_HEIGHT, KoalaBearConfig32>::new(*DST, path);
             let mut witness = self.circuit.make_witness();
             let inputs: [Cell; 16] = std::array::from_fn(|i| witness.cell(0, i));
             for i in 0..8 {
@@ -617,7 +610,7 @@ mod tests {
     impl BinaryNode {
         fn new(level: usize, left: Arc<dyn Node>, right: Arc<dyn Node>) -> Arc<dyn Node> {
             let hash = poseidon1::hash::<KoalaBearConfig32, KB, 32, 16, 16>(
-                DST,
+                *DST,
                 [to_base(left.hash()), to_base(right.hash())].concat(),
             );
             let hash = from_base(std::array::from_fn(|i| hash[i]));
@@ -730,7 +723,7 @@ mod tests {
             .unwrap();
         let expected_root_hash = to_base(tree.hash());
 
-        let chip = BinaryChip::<KB, H, KoalaBearConfig32>::new(DST, path);
+        let chip = BinaryChip::<KB, H, KoalaBearConfig32>::new(*DST, path);
         assert_eq!(chip.width(), 402);
         assert_eq!(chip.height(), H);
 
