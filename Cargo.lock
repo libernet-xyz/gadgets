@@ -813,6 +813,8 @@ dependencies = [
 [[package]]
 name = "starkom-plonk"
 version = "12.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fbc0d6cdba8be71608dad96de7f8cee76a867eb88fe4135a9f85340af5d440b"
 dependencies = [
  "anyhow",
  "primitive-types",
@@ -887,10 +889,11 @@ dependencies = [
 
 [[package]]
 name = "starkom-scpf"
-version = "1.0.3"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da9f8ea68a7a9dc5d55bd820140a5f059f2e847c55e36da97fa67ecbf6172537"
+checksum = "dbff1141527dff8ed1b69a61ff68d20fcdfa2434496e2e35036e39a91dbca763"
 dependencies = [
+ "anyhow",
  "primitive-types",
  "prost",
  "sha3",

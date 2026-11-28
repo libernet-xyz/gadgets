@@ -12,7 +12,7 @@ pub(crate) fn hash_to_scalar<F: Field256>(message: &[u8]) -> F {
     F::from_h512(H512::from_slice(hasher.finalize().as_slice()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bluesky"))]
 mod tests {
     use super::*;
     use starkom_bluesky::{Scalar, parse_scalar};

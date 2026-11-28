@@ -836,7 +836,7 @@ mod tests {
         circuit.check_witness(&witness).unwrap();
         let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, &circuit.default_proof_options())?;
         let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>();
-        // assert_eq!(circuit.commitment(), circuit_commitment);  // TODO: re-enable
+        assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
         Ok(())
@@ -847,7 +847,7 @@ mod tests {
         let path = [[from_const(12), from_const(34)]];
         let root_hash =
             parse_scalar("0x5c7e89842c3aaeea2f048e1d6de663af6ad11dce7d98d17b19cec47bf53c37b0");
-        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
+        let c = parse_hash("0x7967a4b5f350f0ed1672eb587fb58de109de08db82e926519bb6aaeedb43533d");
         assert!(test_binary_smt::<1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 34, path, root_hash, c).is_ok());
     }
@@ -857,7 +857,7 @@ mod tests {
         let path = [[from_const(34), from_const(12)]];
         let root_hash =
             parse_scalar("0x24f2dd48eeacd81ea136caab8718c4a9aa9447bef333bdb57b22cd3260923157");
-        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
+        let c = parse_hash("0x7967a4b5f350f0ed1672eb587fb58de109de08db82e926519bb6aaeedb43533d");
         assert!(test_binary_smt::<1>(0, 34, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 12, path, root_hash, c).is_ok());
     }
@@ -867,7 +867,7 @@ mod tests {
         let path = [[from_const(56), from_const(78)]];
         let root_hash =
             parse_scalar("0x76eb513de049a9f257d5e041ba17f3c7ce2e4a9341d39336df809ca1f1e23e1f");
-        let c = parse_hash("0x9ea543dc5d7b98c872c7770f45442e1b682de56c0d8b739338ec877aab563285");
+        let c = parse_hash("0x7967a4b5f350f0ed1672eb587fb58de109de08db82e926519bb6aaeedb43533d");
         assert!(test_binary_smt::<1>(0, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<1>(1, 78, path, root_hash, c).is_ok());
     }
@@ -883,7 +883,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x6f84a941a15c857ea77930bf2d3dddf58fbe61d29eb9d3da229d2158bdbd7445");
-        let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
+        let c = parse_hash("0xb156cde02ac2fd4db8f349a9ad25b785485cd0aa27f27512823abb11ea290ba2");
         assert!(test_binary_smt::<2>(0, 12, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2>(1, 34, path, root_hash, c).is_ok());
     }
@@ -899,7 +899,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x6f84a941a15c857ea77930bf2d3dddf58fbe61d29eb9d3da229d2158bdbd7445");
-        let c = parse_hash("0x4624a1fc0141a8d753764723b67f749af762216c30f212b4111c6efee396f361");
+        let c = parse_hash("0xb156cde02ac2fd4db8f349a9ad25b785485cd0aa27f27512823abb11ea290ba2");
         assert!(test_binary_smt::<2>(2, 56, path, root_hash, c).is_ok());
         assert!(test_binary_smt::<2>(3, 78, path, root_hash, c).is_ok());
     }
@@ -941,7 +941,7 @@ mod tests {
         circuit.check_witness(&witness).unwrap();
         let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, &circuit.default_proof_options())?;
         let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>();
-        // assert_eq!(circuit.commitment(), circuit_commitment);  // TODO: re-enable
+        assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof)?;
         assert_eq!(openings[&root_hash], expected_root_hash);
         Ok(())
@@ -952,7 +952,7 @@ mod tests {
         let path = [[from_const(12), from_const(34), from_const(56)]];
         let root_hash =
             parse_scalar("0x475927bdf7f82c894db3074d32f1602b36df740779717e47b4cb035660f234ff");
-        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        let c = parse_hash("0x88e28d181d790b869cabee374871934abecb468a50f2871d6c47250ce49fadb7");
         assert!(test_ternary_smt::<1>(0, 12, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(2, 56, path, root_hash, c).is_ok());
@@ -963,7 +963,7 @@ mod tests {
         let path = [[from_const(34), from_const(56), from_const(12)]];
         let root_hash =
             parse_scalar("0x18ae6c0c541342ec2a98f155ad29bd056f7e10ca4aa384ff0fadd598d0e1a2a4");
-        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        let c = parse_hash("0x88e28d181d790b869cabee374871934abecb468a50f2871d6c47250ce49fadb7");
         assert!(test_ternary_smt::<1>(0, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(2, 12, path, root_hash, c).is_ok());
@@ -974,7 +974,7 @@ mod tests {
         let path = [[from_const(56), from_const(78), from_const(90)]];
         let root_hash =
             parse_scalar("0x72297995c4fb54677035c53979a65dc027d50573af8489f3e9b1ac4b070a382a");
-        let c = parse_hash("0x512035d2b2db72ca18822ccd4cb4ce7d8455ffa95199f769260e89d31f4ca9f9");
+        let c = parse_hash("0x88e28d181d790b869cabee374871934abecb468a50f2871d6c47250ce49fadb7");
         assert!(test_ternary_smt::<1>(0, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(1, 78, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<1>(2, 90, path, root_hash, c).is_ok());
@@ -992,7 +992,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x2d1ebbf130db703af5cc8013102a7da3df135585a8cc686d1134a1663909fdaf");
-        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        let c = parse_hash("0xf30f7d9abe56819b0b90f62b8148e86181e92769b9f2ee8ea9cee94ae94d656c");
         assert!(test_ternary_smt::<2>(0, 12, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(1, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(2, 56, path, root_hash, c).is_ok());
@@ -1010,7 +1010,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x2d1ebbf130db703af5cc8013102a7da3df135585a8cc686d1134a1663909fdaf");
-        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        let c = parse_hash("0xf30f7d9abe56819b0b90f62b8148e86181e92769b9f2ee8ea9cee94ae94d656c");
         assert!(test_ternary_smt::<2>(3, 34, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(4, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(5, 12, path, root_hash, c).is_ok());
@@ -1028,7 +1028,7 @@ mod tests {
         ];
         let root_hash =
             parse_scalar("0x2d1ebbf130db703af5cc8013102a7da3df135585a8cc686d1134a1663909fdaf");
-        let c = parse_hash("0x7b12fdfa0fca6947c5e8c0a6273af575f003787182b65a04d47a972c168aa7bd");
+        let c = parse_hash("0xf30f7d9abe56819b0b90f62b8148e86181e92769b9f2ee8ea9cee94ae94d656c");
         assert!(test_ternary_smt::<2>(6, 56, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(7, 78, path, root_hash, c).is_ok());
         assert!(test_ternary_smt::<2>(8, 90, path, root_hash, c).is_ok());
