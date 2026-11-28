@@ -1,14 +1,14 @@
 use anyhow::Result;
 use primitive_types::U256;
-use starkom_bluesky::{Scalar, from_const};
-use starkom_ff::{Field, Field256, PrimeField};
+use starkom_ff::{Field, Field32, Field64, Field128, Field256};
 use starkom_plonk::{
     Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, Constraint, WitnessView, make_const,
     rvar, var,
 };
+use std::marker::PhantomData;
 
 /// Returns the smallest power of three that is >= n (returns 1 for n=0).
-pub fn next_power_of_three(n: usize) -> usize {
+pub const fn next_power_of_three(n: usize) -> usize {
     let mut pow = 1usize;
     while pow < n {
         pow *= 3;
@@ -17,7 +17,7 @@ pub fn next_power_of_three(n: usize) -> usize {
 }
 
 /// Checks if a number is a power of 3.
-pub fn is_power_of_three(mut value: usize) -> bool {
+pub const fn is_power_of_three(mut value: usize) -> bool {
     if value == 0 {
         return false;
     }
@@ -34,7 +34,7 @@ pub fn is_power_of_three(mut value: usize) -> bool {
 ///
 /// If `n` is not a power of 3 this function returns the logarithm rounded down to the nearest
 /// integer, eg. `ilog3(8) == 1`.
-pub fn ilog3(mut n: usize) -> usize {
+pub const fn ilog3(mut n: usize) -> usize {
     let mut c = 0;
     while n >= 3 {
         c += 1;
@@ -44,35 +44,35 @@ pub fn ilog3(mut n: usize) -> usize {
 }
 
 /// Returns the LSB of a scalar as a scalar.
-pub fn and1(value: Scalar) -> Scalar {
-    let lsb = value.to_le_bytes()[0];
-    Scalar::from((lsb & 1) as u64)
+pub fn and1<F: Field>(value: F) -> F {
+    value.is_odd().unwrap_u8().into()
 }
 
 /// Shifts the input [`Scalar`] to the right by `count` bits.
 ///
 /// This is equivalent to the integer division by `2^count`.
-pub fn shr(value: Scalar, count: usize) -> Scalar {
-    (value.to_u256() >> U256::from(count)).try_into().unwrap()
+pub fn shr<F: Field>(value: F, count: usize) -> F {
+    (value.to_u256() >> count).try_into().unwrap()
 }
 
 /// Shifts the input [`Scalar`] to the right.
 ///
 /// This is equivalent to the integer division by 2.
-pub fn shr1(value: Scalar) -> Scalar {
+#[inline]
+pub fn shr1<F: Field>(value: F) -> F {
     shr(value, 1)
 }
 
 /// Decomposes the input [`U256`] into `N` bits.
 ///
 /// The `N` bits are represented as scalars and returned in little-endian order.
-pub fn decompose_bits<const N: usize>(mut value: U256) -> [Scalar; N] {
-    let mut bits = [Scalar::ZERO; N];
+pub fn decompose_bits<F: Field, const N: usize>(mut value: U256) -> [F; N] {
+    let mut bits = [F::ZERO; N];
     for i in 0..N {
         bits[i] = if value & 1.into() != U256::zero() {
-            Scalar::ONE
+            F::ONE
         } else {
-            Scalar::ZERO
+            F::ZERO
         };
         value >>= 1;
     }
@@ -83,20 +83,24 @@ pub fn decompose_bits<const N: usize>(mut value: U256) -> [Scalar; N] {
 /// Decomposes the input [`Scalar`] into `N` bits.
 ///
 /// The `N` bits are represented as scalars and returned in little-endian order.
-pub fn decompose_scalar_bits<const N: usize>(value: Scalar) -> [Scalar; N] {
-    decompose_bits::<N>(value.to_u256())
+pub fn decompose_scalar_bits<F: Field, const N: usize>(value: F) -> [F; N] {
+    decompose_bits::<F, N>(value.to_u256())
 }
 
 /// Decomposes the input signal into N bits.
 ///
 /// The returned bits are in little-endian order.
 ///
-/// WARNING: this chip is unsafe to use with 255 or 256 bits because it doesn't guard against
-/// aliasing. Use the [`FullBitDecomposerChip`] for a full decomposition into 256 bits.
+/// WARNING: this chip is unsafe to use with a number of bits close to the field's own bit length
+/// because it doesn't guard against aliasing. Use [`FullBitDecomposerChip32`],
+/// [`FullBitDecomposerChip64`], [`FullBitDecomposerChip128`], or [`FullBitDecomposerChip256`] for a
+/// full decomposition instead.
 #[derive(Debug, Default, Clone)]
-pub struct BitDecomposerChip<const N: usize> {}
+pub struct BitDecomposerChip<F: Field, const N: usize> {
+    _data: PhantomData<F>,
+}
 
-impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
+impl<F: Field, const N: usize> PlonkChip<F, 1, N> for BitDecomposerChip<F, N> {
     fn width(&self) -> usize {
         N + 1
     }
@@ -105,33 +109,37 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
         1
     }
 
-    fn build(
+    fn build<G: Field256<BaseField = F>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
     ) -> Result<[Option<Cell>; N]> {
         for i in 0..N {
-            view.add_gate(0, var(i) * (make_const(1) - var(i)));
+            view.add_gate(0, var(i) * (make_const(1u8.into()) - var(i)));
         }
         view.connect(inputs[0], view.cell(0, N).into());
-        const TWO: Scalar = from_const(2);
+        let mut pow = F::ONE;
         view.add_gate(
             0,
             var(N)
                 - (0..N)
-                    .map(|i| var(i) * TWO.pow_small(i))
-                    .sum::<Constraint>(),
+                    .map(|i| {
+                        let value = var(i) * make_const(pow);
+                        pow = pow.double();
+                        value
+                    })
+                    .sum::<Constraint<F>>(),
         );
         Ok(std::array::from_fn(|i| view.cell(0, i).into()))
     }
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 1],
-    ) -> Result<[CellOrUnconstrained; N]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; N]> {
         let value = view.get(inputs[0]);
-        decompose_scalar_bits::<N>(value)
+        decompose_scalar_bits::<F, N>(value)
             .into_iter()
             .enumerate()
             .for_each(|(i, bit)| view.set(view.cell(0, i), bit));
@@ -150,23 +158,27 @@ impl<const N: usize> PlonkChip<1, N> for BitDecomposerChip<N> {
 ///  * 0 if the input value is equal to the constant,
 ///  * 1 if the input value is strictly greater than the constant.
 #[derive(Debug, Default, Clone)]
-pub struct ConstBitComparatorChip<const N: usize> {
+pub struct ConstBitComparatorChip<F: Field, const N: usize> {
     rhs: U256,
+    _data: PhantomData<F>,
 }
 
-impl<const N: usize> ConstBitComparatorChip<N> {
+impl<F: Field, const N: usize> ConstBitComparatorChip<F, N> {
     pub fn new(rhs: U256) -> Self {
-        Self { rhs }
+        Self {
+            rhs,
+            _data: PhantomData,
+        }
     }
 }
 
-impl<const N: usize> ConstBitComparatorChip<N> {
-    fn get_rhs_bit(&self, i: usize) -> Scalar {
+impl<F: Field, const N: usize> ConstBitComparatorChip<F, N> {
+    fn get_rhs_bit(&self, i: usize) -> F {
         ((self.rhs >> i) & 1.into()).try_into().unwrap()
     }
 }
 
-impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
+impl<F: Field, const N: usize> PlonkChip<F, N, 1> for ConstBitComparatorChip<F, N> {
     fn width(&self) -> usize {
         N
     }
@@ -175,20 +187,25 @@ impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
         2
     }
 
-    fn build(
+    fn build<G: Field256<BaseField = F>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; N],
     ) -> Result<[Option<Cell>; 1]> {
         for i in 0..N {
             view.connect(inputs[i], view.cell(0, i).into());
         }
-        view.add_gate(0, rvar(N - 1, 0) - self.get_rhs_bit(N - 1) - rvar(N - 1, 1));
+        view.add_gate(
+            0,
+            rvar(N - 1, 0) - make_const(self.get_rhs_bit(N - 1)) - rvar(N - 1, 1),
+        );
         for i in (0..(N - 1)).rev() {
             let bit = self.get_rhs_bit(i);
             view.add_gate(
                 0,
-                (rvar(i + 1, 1) ^ 3) + (make_const(1) - (rvar(i + 1, 1) ^ 2)) * (rvar(i, 0) - bit)
+                (rvar(i + 1, 1) ^ 3)
+                    + (make_const(1u8.into()) - (rvar(i + 1, 1) ^ 2))
+                        * (rvar(i, 0) - make_const(bit))
                     - rvar(i, 1),
             );
         }
@@ -197,9 +214,9 @@ impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; N],
-    ) -> Result<[CellOrUnconstrained; 1]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; N],
+    ) -> Result<[CellOrUnconstrained<F>; 1]> {
         for i in 0..N {
             view.copy(inputs[i], view.cell(0, i));
         }
@@ -213,35 +230,37 @@ impl<const N: usize> PlonkChip<N, 1> for ConstBitComparatorChip<N> {
             let prev = view.get_at(view.cell(1, i + 1));
             view.set(
                 view.cell(1, i),
-                prev.cube() + (from_const(1) - prev.square()) * cmp,
+                prev.cube() + (F::ONE - prev.square()) * cmp,
             );
         }
         Ok([view.cell(1, 0).into()])
     }
 }
 
-/// Decomposes an input signal into 256 bits.
+/// Decomposes an input signal into `N` bits, covering the full range of a field whose modulus fits
+/// in `N` bits.
 ///
 /// The returned bits are in little-endian order.
 ///
-/// Note that the MSB will always be zero because BlueSky scalars don't cover the upper half of the
-/// 256 bit range.
+/// This is the shared implementation behind [`FullBitDecomposerChip32`], [`FullBitDecomposerChip64`],
+/// [`FullBitDecomposerChip128`], and [`FullBitDecomposerChip256`]; use one of those instead of this type
+/// directly.
 #[derive(Debug, Clone)]
-pub struct FullBitDecomposerChip {
-    decomposer: BitDecomposerChip<256>,
-    comparator: ConstBitComparatorChip<256>,
+struct FullBitDecomposer<F: Field, const N: usize> {
+    decomposer: BitDecomposerChip<F, N>,
+    comparator: ConstBitComparatorChip<F, N>,
 }
 
-impl Default for FullBitDecomposerChip {
+impl<F: Field, const N: usize> Default for FullBitDecomposer<F, N> {
     fn default() -> Self {
         Self {
             decomposer: BitDecomposerChip::default(),
-            comparator: ConstBitComparatorChip::new(Scalar::MODULUS.parse().unwrap()),
+            comparator: ConstBitComparatorChip::new(F::MODULUS.parse().unwrap()),
         }
     }
 }
 
-impl PlonkChip<1, 256> for FullBitDecomposerChip {
+impl<F: Field, const N: usize> FullBitDecomposer<F, N> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.comparator.width())
     }
@@ -250,11 +269,11 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
         self.decomposer.height() + self.comparator.height()
     }
 
-    fn build(
+    fn build<G: Field256<BaseField = F>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; 256]> {
+    ) -> Result<[Option<Cell>; N]> {
         let bits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, bits)?;
@@ -264,30 +283,164 @@ impl PlonkChip<1, 256> for FullBitDecomposerChip {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 1],
-    ) -> Result<[CellOrUnconstrained; 256]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; N]> {
         let bits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         view.sub_chip(1, 0, &self.comparator, bits)?;
         Ok(bits)
     }
 }
 
+/// Decomposes an input signal into 32 bits, covering the full range of any [`Field32`].
+///
+/// The returned bits are in little-endian order.
+///
+/// Note that the MSB will always be zero for fields whose modulus doesn't cover the upper half of
+/// the 32 bit range, such as KoalaBear.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip32<F: Field32>(FullBitDecomposer<F, 32>);
+
+impl<F: Field32> PlonkChip<F, 1, 32> for FullBitDecomposerChip32<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 32]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 32]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 64 bits, covering the full range of any [`Field64`].
+///
+/// The returned bits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip64<F: Field64>(FullBitDecomposer<F, 64>);
+
+impl<F: Field64> PlonkChip<F, 1, 64> for FullBitDecomposerChip64<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 64]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 64]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 128 bits, covering the full range of any [`Field128`].
+///
+/// The returned bits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip128<F: Field128>(FullBitDecomposer<F, 128>);
+
+impl<F: Field128> PlonkChip<F, 1, 128> for FullBitDecomposerChip128<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 128]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 128]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 256 bits, covering the full range of any [`Field256`].
+///
+/// The returned bits are in little-endian order.
+///
+/// Note that the MSB will always be zero for fields whose modulus doesn't cover the upper half of
+/// the 256 bit range, such as BlueSky and Schraderbrau.
+#[derive(Debug, Default, Clone)]
+pub struct FullBitDecomposerChip256<F: Field256>(FullBitDecomposer<F, 256>);
+
+impl<F: Field256> PlonkChip<F, 1, 256> for FullBitDecomposerChip256<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 256]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 256]> {
+        self.0.witness(view, inputs)
+    }
+}
+
 /// Divides `value`, treated as an integer, by `3^exp`, rounding down.
-pub fn div_pow3(value: Scalar, exp: usize) -> Scalar {
+pub fn div_pow3<F: Field>(value: F, exp: usize) -> F {
     let dividend = value.to_u256();
     let divisor = U256::from(3).pow(exp.into());
     (dividend / divisor).try_into().unwrap()
 }
 
 /// Divides `value`, treated as an integer, by 3, rounding down.
-pub fn div3(value: Scalar) -> Scalar {
+pub fn div3<F: Field>(value: F) -> F {
     let dividend = value.to_u256();
     (dividend / 3).try_into().unwrap()
 }
 
 /// Returns `value`, treated as an integer, modulo 3.
-pub fn mod3(value: Scalar) -> Scalar {
+pub fn mod3<F: Field>(value: F) -> F {
     let value = value.to_u256();
     (value % 3).try_into().unwrap()
 }
@@ -295,10 +448,10 @@ pub fn mod3(value: Scalar) -> Scalar {
 /// Decomposes `value` into its `N` base-3 digits (trits), least significant first.
 ///
 /// Panics if `value` does not fit in `N` trits.
-pub fn decompose_trits<const N: usize>(mut value: U256) -> [Scalar; N] {
-    let mut trits = [Scalar::ZERO; N];
+pub fn decompose_trits<F: Field, const N: usize>(mut value: U256) -> [F; N] {
+    let mut trits = [F::ZERO; N];
     for i in 0..N {
-        trits[i] = Scalar::from((value % 3).as_u64());
+        trits[i] = F::from((value % 3).as_u32() as u8);
         value /= 3;
     }
     assert_eq!(value, U256::zero());
@@ -306,18 +459,22 @@ pub fn decompose_trits<const N: usize>(mut value: U256) -> [Scalar; N] {
 }
 
 /// Like [`decompose_trits`], but takes `value` as a [`Scalar`] rather than a [`U256`].
-pub fn decompose_scalar_trits<const N: usize>(value: Scalar) -> [Scalar; N] {
-    decompose_trits::<N>(value.to_u256())
+pub fn decompose_scalar_trits<F: Field, const N: usize>(value: F) -> [F; N] {
+    decompose_trits::<F, N>(value.to_u256())
 }
 
 /// Decomposes the input signal into N trits.
 ///
-/// WARNING: this chip is unsafe to use with 160 or 161 trits because it doesn't guard against
-/// aliasing. Use the [`FullTritDecomposerChip`] for a full decomposition into 161 trits.
+/// WARNING: this chip is unsafe to use with a number of trits close to the field's own bit length
+/// because it doesn't guard against aliasing. Use [`FullTritDecomposerChip32`],
+/// [`FullTritDecomposerChip64`], [`FullTritDecomposerChip128`], or [`FullTritDecomposerChip256`]
+/// for a full decomposition instead, picking the one that matches the field's size.
 #[derive(Debug, Default, Clone)]
-pub struct TritDecomposerChip<const N: usize> {}
+pub struct TritDecomposerChip<F: Field, const N: usize> {
+    _data: PhantomData<F>,
+}
 
-impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
+impl<F: Field, const N: usize> PlonkChip<F, 1, N> for TritDecomposerChip<F, N> {
     fn width(&self) -> usize {
         N + 1
     }
@@ -326,33 +483,38 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
         1
     }
 
-    fn build(
+    fn build<G: Field256<BaseField = F>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
     ) -> Result<[Option<Cell>; N]> {
         for i in 0..N {
             view.add_gate(0, var(i) * (var(i) - 1) * (var(i) - 2));
         }
         view.connect(inputs[0], view.cell(0, N).into());
-        const THREE: Scalar = from_const(3);
+        let three: F = 3u8.into();
+        let mut pow = F::ONE;
         view.add_gate(
             0,
             var(N)
                 - (0..N)
-                    .map(|i| var(i) * THREE.pow_small(i))
-                    .sum::<Constraint>(),
+                    .map(|i| {
+                        let value = var(i) * make_const(pow);
+                        pow *= three;
+                        value
+                    })
+                    .sum::<Constraint<F>>(),
         );
         Ok(std::array::from_fn(|i| view.cell(0, i).into()))
     }
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 1],
-    ) -> Result<[CellOrUnconstrained; N]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; N]> {
         let value = view.get(inputs[0]);
-        decompose_scalar_trits::<N>(value)
+        decompose_scalar_trits::<F, N>(value)
             .into_iter()
             .enumerate()
             .for_each(|(i, trit)| view.set(view.cell(0, i), trit));
@@ -369,16 +531,20 @@ impl<const N: usize> PlonkChip<1, N> for TritDecomposerChip<N> {
 ///  * 0 if the input value is equal to the constant,
 ///  * 1 if the input value is strictly greater than the constant.
 #[derive(Debug, Default, Clone)]
-pub struct ConstTritComparatorChip<const N: usize> {
+pub struct ConstTritComparatorChip<F: Field, const N: usize> {
     rhs: U256,
+    _data: PhantomData<F>,
 }
 
-impl<const N: usize> ConstTritComparatorChip<N> {
+impl<F: Field, const N: usize> ConstTritComparatorChip<F, N> {
     pub fn new(rhs: U256) -> Self {
-        Self { rhs }
+        Self {
+            rhs,
+            _data: PhantomData,
+        }
     }
 
-    fn get_rhs_trit(&self, i: usize) -> Scalar {
+    fn get_rhs_trit(&self, i: usize) -> F {
         let three = U256::from(3);
         ((self.rhs / three.pow(i.into())) % three)
             .try_into()
@@ -386,7 +552,7 @@ impl<const N: usize> ConstTritComparatorChip<N> {
     }
 }
 
-impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
+impl<F: Field, const N: usize> PlonkChip<F, N, 1> for ConstTritComparatorChip<F, N> {
     fn width(&self) -> usize {
         N
     }
@@ -395,9 +561,9 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
         3
     }
 
-    fn build(
+    fn build<G: Field256<BaseField = F>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; N],
     ) -> Result<[Option<Cell>; 1]> {
         for i in 0..N {
@@ -405,14 +571,16 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
             let trit = self.get_rhs_trit(i);
             view.add_gate(
                 0,
-                ((rvar(i, 0) - trit) * 7 - ((rvar(i, 0) - trit) ^ 3)) / 6 - rvar(i, 1),
+                ((rvar(i, 0) - make_const(trit)) * 7 - ((rvar(i, 0) - make_const(trit)) ^ 3)) / 6
+                    - rvar(i, 1),
             );
         }
         view.connect(view.cell(1, N - 1).into(), view.cell(2, N - 1).into());
         for i in (0..(N - 1)).rev() {
             view.add_gate(
                 1,
-                rvar(i + 1, 1) + (make_const(1) - (rvar(i + 1, 1) ^ 2)) * rvar(i, 0) - rvar(i, 1),
+                rvar(i + 1, 1) + (make_const(1u8.into()) - (rvar(i + 1, 1) ^ 2)) * rvar(i, 0)
+                    - rvar(i, 1),
             );
         }
         Ok([view.cell(2, 0).into()])
@@ -420,49 +588,51 @@ impl<const N: usize> PlonkChip<N, 1> for ConstTritComparatorChip<N> {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; N],
-    ) -> Result<[CellOrUnconstrained; 1]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; N],
+    ) -> Result<[CellOrUnconstrained<F>; 1]> {
         for i in 0..N {
             view.copy(inputs[i], view.cell(0, i).into());
             let diff = view.get_at(view.cell(0, i)) - self.get_rhs_trit(i);
             view.set(
                 view.cell(1, i),
-                (diff * from_const(7) - diff.cube()) / from_const(6),
+                (diff * F::from(7u8) - diff.cube()) / F::from(6u8),
             );
         }
         view.copy(view.cell(1, N - 1).into(), view.cell(2, N - 1));
         for i in (0..(N - 1)).rev() {
             let cmp = view.get_at(view.cell(1, i));
             let prev = view.get_at(view.cell(2, i + 1));
-            view.set(
-                view.cell(2, i),
-                prev + (from_const(1) - prev.square()) * cmp,
-            );
+            view.set(view.cell(2, i), prev + (F::ONE - prev.square()) * cmp);
         }
         Ok([view.cell(2, 0).into()])
     }
 }
 
-/// Decomposes an input signal into 161 trits, covering the full BlueSky range.
+/// Decomposes an input signal into `N` trits, covering the full range of a field whose modulus fits
+/// in `N` trits.
 ///
 /// The returned trits are in little-endian order.
+///
+/// This is the shared implementation behind [`FullTritDecomposerChip32`],
+/// [`FullTritDecomposerChip64`], [`FullTritDecomposerChip128`], and [`FullTritDecomposerChip256`];
+/// use one of those instead of this type directly.
 #[derive(Debug, Clone)]
-pub struct FullTritDecomposerChip {
-    decomposer: TritDecomposerChip<161>,
-    comparator: ConstTritComparatorChip<161>,
+struct FullTritDecomposer<F: Field, const N: usize> {
+    decomposer: TritDecomposerChip<F, N>,
+    comparator: ConstTritComparatorChip<F, N>,
 }
 
-impl Default for FullTritDecomposerChip {
+impl<F: Field, const N: usize> Default for FullTritDecomposer<F, N> {
     fn default() -> Self {
         Self {
             decomposer: TritDecomposerChip::default(),
-            comparator: ConstTritComparatorChip::new(Scalar::MODULUS.parse().unwrap()),
+            comparator: ConstTritComparatorChip::new(F::MODULUS.parse().unwrap()),
         }
     }
 }
 
-impl PlonkChip<1, 161> for FullTritDecomposerChip {
+impl<F: Field, const N: usize> FullTritDecomposer<F, N> {
     fn width(&self) -> usize {
         std::cmp::max(self.decomposer.width(), self.comparator.width())
     }
@@ -471,11 +641,11 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
         self.decomposer.height() + self.comparator.height()
     }
 
-    fn build(
+    fn build<G: Field256<BaseField = F>>(
         &self,
-        view: &mut impl CircuitView,
+        view: &mut impl CircuitView<F, G>,
         inputs: [Option<Cell>; 1],
-    ) -> Result<[Option<Cell>; 161]> {
+    ) -> Result<[Option<Cell>; N]> {
         let trits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         let mut view = view.sub(self.decomposer.height(), 0, None, None);
         view.sub_chip(0, 0, &self.comparator, trits)?;
@@ -485,24 +655,160 @@ impl PlonkChip<1, 161> for FullTritDecomposerChip {
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; 1],
-    ) -> Result<[CellOrUnconstrained; 161]> {
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; N]> {
         let trits = view.sub_chip(0, 0, &self.decomposer, inputs)?;
         view.sub_chip(self.decomposer.height(), 0, &self.comparator, trits)?;
         Ok(trits)
     }
 }
 
-#[cfg(test)]
+/// Decomposes an input signal into 21 trits, covering the full range of any [`Field32`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip32<F: Field32>(FullTritDecomposer<F, 21>);
+
+impl<F: Field32> PlonkChip<F, 1, 21> for FullTritDecomposerChip32<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 21]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 21]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 41 trits, covering the full range of any [`Field64`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip64<F: Field64>(FullTritDecomposer<F, 41>);
+
+impl<F: Field64> PlonkChip<F, 1, 41> for FullTritDecomposerChip64<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 41]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 41]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 81 trits, covering the full range of any [`Field128`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip128<F: Field128>(FullTritDecomposer<F, 81>);
+
+impl<F: Field128> PlonkChip<F, 1, 81> for FullTritDecomposerChip128<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 81]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 81]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+/// Decomposes an input signal into 162 trits, covering the full range of any [`Field256`].
+///
+/// The returned trits are in little-endian order.
+#[derive(Debug, Default, Clone)]
+pub struct FullTritDecomposerChip256<F: Field256>(FullTritDecomposer<F, 162>);
+
+impl<F: Field256> PlonkChip<F, 1, 162> for FullTritDecomposerChip256<F> {
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    fn build<G: Field256<BaseField = F>>(
+        &self,
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; 1],
+    ) -> Result<[Option<Cell>; 162]> {
+        self.0.build(view, inputs)
+    }
+
+    fn witness(
+        &self,
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; 1],
+    ) -> Result<[CellOrUnconstrained<F>; 162]> {
+        self.0.witness(view, inputs)
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "bluesky",
+    feature = "goldilocks",
+    feature = "koalabear"
+))]
 mod tests {
     use super::*;
     use primitive_types::H256;
-    use starkom_bluesky::parse_scalar;
+    use starkom_bluesky::{Scalar as BS, parse_scalar};
+    use starkom_goldilocks::{GL, GL4};
+    use starkom_koalabear::{KB, KB8};
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use starkom_plonk::{CircuitBuilder, CircuitOptions};
     use std::cmp::Ordering;
 
+    const SECURITY_BITS: usize = 128;
     const BLOWUP_LOG2: usize = 1;
 
     #[inline]
@@ -564,10 +870,14 @@ mod tests {
 
     #[test]
     fn test_and1() {
-        assert_eq!(and1(from_const(42)), from_const(0));
-        assert_eq!(and1(from_const(43)), from_const(1));
-        assert_eq!(and1(from_const(44)), from_const(0));
-        assert_eq!(and1(from_const(45)), from_const(1));
+        assert_eq!(and1(BS::from(42u8)), 0u8.into());
+        assert_eq!(and1(BS::from(43u8)), 1u8.into());
+        assert_eq!(and1(BS::from(44u8)), 0u8.into());
+        assert_eq!(and1(BS::from(45u8)), 1u8.into());
+        assert_eq!(and1(GL::from(42u8)), 0u8.into());
+        assert_eq!(and1(GL::from(43u8)), 1u8.into());
+        assert_eq!(and1(GL::from(44u8)), 0u8.into());
+        assert_eq!(and1(GL::from(45u8)), 1u8.into());
     }
 
     #[test]
@@ -576,25 +886,25 @@ mod tests {
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
             )),
-            from_const(0)
+            0u8.into()
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
             )),
-            from_const(1)
+            1u8.into()
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f22"
             )),
-            from_const(0)
+            0u8.into()
         );
         assert_eq!(
             and1(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f23"
             )),
-            from_const(1)
+            1u8.into()
         );
     }
 
@@ -621,205 +931,232 @@ mod tests {
 
     #[test]
     fn test_decompose_bits_one() {
-        assert_eq!(decompose_bits::<1>(0.into()), [from_const(0)]);
-        assert_eq!(decompose_bits::<1>(1.into()), [from_const(1)]);
+        assert_eq!(decompose_bits::<BS, 1>(0.into()), [0u8.into()]);
+        assert_eq!(decompose_bits::<BS, 1>(1.into()), [1u8.into()]);
     }
 
     #[test]
     fn test_decompose_bits_two() {
-        assert_eq!(
-            decompose_bits::<2>(0.into()),
-            [from_const(0), from_const(0)]
-        );
-        assert_eq!(
-            decompose_bits::<2>(1.into()),
-            [from_const(1), from_const(0)]
-        );
-        assert_eq!(
-            decompose_bits::<2>(2.into()),
-            [from_const(0), from_const(1)]
-        );
-        assert_eq!(
-            decompose_bits::<2>(3.into()),
-            [from_const(1), from_const(1)]
-        );
+        assert_eq!(decompose_bits::<BS, 2>(0.into()), [0u8.into(), 0u8.into()]);
+        assert_eq!(decompose_bits::<BS, 2>(1.into()), [1u8.into(), 0u8.into()]);
+        assert_eq!(decompose_bits::<BS, 2>(2.into()), [0u8.into(), 1u8.into()]);
+        assert_eq!(decompose_bits::<BS, 2>(3.into()), [1u8.into(), 1u8.into()]);
     }
 
     #[test]
     fn test_decompose_bits_three() {
         assert_eq!(
-            decompose_bits::<3>(0.into()),
-            [from_const(0), from_const(0), from_const(0)]
+            decompose_bits::<BS, 3>(0.into()),
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_bits::<3>(1.into()),
-            [from_const(1), from_const(0), from_const(0)]
+            decompose_bits::<BS, 3>(1.into()),
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_bits::<3>(2.into()),
-            [from_const(0), from_const(1), from_const(0)]
+            decompose_bits::<BS, 3>(2.into()),
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_bits::<3>(3.into()),
-            [from_const(1), from_const(1), from_const(0)]
+            decompose_bits::<BS, 3>(3.into()),
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_bits::<3>(4.into()),
-            [from_const(0), from_const(0), from_const(1)]
+            decompose_bits::<BS, 3>(4.into()),
+            [0u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_bits::<3>(5.into()),
-            [from_const(1), from_const(0), from_const(1)]
+            decompose_bits::<BS, 3>(5.into()),
+            [1u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_bits::<3>(6.into()),
-            [from_const(0), from_const(1), from_const(1)]
+            decompose_bits::<BS, 3>(6.into()),
+            [0u8.into(), 1u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_bits::<3>(7.into()),
-            [from_const(1), from_const(1), from_const(1)]
+            decompose_bits::<BS, 3>(7.into()),
+            [1u8.into(), 1u8.into(), 1u8.into()]
         );
     }
 
     #[test]
     fn test_decompose_bits_large() {
         assert_eq!(
-            decompose_bits::<64>(0xFFFFFFFFFFFFFFFFu64.into()),
-            [from_const(1); 64]
+            decompose_bits::<BS, 64>(0xFFFFFFFFFFFFFFFFu64.into()),
+            [1u8.into(); 64]
         );
     }
 
     #[test]
     fn test_decompose_scalar_bits() {
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(0)),
-            [from_const(0), from_const(0), from_const(0)]
+            decompose_scalar_bits::<BS, 3>(0u8.into()),
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(1)),
-            [from_const(1), from_const(0), from_const(0)]
+            decompose_scalar_bits::<BS, 3>(1u8.into()),
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(2)),
-            [from_const(0), from_const(1), from_const(0)]
+            decompose_scalar_bits::<BS, 3>(2u8.into()),
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(3)),
-            [from_const(1), from_const(1), from_const(0)]
+            decompose_scalar_bits::<BS, 3>(3u8.into()),
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(4)),
-            [from_const(0), from_const(0), from_const(1)]
+            decompose_scalar_bits::<BS, 3>(4u8.into()),
+            [0u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(5)),
-            [from_const(1), from_const(0), from_const(1)]
+            decompose_scalar_bits::<BS, 3>(5u8.into()),
+            [1u8.into(), 0u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(6)),
-            [from_const(0), from_const(1), from_const(1)]
+            decompose_scalar_bits::<BS, 3>(6u8.into()),
+            [0u8.into(), 1u8.into(), 1u8.into()]
         );
         assert_eq!(
-            decompose_scalar_bits::<3>(from_const(7)),
-            [from_const(1), from_const(1), from_const(1)]
+            decompose_scalar_bits::<BS, 3>(7u8.into()),
+            [1u8.into(), 1u8.into(), 1u8.into()]
         );
     }
 
-    fn test_bit_decomposer_chip<const N: usize>(value: u64, circuit_commitment: H256) {
-        let chip = BitDecomposerChip::<N>::default();
+    fn test_bit_decomposer_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
+        value: u8,
+        expected_degree_bound: usize,
+        circuit_commitment: H256,
+    ) {
+        let chip = BitDecomposerChip::<F, N>::default();
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
-        let mut builder = CircuitBuilder::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(CompilationOptions {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
+                blowup_log2: BLOWUP_LOG2,
+                grinding_bits: 20,
+                blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), 4);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
-            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
+            .sub_chip(0, 0, &chip, [F::from(value).into()])
             .unwrap()
             .map(|bit| match bit {
                 CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output bits must be constrained"),
             });
-        assert_eq!(bits, decompose_bits::<N>(value.into())[0..N]);
+        assert_eq!(bits, decompose_bits::<F, N>(value.into())[0..N]);
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
             .unwrap();
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
         assert!((0..N).all(|i| openings[&cell(0, i)] == bits[i]));
     }
 
     #[test]
-    fn test_bit_decomposer_chip_1() {
-        let c = parse_hash("0x54c875a6d1868a642ea3411f2f856cd979233cec1ac9a5867955c89db11aec6b");
-        test_bit_decomposer_chip::<1>(0, c);
-        test_bit_decomposer_chip::<1>(1, c);
+    fn test_bit_decomposer_chip_bluesky_1() {
+        let c = parse_hash("0xf6b65ce6b4d4f15a1069bf9aac7716fbe325d28daf316f2a47c4c9ad58fd1b7a");
+        test_bit_decomposer_chip::<BS, BS, 1>(0, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 1>(1, 2, c);
     }
 
     #[test]
-    fn test_bit_decomposer_chip_2() {
-        let c = parse_hash("0x9f32441d30c4c51637ebfbdfa96c40e8b9346e0903acedd6d19226ed7d2a8181");
-        test_bit_decomposer_chip::<2>(0, c);
-        test_bit_decomposer_chip::<2>(1, c);
-        test_bit_decomposer_chip::<2>(2, c);
-        test_bit_decomposer_chip::<2>(3, c);
+    fn test_bit_decomposer_chip_goldilocks_1() {
+        let c = parse_hash("0xdaf473c36f3d7c29664635b4895632b78eb9fb497a94fd6200ebacf3f678bfcf");
+        test_bit_decomposer_chip::<GL, GL4, 1>(0, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 1>(1, 2, c);
     }
 
     #[test]
-    fn test_bit_decomposer_chip_3() {
-        let c = parse_hash("0xabe386e6b4aa50042e4b0edeb3605c29531a556fa414a0091e6a92b488f91d31");
-        test_bit_decomposer_chip::<3>(0, c);
-        test_bit_decomposer_chip::<3>(1, c);
-        test_bit_decomposer_chip::<3>(2, c);
-        test_bit_decomposer_chip::<3>(3, c);
-        test_bit_decomposer_chip::<3>(4, c);
-        test_bit_decomposer_chip::<3>(5, c);
-        test_bit_decomposer_chip::<3>(6, c);
-        test_bit_decomposer_chip::<3>(7, c);
+    fn test_bit_decomposer_chip_bluesky_2() {
+        let c = parse_hash("0x7625329190aebd0e5d7f9083720c56387627f51ec12e5b3bf4feabe0035751d5");
+        test_bit_decomposer_chip::<BS, BS, 2>(0, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 2>(1, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 2>(2, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 2>(3, 2, c);
     }
 
-    fn test_const_bit_comparator_chip<const N: usize>(
-        lhs: u64,
-        rhs: u64,
+    #[test]
+    fn test_bit_decomposer_chip_goldilocks_2() {
+        let c = parse_hash("0xe2f6c2bbd23faf4b10b9c059dbe649578e07a19081534cdc065de586c3e16b75");
+        test_bit_decomposer_chip::<GL, GL4, 2>(0, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 2>(1, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 2>(2, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 2>(3, 2, c);
+    }
+
+    #[test]
+    fn test_bit_decomposer_chip_bluesky_3() {
+        let c = parse_hash("0xb1930173d71692072901628221861cb00455959198e2ce76869231982a511d05");
+        test_bit_decomposer_chip::<BS, BS, 3>(0, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(1, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(2, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(3, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(4, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(5, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(6, 2, c);
+        test_bit_decomposer_chip::<BS, BS, 3>(7, 2, c);
+    }
+
+    #[test]
+    fn test_bit_decomposer_chip_goldilocks_3() {
+        let c = parse_hash("0x8cfbdf66a2ce5a52b0f0ffd67ef9942afdf9ec144062c921577787b0afd3fa4c");
+        test_bit_decomposer_chip::<GL, GL4, 3>(0, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(1, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(2, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(3, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(4, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(5, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(6, 2, c);
+        test_bit_decomposer_chip::<GL, GL4, 3>(7, 2, c);
+    }
+
+    fn test_const_bit_comparator_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
+        lhs: u8,
+        rhs: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) {
-        let mut builder = CircuitBuilder::default();
-        let decomposer_chip = BitDecomposerChip::<N>::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
+        let decomposer_chip = BitDecomposerChip::<F, N>::default();
         let bits = builder.sub_chip(0, 0, &decomposer_chip, [None]).unwrap();
-        let comparator_chip = ConstBitComparatorChip::<N>::new(rhs.into());
+        let comparator_chip = ConstBitComparatorChip::<F, N>::new(rhs.into());
         assert_eq!(comparator_chip.width(), N);
         assert_eq!(comparator_chip.height(), 2);
         let [cmp] = builder
             .sub_chip(decomposer_chip.height(), 0, &comparator_chip, bits)
             .unwrap();
-        builder.declare_public_rows([cmp.unwrap().row()]);
+        builder.declare_public_cells([cmp.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
+                blowup_log2: BLOWUP_LOG2,
+                grinding_bits: 20,
+                blind: false,
             })
             .unwrap();
         assert_eq!(
             circuit.num_rows(),
             decomposer_chip.height() + comparator_chip.height()
         );
-        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
-            .sub_chip(0, 0, &decomposer_chip, [Scalar::from(lhs).into()])
+            .sub_chip(0, 0, &decomposer_chip, [F::from(lhs).into()])
             .unwrap();
         assert!(
             witness
@@ -827,133 +1164,169 @@ mod tests {
                 .is_ok()
         );
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
             .unwrap();
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
         assert_eq!(
             openings[&cmp.unwrap()],
             match lhs.cmp(&rhs) {
-                Ordering::Less => -from_const(1),
-                Ordering::Equal => from_const(0),
-                Ordering::Greater => from_const(1),
+                Ordering::Less => -F::from(1u8),
+                Ordering::Equal => F::from(0u8),
+                Ordering::Greater => F::from(1u8),
             }
         );
     }
 
     #[test]
-    fn test_const_bit_comparator_chip_1() {
-        let c = parse_hash("0x84aad7ad79038b71cb58257a5a129e5b114286358604de9baa429920682a487f");
-        test_const_bit_comparator_chip::<1>(0, 0, c);
-        test_const_bit_comparator_chip::<1>(1, 0, c);
-        test_const_bit_comparator_chip::<1>(0, 1, c);
-        test_const_bit_comparator_chip::<1>(1, 1, c);
+    fn test_const_bit_comparator_chip_bluesky_1() {
+        let c = parse_hash("0x177380e1a13ba90af7c8ac8bb2574ed46d4d7a8b3f48b97722855213b89c1f80");
+        test_const_bit_comparator_chip::<BS, BS, 1>(0, 0, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 1>(1, 0, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 1>(0, 1, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 1>(1, 1, 4, c);
     }
 
     #[test]
-    fn test_const_bit_comparator_chip_2() {
-        let c = parse_hash("0x5acdcc43ef21df21f1f0a419350f2d5510a4804426de782f91dad2873b95a908");
-        test_const_bit_comparator_chip::<2>(0, 0, c);
-        test_const_bit_comparator_chip::<2>(1, 0, c);
-        test_const_bit_comparator_chip::<2>(2, 0, c);
-        test_const_bit_comparator_chip::<2>(3, 0, c);
-        test_const_bit_comparator_chip::<2>(0, 1, c);
-        test_const_bit_comparator_chip::<2>(1, 1, c);
-        test_const_bit_comparator_chip::<2>(2, 1, c);
-        test_const_bit_comparator_chip::<2>(3, 1, c);
-        test_const_bit_comparator_chip::<2>(0, 2, c);
-        test_const_bit_comparator_chip::<2>(1, 2, c);
-        test_const_bit_comparator_chip::<2>(2, 2, c);
-        test_const_bit_comparator_chip::<2>(3, 2, c);
-        test_const_bit_comparator_chip::<2>(0, 3, c);
-        test_const_bit_comparator_chip::<2>(1, 3, c);
-        test_const_bit_comparator_chip::<2>(2, 3, c);
-        test_const_bit_comparator_chip::<2>(3, 3, c);
+    fn test_const_bit_comparator_chip_goldilocks_1() {
+        let c = parse_hash("0xdd847268e2b1e1ce8dbbc4bc8b86ff394cb1f2d91ff8b18d7d8ce4bf0062f629");
+        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 0, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 0, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(0, 1, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 1>(1, 1, 4, c);
     }
 
-    fn test_full_bit_decomposer_chip_impl(value: u64) {
-        let chip = FullBitDecomposerChip::default();
-        assert_eq!(chip.width(), 257);
+    #[test]
+    fn test_const_bit_comparator_chip_bluesky_2() {
+        let c = parse_hash("0xaa0545c74dc59bc8791d6fa3d028490b014bcffb33e53a58675fda610f57d22a");
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 0, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 0, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 0, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 0, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 1, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 1, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 1, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 1, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 2, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 2, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 2, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 2, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(0, 3, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(1, 3, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(2, 3, 4, c);
+        test_const_bit_comparator_chip::<BS, BS, 2>(3, 3, 4, c);
+    }
+
+    #[test]
+    fn test_const_bit_comparator_chip_goldilocks_2() {
+        let c = parse_hash("0x1c2780acbd26fbc20bcff1744471320ff5a2c61f1f614ed3379dd04cdb66ae60");
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 0, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 0, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 0, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 0, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 1, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 1, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 1, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 1, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 2, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 2, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 2, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 2, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(0, 3, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(1, 3, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(2, 3, 4, c);
+        test_const_bit_comparator_chip::<GL, GL4, 2>(3, 3, 4, c);
+    }
+
+    fn test_full_bit_decomposer_chip_impl<
+        F: Field,
+        G: Field256<BaseField = F>,
+        C: PlonkChip<F, 1, N> + Default,
+        const N: usize,
+    >(
+        value: u8,
+        expected_degree_bound: usize,
+        circuit_commitment: H256,
+    ) {
+        let chip = C::default();
+        assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 3);
-        let mut builder = CircuitBuilder::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(CompilationOptions {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
+                blowup_log2: BLOWUP_LOG2,
+                grinding_bits: 20,
+                blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 3);
-        assert_eq!(circuit.degree_bound(), 8);
-        assert_eq!(circuit.num_columns(), 257);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
+        assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let bits = witness
-            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
+            .sub_chip(0, 0, &chip, [F::from(value).into()])
             .unwrap()
             .map(|bit| match bit {
                 CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output bits must be constrained"),
             });
-        assert_eq!(bits, decompose_bits::<256>(value.into())[0..256]);
+        assert_eq!(bits, decompose_bits::<F, N>(value.into()));
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
             .unwrap();
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
-        assert_eq!(
-            circuit.commitment(),
-            parse_hash("0xd438c9dbb9ca22a74bdd931cd796d5b86d3245b7ee2e2d0daa81d0e70f0c9d05")
-        );
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
+        assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
-        assert!((0..256).all(|i| openings[&cell(0, i)] == bits[i]));
+        assert!((0..N).all(|i| openings[&cell(0, i)] == bits[i]));
     }
 
     #[test]
-    fn test_full_bit_decomposer_chip_0() {
-        test_full_bit_decomposer_chip_impl(0);
+    fn test_full_bit_decomposer_chip_bluesky() {
+        type Chip = FullBitDecomposerChip256<BS>;
+        let c = parse_hash("0xa4ce5c52deb7593d92be1182faee88f9d247b3b1ce7cd7309c4255a235bb28f9");
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(0, 4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(1, 4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(2, 4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(3, 4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(4, 4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(5, 4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(6, 4, c);
+        test_full_bit_decomposer_chip_impl::<BS, BS, Chip, 256>(7, 4, c);
     }
 
     #[test]
-    fn test_full_bit_decomposer_chip_1() {
-        test_full_bit_decomposer_chip_impl(1);
+    fn test_full_bit_decomposer_chip_goldilocks() {
+        type Chip = FullBitDecomposerChip64<GL>;
+        let c = parse_hash("0x3c60d8f0a9aefad1d8856c04b12ed9e274aa0cc20fbc24f699078ecc9ca85d6e");
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(0, 4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(1, 4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(2, 4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(3, 4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(4, 4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(5, 4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(6, 4, c);
+        test_full_bit_decomposer_chip_impl::<GL, GL4, Chip, 64>(7, 4, c);
     }
 
     #[test]
-    fn test_full_bit_decomposer_chip_2() {
-        test_full_bit_decomposer_chip_impl(2);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_3() {
-        test_full_bit_decomposer_chip_impl(3);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_4() {
-        test_full_bit_decomposer_chip_impl(4);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_5() {
-        test_full_bit_decomposer_chip_impl(5);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_6() {
-        test_full_bit_decomposer_chip_impl(6);
-    }
-
-    #[test]
-    fn test_full_bit_decomposer_chip_7() {
-        test_full_bit_decomposer_chip_impl(7);
+    fn test_full_bit_decomposer_chip_koalabear() {
+        type Chip = FullBitDecomposerChip32<KB>;
+        let c = parse_hash("0x088509e6bc8724feb5d6c210d10f39baeec09e798a50d3bc518bfb076fe2becf");
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(0, 4, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(1, 4, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(2, 4, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(3, 4, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(4, 4, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(5, 4, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(6, 4, c);
+        test_full_bit_decomposer_chip_impl::<KB, KB8, Chip, 32>(7, 4, c);
     }
 
     #[test]
@@ -979,12 +1352,18 @@ mod tests {
 
     #[test]
     fn test_mod3() {
-        assert_eq!(mod3(from_const(42)), from_const(0));
-        assert_eq!(mod3(from_const(43)), from_const(1));
-        assert_eq!(mod3(from_const(44)), from_const(2));
-        assert_eq!(mod3(from_const(45)), from_const(0));
-        assert_eq!(mod3(from_const(46)), from_const(1));
-        assert_eq!(mod3(from_const(47)), from_const(2));
+        assert_eq!(mod3(BS::from(42u8)), 0u8.into());
+        assert_eq!(mod3(BS::from(43u8)), 1u8.into());
+        assert_eq!(mod3(BS::from(44u8)), 2u8.into());
+        assert_eq!(mod3(BS::from(45u8)), 0u8.into());
+        assert_eq!(mod3(BS::from(46u8)), 1u8.into());
+        assert_eq!(mod3(BS::from(47u8)), 2u8.into());
+        assert_eq!(mod3(GL::from(42u8)), 0u8.into());
+        assert_eq!(mod3(GL::from(43u8)), 1u8.into());
+        assert_eq!(mod3(GL::from(44u8)), 2u8.into());
+        assert_eq!(mod3(GL::from(45u8)), 0u8.into());
+        assert_eq!(mod3(GL::from(46u8)), 1u8.into());
+        assert_eq!(mod3(GL::from(47u8)), 2u8.into());
     }
 
     #[test]
@@ -993,287 +1372,324 @@ mod tests {
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
             )),
-            from_const(0)
+            0u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f21"
             )),
-            from_const(1)
+            1u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f22"
             )),
-            from_const(2)
+            2u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f23"
             )),
-            from_const(0)
+            0u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f24"
             )),
-            from_const(1)
+            1u8.into()
         );
         assert_eq!(
             mod3(parse_scalar(
                 "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f25"
             )),
-            from_const(2)
+            2u8.into()
         );
     }
 
     #[test]
     fn test_decompose_trits_one() {
-        assert_eq!(decompose_trits::<1>(0.into()), [from_const(0)]);
-        assert_eq!(decompose_trits::<1>(1.into()), [from_const(1)]);
-        assert_eq!(decompose_trits::<1>(2.into()), [from_const(2)]);
+        assert_eq!(decompose_trits::<BS, 1>(0.into()), [0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 1>(1.into()), [1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 1>(2.into()), [2u8.into()]);
     }
 
     #[test]
     fn test_decompose_trits_two() {
-        assert_eq!(
-            decompose_trits::<2>(0.into()),
-            [from_const(0), from_const(0)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(1.into()),
-            [from_const(1), from_const(0)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(2.into()),
-            [from_const(2), from_const(0)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(3.into()),
-            [from_const(0), from_const(1)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(4.into()),
-            [from_const(1), from_const(1)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(5.into()),
-            [from_const(2), from_const(1)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(6.into()),
-            [from_const(0), from_const(2)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(7.into()),
-            [from_const(1), from_const(2)]
-        );
-        assert_eq!(
-            decompose_trits::<2>(8.into()),
-            [from_const(2), from_const(2)]
-        );
+        assert_eq!(decompose_trits::<BS, 2>(0.into()), [0u8.into(), 0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(1.into()), [1u8.into(), 0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(2.into()), [2u8.into(), 0u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(3.into()), [0u8.into(), 1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(4.into()), [1u8.into(), 1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(5.into()), [2u8.into(), 1u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(6.into()), [0u8.into(), 2u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(7.into()), [1u8.into(), 2u8.into()]);
+        assert_eq!(decompose_trits::<BS, 2>(8.into()), [2u8.into(), 2u8.into()]);
     }
 
     #[test]
     fn test_decompose_trits_three() {
         assert_eq!(
-            decompose_trits::<3>(0.into()),
-            [from_const(0), from_const(0), from_const(0)]
+            decompose_trits::<BS, 3>(0.into()),
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(1.into()),
-            [from_const(1), from_const(0), from_const(0)]
+            decompose_trits::<BS, 3>(1.into()),
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(2.into()),
-            [from_const(2), from_const(0), from_const(0)]
+            decompose_trits::<BS, 3>(2.into()),
+            [2u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(3.into()),
-            [from_const(0), from_const(1), from_const(0)]
+            decompose_trits::<BS, 3>(3.into()),
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(4.into()),
-            [from_const(1), from_const(1), from_const(0)]
+            decompose_trits::<BS, 3>(4.into()),
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(5.into()),
-            [from_const(2), from_const(1), from_const(0)]
+            decompose_trits::<BS, 3>(5.into()),
+            [2u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(6.into()),
-            [from_const(0), from_const(2), from_const(0)]
+            decompose_trits::<BS, 3>(6.into()),
+            [0u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(7.into()),
-            [from_const(1), from_const(2), from_const(0)]
+            decompose_trits::<BS, 3>(7.into()),
+            [1u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_trits::<3>(8.into()),
-            [from_const(2), from_const(2), from_const(0)]
+            decompose_trits::<BS, 3>(8.into()),
+            [2u8.into(), 2u8.into(), 0u8.into()]
         );
     }
 
     #[test]
     fn test_decompose_scalar_trits() {
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(0)),
-            [from_const(0), from_const(0), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(0u8.into()),
+            [0u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(1)),
-            [from_const(1), from_const(0), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(1u8.into()),
+            [1u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(2)),
-            [from_const(2), from_const(0), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(2u8.into()),
+            [2u8.into(), 0u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(3)),
-            [from_const(0), from_const(1), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(3u8.into()),
+            [0u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(4)),
-            [from_const(1), from_const(1), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(4u8.into()),
+            [1u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(5)),
-            [from_const(2), from_const(1), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(5u8.into()),
+            [2u8.into(), 1u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(6)),
-            [from_const(0), from_const(2), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(6u8.into()),
+            [0u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(7)),
-            [from_const(1), from_const(2), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(7u8.into()),
+            [1u8.into(), 2u8.into(), 0u8.into()]
         );
         assert_eq!(
-            decompose_scalar_trits::<3>(from_const(8)),
-            [from_const(2), from_const(2), from_const(0)]
+            decompose_scalar_trits::<BS, 3>(8u8.into()),
+            [2u8.into(), 2u8.into(), 0u8.into()]
         );
     }
 
-    fn test_trit_decomposer_chip<const N: usize>(value: u64, circuit_commitment: H256) {
-        let chip = TritDecomposerChip::<N>::default();
+    fn test_trit_decomposer_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
+        value: u8,
+        expected_degree_bound: usize,
+        circuit_commitment: H256,
+    ) {
+        let chip = TritDecomposerChip::<F, N>::default();
         assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 1);
-        let mut builder = CircuitBuilder::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(CompilationOptions {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
+                blowup_log2: BLOWUP_LOG2,
+                grinding_bits: 20,
+                blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 1);
-        assert_eq!(circuit.degree_bound(), 4);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
-            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
+            .sub_chip(0, 0, &chip, [F::from(value).into()])
             .unwrap()
             .map(|trit| match trit {
                 CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output trits must be constrained"),
             });
-        assert_eq!(trits, decompose_trits::<N>(value.into())[0..N]);
+        assert_eq!(trits, decompose_trits::<F, N>(value.into())[0..N]);
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
             .unwrap();
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
         assert!((0..N).all(|i| openings[&cell(0, i)] == trits[i]));
     }
 
     #[test]
-    fn test_trit_decomposer_chip_1() {
-        let c = parse_hash("0x54c875a6d1868a642ea3411f2f856cd979233cec1ac9a5867955c89db11aec6b");
-        test_trit_decomposer_chip::<1>(0, c);
-        test_trit_decomposer_chip::<1>(1, c);
-        test_trit_decomposer_chip::<1>(2, c);
+    fn test_trit_decomposer_chip_bluesky_1() {
+        let c = parse_hash("0xf6b65ce6b4d4f15a1069bf9aac7716fbe325d28daf316f2a47c4c9ad58fd1b7a");
+        test_trit_decomposer_chip::<BS, BS, 1>(0, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 1>(1, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 1>(2, 2, c);
     }
 
     #[test]
-    fn test_trit_decomposer_chip_2() {
-        let c = parse_hash("0x9f32441d30c4c51637ebfbdfa96c40e8b9346e0903acedd6d19226ed7d2a8181");
-        test_trit_decomposer_chip::<2>(0, c);
-        test_trit_decomposer_chip::<2>(1, c);
-        test_trit_decomposer_chip::<2>(2, c);
-        test_trit_decomposer_chip::<2>(3, c);
-        test_trit_decomposer_chip::<2>(4, c);
-        test_trit_decomposer_chip::<2>(5, c);
-        test_trit_decomposer_chip::<2>(6, c);
-        test_trit_decomposer_chip::<2>(7, c);
-        test_trit_decomposer_chip::<2>(8, c);
+    fn test_trit_decomposer_chip_goldilocks_1() {
+        let c = parse_hash("0xdaf473c36f3d7c29664635b4895632b78eb9fb497a94fd6200ebacf3f678bfcf");
+        test_trit_decomposer_chip::<GL, GL4, 1>(0, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 1>(1, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 1>(2, 2, c);
     }
 
     #[test]
-    fn test_trit_decomposer_chip_3() {
-        let c = parse_hash("0xabe386e6b4aa50042e4b0edeb3605c29531a556fa414a0091e6a92b488f91d31");
-        test_trit_decomposer_chip::<3>(0, c);
-        test_trit_decomposer_chip::<3>(1, c);
-        test_trit_decomposer_chip::<3>(2, c);
-        test_trit_decomposer_chip::<3>(3, c);
-        test_trit_decomposer_chip::<3>(4, c);
-        test_trit_decomposer_chip::<3>(5, c);
-        test_trit_decomposer_chip::<3>(6, c);
-        test_trit_decomposer_chip::<3>(7, c);
-        test_trit_decomposer_chip::<3>(8, c);
-        test_trit_decomposer_chip::<3>(9, c);
-        test_trit_decomposer_chip::<3>(10, c);
-        test_trit_decomposer_chip::<3>(11, c);
-        test_trit_decomposer_chip::<3>(12, c);
-        test_trit_decomposer_chip::<3>(13, c);
-        test_trit_decomposer_chip::<3>(14, c);
-        test_trit_decomposer_chip::<3>(15, c);
-        test_trit_decomposer_chip::<3>(16, c);
-        test_trit_decomposer_chip::<3>(17, c);
-        test_trit_decomposer_chip::<3>(18, c);
-        test_trit_decomposer_chip::<3>(19, c);
-        test_trit_decomposer_chip::<3>(20, c);
-        test_trit_decomposer_chip::<3>(21, c);
-        test_trit_decomposer_chip::<3>(22, c);
-        test_trit_decomposer_chip::<3>(23, c);
-        test_trit_decomposer_chip::<3>(24, c);
-        test_trit_decomposer_chip::<3>(25, c);
-        test_trit_decomposer_chip::<3>(26, c);
+    fn test_trit_decomposer_chip_bluesky_2() {
+        let c = parse_hash("0x7625329190aebd0e5d7f9083720c56387627f51ec12e5b3bf4feabe0035751d5");
+        test_trit_decomposer_chip::<BS, BS, 2>(0, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(1, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(2, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(3, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(4, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(5, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(6, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(7, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 2>(8, 2, c);
     }
 
-    fn test_const_trit_comparator_chip<const N: usize>(
-        lhs: u64,
-        rhs: u64,
+    #[test]
+    fn test_trit_decomposer_chip_goldilocks_2() {
+        let c = parse_hash("0xe2f6c2bbd23faf4b10b9c059dbe649578e07a19081534cdc065de586c3e16b75");
+        test_trit_decomposer_chip::<GL, GL4, 2>(0, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(1, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(2, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(3, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(4, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(5, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(6, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(7, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 2>(8, 2, c);
+    }
+
+    #[test]
+    fn test_trit_decomposer_chip_bluesky_3() {
+        let c = parse_hash("0xb1930173d71692072901628221861cb00455959198e2ce76869231982a511d05");
+        test_trit_decomposer_chip::<BS, BS, 3>(0, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(1, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(2, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(3, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(4, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(5, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(6, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(7, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(8, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(9, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(10, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(11, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(12, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(13, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(14, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(15, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(16, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(17, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(18, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(19, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(20, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(21, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(22, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(23, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(24, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(25, 2, c);
+        test_trit_decomposer_chip::<BS, BS, 3>(26, 2, c);
+    }
+
+    #[test]
+    fn test_trit_decomposer_chip_goldilocks_3() {
+        let c = parse_hash("0x8cfbdf66a2ce5a52b0f0ffd67ef9942afdf9ec144062c921577787b0afd3fa4c");
+        test_trit_decomposer_chip::<GL, GL4, 3>(0, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(1, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(2, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(3, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(4, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(5, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(6, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(7, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(8, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(9, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(10, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(11, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(12, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(13, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(14, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(15, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(16, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(17, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(18, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(19, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(20, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(21, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(22, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(23, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(24, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(25, 2, c);
+        test_trit_decomposer_chip::<GL, GL4, 3>(26, 2, c);
+    }
+
+    fn test_const_trit_comparator_chip<F: Field, G: Field256<BaseField = F>, const N: usize>(
+        lhs: u8,
+        rhs: u8,
+        expected_degree_bound: usize,
         circuit_commitment: H256,
     ) {
-        let mut builder = CircuitBuilder::default();
-        let decomposer_chip = TritDecomposerChip::<N>::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
+        let decomposer_chip = TritDecomposerChip::<F, N>::default();
         let trits = builder.sub_chip(0, 0, &decomposer_chip, [None]).unwrap();
-        let comparator_chip = ConstTritComparatorChip::<N>::new(rhs.into());
+        let comparator_chip = ConstTritComparatorChip::<F, N>::new(rhs.into());
         assert_eq!(comparator_chip.width(), N);
         assert_eq!(comparator_chip.height(), 3);
         let [cmp] = builder
             .sub_chip(decomposer_chip.height(), 0, &comparator_chip, trits)
             .unwrap();
-        builder.declare_public_rows([cmp.unwrap().row()]);
+        builder.declare_public_cells([cmp.unwrap()]);
         let circuit = builder
-            .build(CompilationOptions {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
+                blowup_log2: BLOWUP_LOG2,
+                grinding_bits: 20,
+                blind: false,
             })
             .unwrap();
         assert_eq!(
             circuit.num_rows(),
             decomposer_chip.height() + comparator_chip.height()
         );
-        assert_eq!(circuit.degree_bound(), 8);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
         assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
-            .sub_chip(0, 0, &decomposer_chip, [Scalar::from(lhs).into()])
+            .sub_chip(0, 0, &decomposer_chip, [F::from(lhs).into()])
             .unwrap();
         assert!(
             witness
@@ -1281,146 +1697,168 @@ mod tests {
                 .is_ok()
         );
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
             .unwrap();
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
         assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
         assert_eq!(
             openings[&cmp.unwrap()],
             match lhs.cmp(&rhs) {
-                Ordering::Less => -from_const(1),
-                Ordering::Equal => from_const(0),
-                Ordering::Greater => from_const(1),
+                Ordering::Less => -F::from(1u8),
+                Ordering::Equal => F::from(0u8),
+                Ordering::Greater => F::from(1u8),
             }
         );
     }
 
     #[test]
-    fn test_const_trit_comparator_chip_1() {
-        let c = parse_hash("0x6d90c756bd82c957ac918e3a32c3fe6556b9bd28594f3f9bdbaaa19a840c2fe5");
-        test_const_trit_comparator_chip::<1>(0, 0, c);
-        test_const_trit_comparator_chip::<1>(1, 0, c);
-        test_const_trit_comparator_chip::<1>(2, 0, c);
-        test_const_trit_comparator_chip::<1>(0, 1, c);
-        test_const_trit_comparator_chip::<1>(1, 1, c);
-        test_const_trit_comparator_chip::<1>(2, 1, c);
-        test_const_trit_comparator_chip::<1>(0, 2, c);
-        test_const_trit_comparator_chip::<1>(1, 2, c);
-        test_const_trit_comparator_chip::<1>(2, 2, c);
+    fn test_const_trit_comparator_chip_bluesky_1() {
+        let c = parse_hash("0xcad64b4dbd6870f34fe061d4e8a1a62fb11b2859d2af6871cacfd800922e0355");
+        test_const_trit_comparator_chip::<BS, BS, 1>(0, 0, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(1, 0, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(2, 0, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(0, 1, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(1, 1, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(2, 1, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(0, 2, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(1, 2, 4, c);
+        test_const_trit_comparator_chip::<BS, BS, 1>(2, 2, 4, c);
     }
 
     #[test]
-    fn test_const_trit_comparator_chip_2() {
-        let c = parse_hash("0xc70b3827c122663ffd46f679476acfec43c46e9dd13fbf59ae7a90ed969b1166");
+    fn test_const_trit_comparator_chip_goldilocks_1() {
+        let c = parse_hash("0x66b744d7a46b4e26b5b17ec35b92df84a48147857f97f37c65de37d177944454");
+        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 0, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 0, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 0, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 1, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 1, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 1, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(0, 2, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(1, 2, 4, c);
+        test_const_trit_comparator_chip::<GL, GL4, 1>(2, 2, 4, c);
+    }
+
+    #[test]
+    fn test_const_trit_comparator_chip_bluesky_2() {
+        let c = parse_hash("0x46c333240b76b277275cec213d8923af46580c19f250ce4280b5cc353b4203d5");
         for i in 0..9 {
             for j in 0..9 {
-                test_const_trit_comparator_chip::<2>(i, j, c);
+                test_const_trit_comparator_chip::<BS, BS, 2>(i, j, 4, c);
             }
         }
     }
 
-    fn test_full_trit_decomposer_chip_impl(value: u64) {
-        let chip = FullTritDecomposerChip::default();
-        assert_eq!(chip.width(), 162);
+    #[test]
+    fn test_const_trit_comparator_chip_goldilocks_2() {
+        let c = parse_hash("0x2898c15d3f423b347de562e4ac541f93573ce5acdbd44ac27a71bd07aa41d714");
+        for i in 0..9 {
+            for j in 0..9 {
+                test_const_trit_comparator_chip::<GL, GL4, 2>(i, j, 4, c);
+            }
+        }
+    }
+
+    fn test_full_trit_decomposer_chip_impl<
+        F: Field,
+        G: Field256<BaseField = F>,
+        C: PlonkChip<F, 1, N> + Default,
+        const N: usize,
+    >(
+        value: u8,
+        expected_degree_bound: usize,
+        circuit_commitment: H256,
+    ) {
+        let chip = C::default();
+        assert_eq!(chip.width(), N + 1);
         assert_eq!(chip.height(), 4);
-        let mut builder = CircuitBuilder::default();
+        let mut builder = CircuitBuilder::<F, G>::default();
         assert!(builder.sub_chip(0, 0, &chip, [None]).is_ok());
-        builder.declare_public_rows([0]);
+        builder.declare_public_cells((0..N).map(|i| cell(0, i)));
         let circuit = builder
-            .build(CompilationOptions {
+            .build(CircuitOptions {
                 canonicalize_constraints: false,
+                security_bits: SECURITY_BITS,
+                blowup_log2: BLOWUP_LOG2,
+                grinding_bits: 20,
+                blind: false,
             })
             .unwrap();
         assert_eq!(circuit.num_rows(), 4);
-        assert_eq!(circuit.degree_bound(), 8);
-        assert_eq!(circuit.num_columns(), 162);
+        assert_eq!(circuit.pcs_config().degree_bound, expected_degree_bound);
+        assert_eq!(circuit.num_columns(), N + 1);
         let mut witness = circuit.make_witness();
         let trits = witness
-            .sub_chip(0, 0, &chip, [Scalar::from(value).into()])
+            .sub_chip(0, 0, &chip, [F::from(value).into()])
             .unwrap()
             .map(|trit| match trit {
                 CellOrUnconstrained::Cell(cell) => witness.get_at(cell),
                 _ => panic!("the output trits must be constrained"),
             });
-        assert_eq!(trits, decompose_trits::<161>(value.into())[0..161]);
+        assert_eq!(trits, decompose_trits::<F, N>(value.into()));
         circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
         let proof = circuit
-            .prove::<Sha2Hash<Scalar>>(witness, options.clone())
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
             .unwrap();
-        let circuit = circuit.to_compressed::<Sha2Hash<Scalar>>(options);
-        assert_eq!(
-            circuit.commitment(),
-            parse_hash("0xcc190ca38525000774d89830c69d3462605ee9591e990622e7ee1af4ec379107")
-        );
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
+        assert_eq!(circuit.commitment(), circuit_commitment);
         let openings = circuit.verify(&proof).unwrap();
-        assert!((0..161).all(|i| openings[&cell(0, i)] == trits[i]));
+        assert!((0..N).all(|i| openings[&cell(0, i)] == trits[i]));
     }
 
     #[test]
-    fn test_full_trit_decomposer_chip_0() {
-        test_full_trit_decomposer_chip_impl(0);
+    fn test_full_trit_decomposer_chip_bluesky() {
+        type Chip = FullTritDecomposerChip256<BS>;
+        let c = parse_hash("0x2a92aca3b3d7c4519dc8e3c459c645f2a2ef8ec4e5d451e0e765b890b0057d92");
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(0, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(1, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(2, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(3, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(4, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(5, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(6, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(7, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(8, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(9, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(10, 4, c);
+        test_full_trit_decomposer_chip_impl::<BS, BS, Chip, 162>(11, 4, c);
     }
 
     #[test]
-    fn test_full_trit_decomposer_chip_1() {
-        test_full_trit_decomposer_chip_impl(1);
+    fn test_full_trit_decomposer_chip_goldilocks() {
+        type Chip = FullTritDecomposerChip64<GL>;
+        let c = parse_hash("0x8598c10562dd02ecdae9393ecb37e47c26bea2e4836c02437d859b1e05496d70");
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(0, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(1, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(2, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(3, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(4, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(5, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(6, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(7, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(8, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(9, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(10, 4, c);
+        test_full_trit_decomposer_chip_impl::<GL, GL4, Chip, 41>(11, 4, c);
     }
 
     #[test]
-    fn test_full_trit_decomposer_chip_2() {
-        test_full_trit_decomposer_chip_impl(2);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_3() {
-        test_full_trit_decomposer_chip_impl(3);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_4() {
-        test_full_trit_decomposer_chip_impl(4);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_5() {
-        test_full_trit_decomposer_chip_impl(5);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_6() {
-        test_full_trit_decomposer_chip_impl(6);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_7() {
-        test_full_trit_decomposer_chip_impl(7);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_8() {
-        test_full_trit_decomposer_chip_impl(8);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_9() {
-        test_full_trit_decomposer_chip_impl(9);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_10() {
-        test_full_trit_decomposer_chip_impl(10);
-    }
-
-    #[test]
-    fn test_full_trit_decomposer_chip_11() {
-        test_full_trit_decomposer_chip_impl(11);
+    fn test_full_trit_decomposer_chip_koalabear() {
+        type Chip = FullTritDecomposerChip32<KB>;
+        let c = parse_hash("0xa9ab1326648b05cb7a9847d98c6bfa327771c4c82753cee2588247ad6ad74bd3");
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(0, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(1, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(2, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(3, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(4, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(5, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(6, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(7, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(8, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(9, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(10, 4, c);
+        test_full_trit_decomposer_chip_impl::<KB, KB8, Chip, 21>(11, 4, c);
     }
 }

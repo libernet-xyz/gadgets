@@ -1,1374 +1,781 @@
-use crate::poseidon1::{
-    PermutationChipER as Poseidon1PermutationChipER,
-    PermutationChipHW as Poseidon1PermutationChipHW,
-    PermutationChipIR as Poseidon1PermutationChipIR,
-};
-use crate::poseidon2::{
-    PermutationChipER as Poseidon2PermutationChipER,
-    PermutationChipHW as Poseidon2PermutationChipHW,
-    PermutationChipIR as Poseidon2PermutationChipIR,
-};
 use anyhow::Result;
-use starkom_bluesky::Scalar;
-use starkom_ff::Field;
-use starkom_plonk::{
-    Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, rvar, var,
-};
-use starkom_poseidon as poseidon1;
-use starkom_poseidon2 as poseidon2;
-use std::fmt::Debug;
+use starkom_ff::{Field256, PrimeField};
+use starkom_plonk::{Cell, CellOrUnconstrained, Chip as PlonkChip, CircuitView, WitnessView, var};
+use std::marker::PhantomData;
 
-mod internal {
-    use super::*;
-
-    /// Implements various layouts for the PRP (pseudo-random permutation) used by the sponge.
-    ///
-    /// The simplest mode is the [self-contained](`PrpModeSelfContained`) one, but it's also the
-    /// most expensive in terms of number of gate constraints if you're using Poseidon because the
-    /// self-contained Poseidon permutations (for both version 1 and 2) use hard-wired round
-    /// constants, causing all gate constraints to be different from each other. See
-    /// [`crate::poseidon1::RcModeHardWired`], [`crate::poseidon1::RcModeInternalRom`], and
-    /// [`crate::poseidon1::RcModeExternalRom`] (or [`crate::poseidon2::RcModeHardWired`],
-    /// [`crate::poseidon2::RcModeInternalRom`], and [`crate::poseidon2::RcModeExternalRom`]) for
-    /// more information about the tradeoffs.
-    pub trait PrpMode<const T: usize>: Debug + Copy + Clone {
-        fn prp_width(&self) -> usize;
-        fn prp_height(&self) -> usize;
-
-        /// Builds the i-th permutation stage in the sponge.
-        fn build_permute(
-            &self,
-            view: &mut impl CircuitView,
-            index: usize,
-            inputs: [Option<Cell>; T],
-        ) -> Result<[Option<Cell>; T]>;
-
-        /// Witnesses the i-th permutation stage in the sponge.
-        fn witness_permute(
-            &self,
-            view: &mut impl WitnessView,
-            index: usize,
-            inputs: [CellOrUnconstrained; T],
-        ) -> Result<[CellOrUnconstrained; T]>;
-    }
-}
-
-/// Marker trait for self-contained PRP chips such as [`crate::poseidon1::PermutationChipHW`] and
-/// [`crate::poseidon2::PermutationChipHW`].
-pub trait SelfContainedPermutationChip<const T: usize>:
-    PlonkChip<T, T> + Debug + Default + Copy + Clone
-{
-}
-
-impl<Cfg: poseidon1::Config<Scalar, T>, const T: usize> SelfContainedPermutationChip<T>
-    for Poseidon1PermutationChipHW<Cfg, T>
-{
-}
-
-impl<Cfg: poseidon2::Config<Scalar, T>, const T: usize> SelfContainedPermutationChip<T>
-    for Poseidon2PermutationChipHW<Cfg, T>
-{
-}
-
-#[derive(Debug, Default, Copy, Clone)]
-pub struct PrpModeSelfContained<P: SelfContainedPermutationChip<T>, const T: usize> {
-    permutation: P,
-}
-
-impl<P: SelfContainedPermutationChip<T>, const T: usize> internal::PrpMode<T>
-    for PrpModeSelfContained<P, T>
-{
-    fn prp_width(&self) -> usize {
-        self.permutation.width()
-    }
-
-    fn prp_height(&self) -> usize {
-        self.permutation.height()
-    }
-
-    fn build_permute(
-        &self,
-        view: &mut impl CircuitView,
-        _index: usize,
-        inputs: [Option<Cell>; T],
-    ) -> Result<[Option<Cell>; T]> {
-        view.sub_chip(0, 0, &self.permutation, inputs)
-    }
-
-    fn witness_permute(
-        &self,
-        view: &mut impl WitnessView,
-        _index: usize,
-        inputs: [CellOrUnconstrained; T],
-    ) -> Result<[CellOrUnconstrained; T]> {
-        view.sub_chip(0, 0, &self.permutation, inputs)
-    }
-}
-
-/// Marker trait for Poseidon permutation chips with internal ROMs
-/// ([`crate::poseidon1::PermutationChipIR`] and [`crate::poseidon2::PermutationChipIR`]).
-pub trait PoseidonPermutationChipIR<const T: usize>:
-    PlonkChip<T, T> + Debug + Default + Copy + Clone
-{
-}
-
-impl<C: poseidon1::Config<Scalar, T>, const T: usize> PoseidonPermutationChipIR<T>
-    for Poseidon1PermutationChipIR<C, T>
-{
-}
-
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> PoseidonPermutationChipIR<T>
-    for Poseidon2PermutationChipIR<C, T>
-{
-}
-
-/// Marker trait for Poseidon permutation chips with external ROMs
-/// ([`crate::poseidon1::PermutationChipER`] and [`crate::poseidon2::PermutationChipER`]).
-pub trait PoseidonPermutationChipER<const T: usize>:
-    PlonkChip<T, T> + Debug + Copy + Clone
-{
-    fn make_new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self;
-}
-
-impl<C: poseidon1::Config<Scalar, T>, const T: usize> PoseidonPermutationChipER<T>
-    for Poseidon1PermutationChipER<C, T>
-{
-    fn make_new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
-        Poseidon1PermutationChipER::new(ir_chip_row_offset, ir_chip_column_offset)
-    }
-}
-
-impl<C: poseidon2::Config<Scalar, T>, const T: usize> PoseidonPermutationChipER<T>
-    for Poseidon2PermutationChipER<C, T>
-{
-    fn make_new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
-        Poseidon2PermutationChipER::new(ir_chip_row_offset, ir_chip_column_offset)
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct PrpModeInternalRom<
-    IR: PoseidonPermutationChipIR<T>,
-    ER: PoseidonPermutationChipER<T>,
-    const T: usize,
-    const N: usize,
-> {
-    ir_chip: IR,
-
-    /// NOTE: we need `N` permutation chips in total of which 1 IR and N-1 ERs, but Rust doesn't
-    /// allow NTT variable expressions so we can't instantiate `[ER; N-1]`. We have to instantiate
-    /// `[ER; N]`, so there's an extra wasted ER chip instance. In order to keep the offset formulas
-    /// simple we pick slot #0 as the extra wasted one, so permutation #1 is the ER chip at slot #1,
-    /// permutation #2 is the ER chip at slot #2, and so on. Permutation #0 is of course the IR chip
-    /// above.
-    er_chip: [ER; N],
-}
-
-impl<
-    IR: PoseidonPermutationChipIR<T>,
-    ER: PoseidonPermutationChipER<T>,
-    const T: usize,
-    const N: usize,
-> Default for PrpModeInternalRom<IR, ER, T, N>
-{
-    fn default() -> Self {
-        let ir_chip = IR::default();
-        let stage_width = ir_chip.width() as isize;
-        Self {
-            ir_chip,
-            er_chip: std::array::from_fn(|i| ER::make_new(0, i as isize * -stage_width)),
-        }
-    }
-}
-
-impl<
-    IR: PoseidonPermutationChipIR<T>,
-    ER: PoseidonPermutationChipER<T>,
-    const T: usize,
-    const N: usize,
-> internal::PrpMode<T> for PrpModeInternalRom<IR, ER, T, N>
-{
-    fn prp_width(&self) -> usize {
-        self.ir_chip.width()
-    }
-
-    fn prp_height(&self) -> usize {
-        self.ir_chip.height()
-    }
-
-    fn build_permute(
-        &self,
-        view: &mut impl CircuitView,
-        index: usize,
-        inputs: [Option<Cell>; T],
-    ) -> Result<[Option<Cell>; T]> {
-        if index > 0 {
-            view.sub_chip(0, 0, &self.er_chip[index], inputs)
-        } else {
-            view.sub_chip(0, 0, &self.ir_chip, inputs)
-        }
-    }
-
-    fn witness_permute(
-        &self,
-        view: &mut impl WitnessView,
-        index: usize,
-        inputs: [CellOrUnconstrained; T],
-    ) -> Result<[CellOrUnconstrained; T]> {
-        if index > 0 {
-            view.sub_chip(0, 0, &self.er_chip[index], inputs)
-        } else {
-            view.sub_chip(0, 0, &self.ir_chip, inputs)
-        }
-    }
-}
-
-/// NOTE: [`Chip::ABSORB_HEIGHT`] is just this value re-exported as an associated constant.
-const SPONGE_ABSORB_HEIGHT: usize = 3;
-
-#[derive(Debug, Copy, Clone)]
-pub struct PrpModeExternalRom<P: PoseidonPermutationChipER<T>, const T: usize, const N: usize> {
-    /// One ER chip per chunk, each borrowing the same external IR chip's ROM. We need `N` of them,
-    /// as opposed to a single shared instance, because each chunk's permutation lands in a
-    /// different place in the circuit, so each one needs its own offset to the shared external ROM.
-    er_chips: [P; N],
-}
-
-impl<P: PoseidonPermutationChipER<T>, const T: usize, const N: usize> PrpModeExternalRom<P, T, N> {
-    /// Constructs a `PrpModeExternalRom` that borrows its round constant ROM from an IR chip
-    /// located at the given row/column offsets relative to wherever this sponge chip itself is
-    /// later built or witnessed (i.e. the IR chip's coordinates are this sponge's own root
-    /// coordinates plus the given offsets).
-    fn new(ir_chip_row_offset: isize, ir_chip_column_offset: isize) -> Self {
-        let stage_width = P::make_new(0, 0).width() as isize;
-        Self {
-            er_chips: std::array::from_fn(|i| {
-                P::make_new(
-                    ir_chip_row_offset - SPONGE_ABSORB_HEIGHT as isize,
-                    ir_chip_column_offset - i as isize * stage_width,
-                )
-            }),
-        }
-    }
-}
-
-impl<P: PoseidonPermutationChipER<T>, const T: usize, const N: usize> internal::PrpMode<T>
-    for PrpModeExternalRom<P, T, N>
-{
-    fn prp_width(&self) -> usize {
-        self.er_chips[0].width()
-    }
-
-    fn prp_height(&self) -> usize {
-        self.er_chips[0].height()
-    }
-
-    fn build_permute(
-        &self,
-        view: &mut impl CircuitView,
-        index: usize,
-        inputs: [Option<Cell>; T],
-    ) -> Result<[Option<Cell>; T]> {
-        view.sub_chip(0, 0, &self.er_chips[index], inputs)
-    }
-
-    fn witness_permute(
-        &self,
-        view: &mut impl WitnessView,
-        index: usize,
-        inputs: [CellOrUnconstrained; T],
-    ) -> Result<[CellOrUnconstrained; T]> {
-        view.sub_chip(0, 0, &self.er_chips[index], inputs)
-    }
-}
-
-/// A hash with sponge construction.
+/// Generic Poseidon sponge chip.
 ///
-/// This chip implements only the sponge construction, while the PRP is outsourced to the `P` chip
-/// specified in the generic arguments.
+/// Hashes a fixed-length message with the permutation chip `P` (e.g.
+/// [`poseidon1::PermutationChip`](`crate::poseidon1::PermutationChip`) or
+/// [`poseidon2::PermutationChip`](`crate::poseidon2::PermutationChip`)) using exactly the same
+/// sponge construction as [`starkom_poseidon::hash`] and [`starkom_poseidon2::hash`]: `T` is the
+/// state size, `R` is the absorption rate, and `C` is the capacity. `T` must be equal to `R+C`.
 ///
-/// `N` is the number of input scalars, `T` is the state vector size, `R` is the ingestion rate, and
-/// `C` is the number of capacity slots.
+/// The chip has `I` inputs: the first `C` are domain separator tags and the remaining `I-C` are the
+/// message, which must not be empty. The DSTs are used to initialize the capacity elements of the
+/// state, while the rate elements start at zero. The message is absorbed in blocks of `R` elements
+/// that are added to the rate elements, each block followed by a permutation. The `R` outputs of
+/// the chip are the rate elements of the final state.
 ///
-/// `T` must be equal to `R + C`. `N` can be any number and will be split in chunks of `R` scalars
-/// each; if `N` is not a multiple of `R` the last chunk will be padded with zeros.
-#[derive(Debug, Default, Copy, Clone)]
-pub struct Chip<
-    M: internal::PrpMode<T>,
+/// WARNING: the chip doesn't constrain the DST inputs in any way. All domain separator tags must be
+/// fixed and predetermined by the protocol, so it's up to the caller to constrain them accordingly
+/// (e.g. by connecting them to cells constrained to constants). If they're left unconstrained a
+/// malicious prover can choose the whole initial state, which voids all security properties of the
+/// hash.
+///
+/// WARNING: like the `hash` functions, this chip implicitly pads with zeros up to the next rate
+/// boundary, so for example if the rate is 4 the message [1, 2, 3] trivially collides with
+/// [1, 2, 3, 0]. The message length is fixed for a given chip type, so this is only a concern if
+/// the protocol allows comparing hashes of messages of different lengths. In that case you need to
+/// include the length in the message, e.g. by prepending it.
+///
+/// The chip has one block for every permutation, each block being as tall as the permutation chip.
+/// The first row of every block has the following layout:
+///
+/// ```text
+/// 0        R        2R       3R
+/// +--------+--------+--------+-----------------------+
+/// |   S    |   P    |   M    |   permutation chip    |
+/// +--------+--------+--------+-----------------------+
+/// ```
+///
+/// S = rate elements of the state after absorbing M, i.e. the input of the permutation
+/// P = rate elements of the state before absorbing M, i.e. the output of the previous permutation
+/// M = message block being absorbed
+///
+/// Each group has R elements and S = P + M, which is the `state[i] += value` step of the `hash`
+/// functions. P is constrained to zero in the first block and connected to the previous output in
+/// all other blocks. M is connected to the message, except for the elements past the end of the
+/// message in the last block, which are constrained to zero (that's the zero padding). The capacity
+/// elements of the permutation input are directly connected to the DSTs in the first block and to
+/// the capacity elements of the previous output in all other blocks.
+///
+/// The layout is the same in every block, so if the message fits in a single block the P and M
+/// columns are just a waste and it's cheaper to use the permutation chip directly.
+#[derive(Debug, Clone, Copy)]
+pub struct SpongeChip<
+    F: PrimeField,
+    P: PlonkChip<F, T, T>,
     const T: usize,
     const R: usize,
     const C: usize,
-    const N: usize,
+    const I: usize,
 > {
-    mode: M,
+    permutation: P,
+    _data: PhantomData<F>,
 }
 
-impl<M: internal::PrpMode<T>, const T: usize, const R: usize, const C: usize, const N: usize>
-    Chip<M, T, R, C, N>
+impl<
+    F: PrimeField,
+    P: PlonkChip<F, T, T>,
+    const T: usize,
+    const R: usize,
+    const C: usize,
+    const I: usize,
+> SpongeChip<F, P, T, R, C, I>
 {
-    pub const ABSORB_HEIGHT: usize = SPONGE_ABSORB_HEIGHT;
+    /// Number of message elements, i.e. inputs that are not DSTs.
+    const MESSAGE_LENGTH: usize = I - C;
 
-    pub fn num_chunks() -> usize {
-        N.next_multiple_of(R) / R
-    }
+    /// Number of blocks, which is the same as the number of permutations.
+    const NUM_BLOCKS: usize = Self::MESSAGE_LENGTH.div_ceil(R);
 
-    fn build_absorb(
-        &self,
-        view: &mut impl CircuitView,
-        state: [Option<Cell>; T],
-        inputs: &mut impl Iterator<Item = Option<Cell>>,
-    ) -> [Option<Cell>; T] {
-        for i in 0..T {
-            view.connect(state[i], view.cell(0, i).into());
+    /// Creates a sponge based on the provided permutation chip.
+    pub fn new(permutation: P) -> Self {
+        const { assert!(T == R + C) };
+        const { assert!(R > 0) };
+        const { assert!(I > C) };
+        Self {
+            permutation,
+            _data: PhantomData,
         }
-        for i in 0..R {
-            match inputs.next() {
-                Some(input) => {
-                    view.connect(input, Some(view.cell(1, i)));
-                }
-                None => {
-                    view.add_gate(1, var(i));
-                }
-            }
-        }
-        for i in 0..C {
-            view.add_gate(1, var(R + i));
-        }
-        for i in 0..T {
-            view.add_gate(1, rvar(i, -1) + rvar(i, 0) - rvar(i, 1));
-        }
-        std::array::from_fn(|i| Some(view.cell(2, i)))
-    }
-
-    fn witness_absorb(
-        &self,
-        view: &mut impl WitnessView,
-        state: [CellOrUnconstrained; T],
-        inputs: &mut impl Iterator<Item = CellOrUnconstrained>,
-    ) -> [CellOrUnconstrained; T] {
-        for i in 0..T {
-            view.copy(state[i], view.cell(0, i));
-        }
-        for i in 0..R {
-            match inputs.next() {
-                Some(input) => {
-                    view.copy(input, view.cell(1, i));
-                }
-                None => {
-                    view.set(view.cell(1, i), Scalar::ZERO);
-                }
-            }
-        }
-        for i in 0..C {
-            view.set(view.cell(1, R + i), Scalar::ZERO);
-        }
-        for i in 0..T {
-            view.set(
-                view.cell(2, i),
-                view.get_at(view.cell(0, i)) + view.get_at(view.cell(1, i)),
-            );
-        }
-        std::array::from_fn(|i| view.cell(2, i).into())
     }
 }
 
-impl<M: internal::PrpMode<T>, const T: usize, const R: usize, const C: usize, const N: usize>
-    PlonkChip<N, R> for Chip<M, T, R, C, N>
+impl<
+    F: PrimeField,
+    P: PlonkChip<F, T, T> + Default,
+    const T: usize,
+    const R: usize,
+    const C: usize,
+    const I: usize,
+> Default for SpongeChip<F, P, T, R, C, I>
+{
+    fn default() -> Self {
+        Self::new(P::default())
+    }
+}
+
+impl<
+    F: PrimeField,
+    P: PlonkChip<F, T, T>,
+    const T: usize,
+    const R: usize,
+    const C: usize,
+    const I: usize,
+> PlonkChip<F, I, R> for SpongeChip<F, P, T, R, C, I>
 {
     fn width(&self) -> usize {
-        self.mode.prp_width() * Self::num_chunks()
+        3 * R + self.permutation.width()
     }
 
     fn height(&self) -> usize {
-        Self::ABSORB_HEIGHT + self.mode.prp_height()
+        Self::NUM_BLOCKS * self.permutation.height()
     }
 
-    fn build(
+    fn build<G: Field256<BaseField = F>>(
         &self,
-        view: &mut impl CircuitView,
-        inputs: [Option<Cell>; N],
+        view: &mut impl CircuitView<F, G>,
+        inputs: [Option<Cell>; I],
     ) -> Result<[Option<Cell>; R]> {
-        let mut state: [Option<Cell>; T] = std::array::from_fn(|i| {
-            view.add_gate(0, var(i));
-            Some(view.cell(0, i))
-        });
-
-        let mut input_it = inputs.iter().copied();
-        let chunk_width = self.mode.prp_width();
-        let chunk_height = Self::ABSORB_HEIGHT + self.mode.prp_height();
-
-        view.sub(0, 0, chunk_width.into(), chunk_height.into())
-            .sub_fn(0, 0, None, None, |view| {
-                state = self.build_absorb(view, state, &mut input_it)
-            })
-            .sub_fn_or(Self::ABSORB_HEIGHT, 0, None, None, |view| {
-                state = self.mode.build_permute(view, 0, state)?;
-                Ok(())
-            })?;
-
-        for c in 1..Self::num_chunks() {
-            view.sub(0, c * chunk_width, chunk_width.into(), chunk_height.into())
-                .sub_fn(0, 0, None, None, |view| {
-                    state = self.build_absorb(view, state, &mut input_it);
-                })
-                .sub_fn_or(Self::ABSORB_HEIGHT, 0, None, None, |view| {
-                    state = self.mode.build_permute(view, c, state)?;
-                    Ok(())
-                })?;
+        let width = self.width();
+        let block_height = self.permutation.height();
+        let mut state: [Option<Cell>; T] =
+            std::array::from_fn(|i| if i < R { None } else { inputs[i - R] });
+        for block in 0..Self::NUM_BLOCKS {
+            let mut view = view.sub(block * block_height, 0, Some(width), Some(block_height));
+            for i in 0..R {
+                if block != 0 {
+                    view.connect(state[i], view.cell(0, R + i).into());
+                } else {
+                    view.add_gate(0, var(R + i));
+                }
+                match inputs.get(C + block * R + i) {
+                    Some(&message) => view.connect(message, view.cell(0, 2 * R + i).into()),
+                    None => view.add_gate(0, var(2 * R + i)),
+                }
+                view.add_gate(0, var(R + i) + var(2 * R + i) - var(i));
+                state[i] = view.cell(0, i).into();
+            }
+            state = view.sub_chip(0, 3 * R, &self.permutation, state)?;
         }
-
         Ok(std::array::from_fn(|i| state[i]))
     }
 
     fn witness(
         &self,
-        view: &mut impl WitnessView,
-        inputs: [CellOrUnconstrained; N],
-    ) -> Result<[CellOrUnconstrained; R]> {
-        let mut state: [CellOrUnconstrained; T] = std::array::from_fn(|i| {
-            let cell = view.cell(0, i);
-            view.set(cell, Scalar::ZERO);
-            cell.into()
-        });
-
-        let mut input_it = inputs.iter().copied();
-        let chunk_width = self.mode.prp_width();
-        let chunk_height = Self::ABSORB_HEIGHT + self.mode.prp_height();
-
-        view.sub(0, 0, chunk_width.into(), chunk_height.into())
-            .sub_fn(0, 0, None, None, |view| {
-                state = self.witness_absorb(view, state, &mut input_it)
-            })
-            .sub_fn_or(Self::ABSORB_HEIGHT, 0, None, None, |view| {
-                state = self.mode.witness_permute(view, 0, state)?;
-                Ok(())
-            })?;
-
-        for c in 1..Self::num_chunks() {
-            view.sub(0, c * chunk_width, chunk_width.into(), chunk_height.into())
-                .sub_fn(0, 0, None, None, |view| {
-                    state = self.witness_absorb(view, state, &mut input_it);
-                })
-                .sub_fn_or(Self::ABSORB_HEIGHT, 0, None, None, |view| {
-                    state = self.mode.witness_permute(view, c, state)?;
-                    Ok(())
-                })?;
+        view: &mut impl WitnessView<F>,
+        inputs: [CellOrUnconstrained<F>; I],
+    ) -> Result<[CellOrUnconstrained<F>; R]> {
+        let width = self.width();
+        let block_height = self.permutation.height();
+        let mut state: [CellOrUnconstrained<F>; T] =
+            std::array::from_fn(|i| if i < R { F::ZERO.into() } else { inputs[i - R] });
+        for block in 0..Self::NUM_BLOCKS {
+            let mut view = view.sub(block * block_height, 0, Some(width), Some(block_height));
+            for i in 0..R {
+                let previous = if block != 0 {
+                    view.copy(state[i], view.cell(0, R + i))
+                } else {
+                    view.set(view.cell(0, R + i), F::ZERO);
+                    F::ZERO
+                };
+                let message = match inputs.get(C + block * R + i) {
+                    Some(&message) => view.copy(message, view.cell(0, 2 * R + i)),
+                    None => {
+                        view.set(view.cell(0, 2 * R + i), F::ZERO);
+                        F::ZERO
+                    }
+                };
+                view.set(view.cell(0, i), previous + message);
+                state[i] = view.cell(0, i).into();
+            }
+            state = view.sub_chip(0, 3 * R, &self.permutation, state)?;
         }
-
         Ok(std::array::from_fn(|i| state[i]))
     }
 }
 
-/// T=3 Poseidon hash with [hard-wired round constants](`crate::poseidon1::RcModeHardWired`).
-///
-/// Compared to [`Poseidon1ChipT3IR`] and [`Poseidon1ChipT3ER`] this chip uses half the columns but
-/// creates many more gate constraints (roughly 40 times more).
-pub type Poseidon1ChipT3HW<const N: usize> = Chip<
-    PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>,
-    3,
-    2,
-    1,
-    N,
->;
-
-/// T=4 Poseidon hash with [hard-wired round constants](`crate::poseidon1::RcModeHardWired`).
-///
-/// Compared to [`Poseidon1ChipT4IR`] and [`Poseidon1ChipT4ER`] this chip uses half the columns but
-/// creates many more gate constraints (roughly 40 times more).
-pub type Poseidon1ChipT4HW<const N: usize> = Chip<
-    PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>,
-    4,
-    3,
-    1,
-    N,
->;
-
-/// T=3 Poseidon2 hash with [hard-wired round constants](`crate::poseidon2::RcModeHardWired`).
-pub type Poseidon2ChipT3HW<const N: usize> = Chip<
-    PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>,
-    3,
-    2,
-    1,
-    N,
->;
-
-/// T=4 Poseidon2 hash with [hard-wired round constants](`crate::poseidon2::RcModeHardWired`).
-pub type Poseidon2ChipT4HW<const N: usize> = Chip<
-    PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>,
-    4,
-    3,
-    1,
-    N,
->;
-
-/// T=3 Poseidon hash with
-/// [internal ROM storage for round constants](`crate::poseidon1::RcModeInternalRom`).
-///
-/// The first chunk uses a [`PermutationChipIR` chip](`crate::poseidon1::PermutationChipIR`), while
-/// subsequent chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`)
-/// referring to the ROM of the first chip.
-pub type Poseidon1ChipT3IR<const N: usize> = Chip<
-    PrpModeInternalRom<
-        Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-        Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-        3,
-        N,
-    >,
-    3,
-    2,
-    1,
-    N,
->;
-
-/// T=4 Poseidon hash with
-/// [internal ROM storage for round constants](`crate::poseidon1::RcModeInternalRom`).
-///
-/// The first chunk uses a [`PermutationChipIR` chip](`crate::poseidon1::PermutationChipIR`), while
-/// subsequent chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`)
-/// referring to the ROM of the first chip.
-pub type Poseidon1ChipT4IR<const N: usize> = Chip<
-    PrpModeInternalRom<
-        Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-        Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-        4,
-        N,
-    >,
-    4,
-    3,
-    1,
-    N,
->;
-
-/// T=3 Poseidon2 hash with
-/// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
-pub type Poseidon2ChipT3IR<const N: usize> = Chip<
-    PrpModeInternalRom<
-        Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-        Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-        3,
-        N,
-    >,
-    3,
-    2,
-    1,
-    N,
->;
-
-/// T=4 Poseidon2 hash with
-/// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
-pub type Poseidon2ChipT4IR<const N: usize> = Chip<
-    PrpModeInternalRom<
-        Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-        Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-        4,
-        N,
-    >,
-    4,
-    3,
-    1,
-    N,
->;
-
-/// T=3 Poseidon hash with
-/// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
-///
-/// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
-/// user-specified ROM area for the round constants, so a `Poseidon1ChipT3ER` can only be placed in
-/// the circuit if a [`Poseidon1ChipT3IR`] is also present.
-pub type Poseidon1ChipT3ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>, 3, N>,
-    3,
-    2,
-    1,
-    N,
->;
-
-/// T=4 Poseidon hash with
-/// [external ROM storage for round constants](`crate::poseidon1::RcModeExternalRom`).
-///
-/// All chunks use [`PermutationChipER` chips](`crate::poseidon1::PermutationChipER`) referring to a
-/// user-specified ROM area for the round constants, so a `Poseidon1ChipT4ER` can only be placed in
-/// the circuit if a [`Poseidon1ChipT4IR`] is also present.
-pub type Poseidon1ChipT4ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>, 4, N>,
-    4,
-    3,
-    1,
-    N,
->;
-
-/// T=3 Poseidon2 hash with
-/// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
-pub type Poseidon2ChipT3ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>, 3, N>,
-    3,
-    2,
-    1,
-    N,
->;
-
-/// T=4 Poseidon2 hash with
-/// [internal ROM storage for round constants](`crate::poseidon2::RcModeInternalRom`).
-pub type Poseidon2ChipT4ER<const N: usize> = Chip<
-    PrpModeExternalRom<Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>, 4, N>,
-    4,
-    3,
-    1,
-    N,
->;
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use starkom_bluesky::{from_const, parse_scalar};
+    use crate::poseidon1;
+    use crate::poseidon2;
+    use primitive_types::H256;
+    use starkom_ff::Field;
     use starkom_pcs::hash::Sha2Hash;
-    use starkom_plonk::{CircuitBuilder, CompilationOptions, ProvingOptions};
+    use starkom_plonk::{Circuit, CircuitBuilder, CircuitOptions, Witness};
+    use std::fmt::Debug;
+    use std::str::FromStr;
 
+    #[cfg(feature = "bluesky")]
+    use starkom_bluesky::Scalar as BS;
+
+    #[cfg(feature = "goldilocks")]
+    use starkom_goldilocks::{GL, GL4, from_const as gl};
+
+    #[cfg(feature = "koalabear")]
+    use starkom_koalabear::{KB, KB8, from_const as kb};
+
+    #[cfg(feature = "schraderbrau")]
+    use starkom_schraderbrau::Scalar as SB;
+
+    #[cfg(feature = "bluesky")]
+    type Poseidon1BlueSkyT3 =
+        poseidon1::PermutationChip<BS, starkom_poseidon::BlueSkyConfigT3X5, 3>;
+
+    #[cfg(feature = "bluesky")]
+    type Poseidon1BlueSkyT4 =
+        poseidon1::PermutationChip<BS, starkom_poseidon::BlueSkyConfigT4X5, 4>;
+
+    #[cfg(feature = "schraderbrau")]
+    type Poseidon1SchraderbrauT3 =
+        poseidon1::PermutationChip<SB, starkom_poseidon::SchraderbrauConfig3, 3>;
+
+    #[cfg(feature = "goldilocks")]
+    type Poseidon1GoldilocksT12 =
+        poseidon1::PermutationChip<GL, starkom_poseidon::GoldilocksConfig12, 12>;
+
+    #[cfg(feature = "koalabear")]
+    type Poseidon1KoalaBearT24 =
+        poseidon1::PermutationChip<KB, starkom_poseidon::KoalaBearConfig24, 24>;
+
+    #[cfg(feature = "bluesky")]
+    type Poseidon2BlueSkyT3 = poseidon2::PermutationChip<BS, starkom_poseidon2::BlueSkyConfig3, 3>;
+
+    #[cfg(feature = "bluesky")]
+    type Poseidon2BlueSkyT4 = poseidon2::PermutationChip<BS, starkom_poseidon2::BlueSkyConfig4, 4>;
+
+    #[cfg(feature = "schraderbrau")]
+    type Poseidon2SchraderbrauT4 =
+        poseidon2::PermutationChip<SB, starkom_poseidon2::SchraderbrauConfig4, 4>;
+
+    #[cfg(feature = "goldilocks")]
+    type Poseidon2GoldilocksT12 =
+        poseidon2::PermutationChip<GL, starkom_poseidon2::GoldilocksConfig12, 12>;
+
+    const SECURITY_BITS: usize = 128;
     const BLOWUP_LOG2: usize = 3;
 
-    fn test_hash<
-        M: internal::PrpMode<T>,
-        const T: usize,
-        const R: usize,
-        const C: usize,
-        const N: usize,
-    >(
-        inputs: [Scalar; N],
-        expected_output: [Scalar; R],
-    ) -> Result<()>
-    where
-        Chip<M, T, R, C, N>: PlonkChip<N, R> + Default,
-    {
-        let chip = Chip::<M, T, R, C, N>::default();
-        let chunk_width = chip.mode.prp_width();
-        let num_chunks = N.next_multiple_of(R) / R;
-        assert_eq!(chip.width(), chunk_width * num_chunks);
-        assert_eq!(chip.height(), 197);
-        let mut builder = CircuitBuilder::default();
-        let output = builder.sub_chip(0, 0, &chip, std::array::from_fn(|_| None))?;
-        builder.declare_public_rows([output[0].unwrap().row()]);
-        let circuit = builder.build(CompilationOptions {
-            canonicalize_constraints: false,
-        })?;
-        assert_eq!(circuit.num_rows(), 197);
-        assert_eq!(circuit.degree_bound(), 256);
-        assert_eq!(circuit.num_columns(), chunk_width * num_chunks);
-        let mut witness = circuit.make_witness();
-        assert_eq!(witness.num_rows(), 197);
-        assert_eq!(witness.degree_bound(), 256);
-        assert_eq!(witness.num_columns(), chunk_width * num_chunks);
-        let output = witness.sub_chip(0, 0, &chip, inputs.map(|input| input.into()))?;
-        circuit.check_witness(&witness).unwrap();
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        assert_eq!(proof.degree_bound(), 256);
-        assert_eq!(proof.blowup_log2(), BLOWUP_LOG2);
-        assert_eq!(proof.extended_domain_size(), 256 << BLOWUP_LOG2);
-        let public_inputs = circuit.verify(&proof, options)?;
-        assert!(
-            output
-                .into_iter()
-                .enumerate()
-                .all(|(i, output)| match output {
-                    CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
-                    CellOrUnconstrained::Unconstrained(value) => value,
-                } == expected_output[i])
-        );
-        Ok(())
+    fn parse<V: FromStr<Err: Debug>>(s: &'static str) -> V {
+        s.parse().unwrap()
     }
 
-    /// Tests a sponge chip in [external ROM mode](`PrpModeExternalRom`) against a sponge chip in
-    /// [internal ROM mode](`PrpModeInternalRom`) with the same parameters.
+    /// Returns the DSTs `100, 101, ...` followed by the message `1, 2, 3, ...`.
     ///
-    /// The ER sponge doesn't embed a ROM of its own, so it can only be placed in the circuit
-    /// alongside another chip that does, in this case the IR sponge built here. Both sponges are
-    /// wired to the same shared input cells and their outputs are constrained to be equal, so this
-    /// test also checks that the two modes compute the same hash.
-    fn test_hash_er<
-        IR: PoseidonPermutationChipIR<T>,
-        ER: PoseidonPermutationChipER<T>,
+    /// The expected outputs used in the tests below have been calculated off-circuit by running
+    /// [`starkom_poseidon::hash`] and [`starkom_poseidon2::hash`] on these inputs.
+    fn make_inputs<F: PrimeField, const C: usize, const I: usize>() -> [F; I] {
+        std::array::from_fn(|i| {
+            if i < C {
+                F::from(100 + i as u16)
+            } else {
+                F::from((i - C + 1) as u16)
+            }
+        })
+    }
+
+    /// A circuit containing a [`SpongeChip`] and a witness for it.
+    ///
+    /// The inputs of the sponge are in row 0 and the sponge itself starts at row 1. Both the input
+    /// and output cells of the sponge are public. The witness is generated honestly from the
+    /// inputs returned by [`make_inputs`].
+    struct SpongeFixture<
+        F: PrimeField,
+        G: Field256<BaseField = F>,
+        P: PlonkChip<F, T, T>,
         const T: usize,
         const R: usize,
         const C: usize,
-        const N: usize,
-    >(
-        inputs: [Scalar; N],
-        expected_output: [Scalar; R],
-    ) -> Result<()>
-    where
-        Chip<PrpModeInternalRom<IR, ER, T, N>, T, R, C, N>: PlonkChip<N, R> + Default,
-        Chip<PrpModeExternalRom<ER, T, N>, T, R, C, N>: PlonkChip<N, R>,
+        const I: usize,
+    > {
+        chip: SpongeChip<F, P, T, R, C, I>,
+        inputs: [F; I],
+        input_cells: [Cell; I],
+        output_cells: [Cell; R],
+        circuit: Circuit<F, G>,
+        witness: Witness<F>,
+        witness_outputs: [CellOrUnconstrained<F>; R],
+    }
+
+    impl<
+        F: PrimeField,
+        G: Field256<BaseField = F>,
+        P: PlonkChip<F, T, T> + Default,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+        const I: usize,
+    > SpongeFixture<F, G, P, T, R, C, I>
     {
-        let chip_ir = Chip::<PrpModeInternalRom<IR, ER, T, N>, T, R, C, N>::default();
-        assert_eq!(chip_ir.height(), 197);
-        let ir_width = chip_ir.width();
-
-        let chip_er: Chip<PrpModeExternalRom<ER, T, N>, T, R, C, N> = Chip {
-            mode: PrpModeExternalRom::new(SPONGE_ABSORB_HEIGHT as isize, -(ir_width as isize)),
-        };
-        assert_eq!(chip_er.height(), 197);
-        let er_width = chip_er.width();
-
-        let mut builder = CircuitBuilder::default();
-        let shared_inputs: [Cell; N] =
-            std::array::from_fn(|i| Cell::new(0, ir_width + er_width + i));
-
-        let ir_output = builder.sub_chip(0, 0, &chip_ir, shared_inputs.map(Some))?;
-        let er_output = builder.sub_chip(0, ir_width, &chip_er, shared_inputs.map(Some))?;
-        for i in 0..R {
-            builder.connect(ir_output[i], er_output[i]);
+        fn new() -> Self {
+            let chip = SpongeChip::<F, P, T, R, C, I>::default();
+            let inputs = make_inputs::<F, C, I>();
+            let mut builder = CircuitBuilder::<F, G>::default();
+            let input_cells: [Cell; I] = std::array::from_fn(|i| builder.cell(0, i));
+            let output_cells = builder
+                .sub_chip(1, 0, &chip, input_cells.map(Some))
+                .unwrap()
+                .map(Option::unwrap);
+            builder.declare_public_cells(input_cells.into_iter().chain(output_cells));
+            let circuit = builder
+                .build(CircuitOptions {
+                    canonicalize_constraints: false,
+                    security_bits: SECURITY_BITS,
+                    blowup_log2: BLOWUP_LOG2,
+                    grinding_bits: 0,
+                    blind: false,
+                })
+                .unwrap();
+            let mut witness = circuit.make_witness();
+            for i in 0..I {
+                witness.set(input_cells[i], inputs[i]);
+            }
+            let witness_outputs = witness
+                .sub_chip(1, 0, &chip, input_cells.map(CellOrUnconstrained::Cell))
+                .unwrap();
+            Self {
+                chip,
+                inputs,
+                input_cells,
+                output_cells,
+                circuit,
+                witness,
+                witness_outputs,
+            }
         }
-        builder.declare_public_rows([ir_output[0].unwrap().row()]);
 
-        let circuit = builder.build(CompilationOptions {
-            canonicalize_constraints: false,
-        })?;
-        assert_eq!(circuit.num_rows(), 197);
-        assert_eq!(circuit.degree_bound(), 256);
-        assert_eq!(circuit.num_columns(), ir_width + er_width + N);
-
-        let mut witness = circuit.make_witness();
-        for (cell, value) in shared_inputs.into_iter().zip(inputs) {
-            witness.set(cell, value);
+        /// Simulates a malicious prover that adds `delta` to the cells at the specified `columns`
+        /// in the first row of the last block, then recomputes the last permutation from the S
+        /// cells so that all wire constraints keep holding.
+        ///
+        /// NOTE: this assumes that the permutation chip copies its i-th input to its cell (0, i),
+        /// which is the case for both the Poseidon1 and the Poseidon2 permutation chips.
+        fn forge_last_block(&mut self, columns: &[usize], delta: F) {
+            let row = 1 + self.chip.height() - self.chip.permutation.height();
+            for &column in columns {
+                let cell = self.witness.cell(row, column);
+                self.witness.set(cell, self.witness.get_at(cell) + delta);
+            }
+            let inputs = std::array::from_fn(|i| {
+                if i < R {
+                    self.witness.cell(row, i).into()
+                } else {
+                    self.witness.cell(row, 3 * R + i).into()
+                }
+            });
+            self.witness
+                .sub_chip(row, 3 * R, &self.chip.permutation, inputs)
+                .unwrap();
         }
-        let shared_inputs = shared_inputs.map(CellOrUnconstrained::from);
-        let ir_output = witness.sub_chip(0, 0, &chip_ir, shared_inputs)?;
-        let er_output = witness.sub_chip(0, ir_width, &chip_er, shared_inputs)?;
+    }
+
+    fn test_sponge_impl<
+        F: PrimeField,
+        G: Field256<BaseField = F>,
+        P: PlonkChip<F, T, T> + Default,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+        const I: usize,
+    >(
+        expected_width: usize,
+        expected_height: usize,
+        expected_output: [F; R],
+        circuit_commitment: H256,
+    ) {
+        let SpongeFixture {
+            chip,
+            inputs,
+            input_cells,
+            output_cells,
+            circuit,
+            witness,
+            witness_outputs,
+        } = SpongeFixture::<F, G, P, T, R, C, I>::new();
+        assert_eq!(chip.width(), expected_width);
+        assert_eq!(chip.height(), expected_height);
+        assert_eq!(circuit.num_rows(), 1 + expected_height);
+        assert_eq!(circuit.num_columns(), expected_width);
+        assert_eq!(witness_outputs, output_cells.map(CellOrUnconstrained::Cell));
         circuit.check_witness(&witness).unwrap();
-
-        let options = ProvingOptions {
-            blowup_log2: BLOWUP_LOG2,
-        };
-        let proof = circuit.prove::<Sha2Hash<Scalar>>(witness, options.clone())?;
-        assert_eq!(proof.degree_bound(), 256);
-        assert_eq!(proof.blowup_log2(), BLOWUP_LOG2);
-        assert_eq!(proof.extended_domain_size(), 256 << BLOWUP_LOG2);
-        let public_inputs = circuit.verify(&proof, options)?;
-
-        let get_value = |output: CellOrUnconstrained| match output {
-            CellOrUnconstrained::Cell(cell) => public_inputs[&cell],
-            CellOrUnconstrained::Unconstrained(value) => value,
-        };
-        assert!(ir_output.into_iter().zip(er_output).enumerate().all(
-            |(i, (ir_output, er_output))| get_value(ir_output) == expected_output[i]
-                && get_value(er_output) == expected_output[i]
-        ));
-        Ok(())
+        let proof = circuit
+            .prove::<Sha2Hash<G>>(witness, &circuit.default_proof_options())
+            .unwrap();
+        assert!(proof.pcs_config().satisfies(circuit.pcs_config()));
+        let circuit = circuit.to_compressed::<Sha2Hash<G>>();
+        assert_eq!(circuit.commitment(), circuit_commitment);
+        let public_inputs = circuit.verify(&proof).unwrap();
+        assert_eq!(input_cells.map(|cell| public_inputs[&cell]), inputs);
+        assert_eq!(
+            output_cells.map(|cell| public_inputs[&cell]),
+            expected_output
+        );
     }
 
+    fn test_tampered_input_impl<
+        F: PrimeField,
+        G: Field256<BaseField = F>,
+        P: PlonkChip<F, T, T> + Default,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+        const I: usize,
+    >(
+        index: usize,
+    ) -> Result<()> {
+        let mut fixture = SpongeFixture::<F, G, P, T, R, C, I>::new();
+        fixture
+            .witness
+            .set(fixture.input_cells[index], fixture.inputs[index] + F::ONE);
+        fixture.circuit.check_witness(&fixture.witness)
+    }
+
+    fn test_forged_last_block_impl<
+        F: PrimeField,
+        G: Field256<BaseField = F>,
+        P: PlonkChip<F, T, T> + Default,
+        const T: usize,
+        const R: usize,
+        const C: usize,
+        const I: usize,
+    >(
+        columns: &[usize],
+        delta: F,
+    ) -> Result<()> {
+        let mut fixture = SpongeFixture::<F, G, P, T, R, C, I>::new();
+        fixture.forge_last_block(columns, delta);
+        fixture.circuit.check_witness(&fixture.witness)
+    }
+
+    #[cfg(feature = "bluesky")]
     #[test]
-    fn test_hash_v1_t3_1() {
-        let inputs = [from_const(42)];
-        let outputs = [
-            parse_scalar("0x73952c443e4710be4a4c01e20046008b477f0d6fef5d87409cdebc4cdff3490c"),
-            parse_scalar("0x05bf595cdacac4f9eba8679b69dcde4eeeca6db242005bf6b923fde28ea88a46"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-            3,
+    fn test_sponge_poseidon1_t3_bs() {
+        test_sponge_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 2>(
+            91,
             1,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 1>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 1>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                1,
-            >(inputs, outputs)
-            .is_ok()
+            [
+                parse("0x4381d1ea2b2e3e264aec0c7a7a6f316f536e8db66b69123a7a7a64884bd636d0"),
+                parse("0x5a58da4b384aa6b74c06a18fe40a837b7b8f756e06064180c3c966859f75d049"),
+            ],
+            parse("0xabc0b16022941f200d5f07c247b0f771d0cda528a9be0cea49f679c4bf03ab66"),
         );
-    }
-
-    #[test]
-    fn test_hash_v1_t3_2() {
-        let inputs = [from_const(1), from_const(2)];
-        let outputs = [
-            parse_scalar("0x28935bd3eba75f7b2d4f62babbd4e907b1ffcc28f73d1cae33654441a8a84023"),
-            parse_scalar("0x339d0e485d8fdfb8c3391182d457fa3e73f043f566af1463ab05e57045122519"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-            3,
-            2,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 2>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 2>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                2,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v1_t3_3() {
-        let inputs = [from_const(3), from_const(4), from_const(5)];
-        let outputs = [
-            parse_scalar("0x2bfc323795d99f44817eaa143a7db00103ff1eae1bd67ee3ab3f5a1006c7695d"),
-            parse_scalar("0x5e7468521c84b23259b813d193017a2b3c7813ce82e94ce4cc74a8c527db0923"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-            3,
-            3,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 3>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 3>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                3,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v1_t3_4() {
-        let inputs = [from_const(6), from_const(7), from_const(8), from_const(9)];
-        let outputs = [
-            parse_scalar("0x06ea9f66eddb8f036b0d6201dcf6a8c610b8aca9371e2bfc7fbd1deb1e5bb158"),
-            parse_scalar("0x0bc4c477fdeee23bf2f139b12c2ea927d145f298e6204255cbad8461af9150c6"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-            3,
-            4,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 4>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 4>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                4,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v1_t3_5() {
-        let inputs = [
-            from_const(10),
-            from_const(11),
-            from_const(12),
-            from_const(13),
-            from_const(14),
-        ];
-        let outputs = [
-            parse_scalar("0x05ae2c9b2bdbb5a64d4e838bd96b0b4c2366fc6d3cee4309793e01dfd2a589d1"),
-            parse_scalar("0x67de663ef4d5db733c68cae13b6bb28aa97d0fc904dccdfa80f4c9fae36f51d0"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-            3,
-            5,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 5>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 5>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig3, 3>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                5,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v1_t4_1() {
-        let inputs = [from_const(42)];
-        let outputs = [
-            parse_scalar("0x2fdb574b84cca8f2c657ea588d8812bafbba305b7a9933728753de0fcf104c40"),
-            parse_scalar("0x732f901b286e0f3575ab52e19494406c38f3db3e06169143f4c0369b3ba58ed9"),
-            parse_scalar("0x24c8327a61a3bd811e04b11107609bd91b8916ab5cf53fe927edaa27a9e8d5da"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-            4,
+        test_sponge_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 3>(
+            91,
             1,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 1>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 1>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                1,
-            >(inputs, outputs)
-            .is_ok()
+            [
+                parse("0x2211e25575a1c1217c237255c41496f2f879011377d70dd985b51651ff0b0900"),
+                parse("0x3d4bceb13ed19d3399429f5ef3cc255eaffb6b3109837d7df932ddbc9720a227"),
+            ],
+            parse("0x49b46c0ab33cd1074e391377683b4920aeacf197c3d213336e78a30c98a7a635"),
         );
-    }
-
-    #[test]
-    fn test_hash_v1_t4_2() {
-        let inputs = [from_const(1), from_const(2)];
-        let outputs = [
-            parse_scalar("0x33eaaa53f69ea75566e04bcb9318f965d5e74b68663bb4a09adfeeae27c752f4"),
-            parse_scalar("0x292ad2994473be89dbfec5185888d85924bfa0f64b3be556609bbde3bad4360c"),
-            parse_scalar("0x3f972105e69fcceafe6ce580dab417c50a34316d2de43d73a79f861ef55ca87a"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-            4,
+        test_sponge_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 4>(
+            91,
             2,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 2>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 2>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                2,
-            >(inputs, outputs)
-            .is_ok()
+            [
+                parse("0x02496e885e73e6afdd957d9752873172f59ae0bce4b202f4de13c1caeedf589a"),
+                parse("0x1efb18e5114aeb46d0ee3709e07bbe7f1687a463f3eab9ee83342f828742b3f3"),
+            ],
+            parse("0xd22a0c61f1d32c21be57a26136351d8eb49a8c24ed511b79b53d67259c5c4e39"),
         );
-    }
-
-    #[test]
-    fn test_hash_v1_t4_3() {
-        let inputs = [from_const(3), from_const(4), from_const(5)];
-        let outputs = [
-            parse_scalar("0x5220b264d93b85d22b4eb5a19c53ebfd08e1702e00dc76de14603165663006ea"),
-            parse_scalar("0x664ca128f4f6f225f282a671b522c267389f30f01d858757a1f029941510d8ec"),
-            parse_scalar("0x38ef442cd0ce47da5e7fdd912edfc2a95a36409b142fd0f94545267af135bcfa"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-            4,
+        test_sponge_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(
+            91,
+            2,
+            [
+                parse("0x00dcb52229b91f80158e426fb94e4462ff0c0e6a06b9ab677e30ccb05502aa42"),
+                parse("0x78a06199c8eb975c59ab0640a1c2905a2d79bb3eae1ceda2c6bda0a6afe03357"),
+            ],
+            parse("0x2204c286c58e06c5a931526899c3921bddf02d5393dd436d09e328906054f136"),
+        );
+        test_sponge_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 6>(
+            91,
             3,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 3>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 3>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                3,
-            >(inputs, outputs)
-            .is_ok()
+            [
+                parse("0x563dfce2a5d490c45e6d77bf122d8d565db010e05d375a5bebea46553ee74bd8"),
+                parse("0x28da1f990bcad848c583da829fe711c332dd43e61bd0d53ab3482637b45d3ae8"),
+            ],
+            parse("0x3460727108ab0bbd76c31512c4317f4316dbf9e6df37772e912876a0c5973d9f"),
         );
     }
 
+    #[cfg(feature = "bluesky")]
     #[test]
-    fn test_hash_v1_t4_4() {
-        let inputs = [from_const(6), from_const(7), from_const(8), from_const(9)];
-        let outputs = [
-            parse_scalar("0x6cef40d837aeb6183356cf40d9818bc0ee109c557b17bffd80ab2905e4e2292f"),
-            parse_scalar("0x688cf6e7f2aba6c399bc3253ce3827f7a003f8170fe679cbcc2b37e9ba65211e"),
-            parse_scalar("0x1d14218c5f5ae32b4fc20b250b52ad8ec96a77627a6c103c8ecf3919290d6239"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-            4,
-            4,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 4>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 4>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                4,
-            >(inputs, outputs)
-            .is_ok()
+    fn test_sponge_poseidon1_t4_bs() {
+        test_sponge_impl::<BS, BS, Poseidon1BlueSkyT4, 4, 2, 2, 5>(
+            101,
+            2,
+            [
+                parse("0x61d60c7699b70ef978a9234014f39b65762e7200a738f56b51b0a2298d72ce8a"),
+                parse("0x4e4030d8711c3e5cfe5f06585aca8de02b09c29f8954c2377f963276f1687c57"),
+            ],
+            parse("0x44b4ba3c824b9b6135db4dcf111190f7798d6ff860904028aca59f138fef60ca"),
         );
     }
 
+    #[cfg(feature = "schraderbrau")]
     #[test]
-    fn test_hash_v1_t4_5() {
-        let inputs = [
-            from_const(10),
-            from_const(11),
-            from_const(12),
-            from_const(13),
-            from_const(14),
-        ];
-        let outputs = [
-            parse_scalar("0x22c96d13097aa3b4782f9d2580dc2295378f87c85aaed5f47ee3f8b036faf8ee"),
-            parse_scalar("0x0bb3130cba6d1aa9cd4ac577dd503905305ce7ccc08d04ec15d9a9700eb747a1"),
-            parse_scalar("0x1cc1f59d0c8b31f60c5b10478b28db466bdcdefda0e8da296d96d5529177d621"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon1PermutationChipHW<poseidon1::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-            Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-            4,
-            5,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 5>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 5>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon1PermutationChipIR<poseidon1::BlueSkyConfig4, 4>,
-                Poseidon1PermutationChipER<poseidon1::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                5,
-            >(inputs, outputs)
-            .is_ok()
+    fn test_sponge_poseidon1_t3_sb() {
+        test_sponge_impl::<SB, SB, Poseidon1SchraderbrauT3, 3, 2, 1, 4>(
+            118,
+            2,
+            [
+                parse("0x11efa96295661bad96d7b61520d43a8157dfc14916d8cb1545e73cc543885685"),
+                parse("0x49e6a9d265a33ef1d2f77e8713a54706f4d59f825c33c34ac2df4d82339462bc"),
+            ],
+            parse("0xa862d0f7ad8e40fb645ce0433a62582634f8847ca5010f4bead1ba0e97bdaca4"),
         );
     }
 
+    #[cfg(feature = "goldilocks")]
     #[test]
-    fn test_hash_v2_t3_1() {
-        let inputs = [from_const(42)];
-        let outputs = [
-            parse_scalar("0x302e6d6d782c1367974698e051d9b55e18060b19393a4f0ac4b66f992bd5a5eb"),
-            parse_scalar("0x26f778c0f82ffe3d4409ebb9d7e4611556ca89c6a3e1a77cf8b80528eb344777"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-            3,
+    fn test_sponge_poseidon1_t12_gl() {
+        test_sponge_impl::<GL, GL4, Poseidon1GoldilocksT12, 12, 8, 4, 13>(
+            165,
+            2,
+            [
+                gl(0xd7fe703ef169a131),
+                gl(0x0cbd70ff7fbd65c6),
+                gl(0x0c13435ae650c3ad),
+                gl(0x0cbb855b321838bb),
+                gl(0x2d1e7422c239921d),
+                gl(0x2332aac1f114504c),
+                gl(0xf200f2eaee2cb60b),
+                gl(0xc02e3026731d3837),
+            ],
+            parse("0x166af0b0103850ec058eafc3e946473097c4e274ba74ad4a8a00433c7ad7f9e4"),
+        );
+    }
+
+    #[cfg(feature = "koalabear")]
+    #[test]
+    fn test_sponge_poseidon1_t24_kb() {
+        test_sponge_impl::<KB, KB8, Poseidon1KoalaBearT24, 24, 16, 8, 25>(
+            310,
+            2,
+            [
+                kb(0x5e332d95),
+                kb(0x091b617b),
+                kb(0x64b2f9ee),
+                kb(0x40ec4a68),
+                kb(0x196bccb0),
+                kb(0x3eb1a91a),
+                kb(0x40c501d0),
+                kb(0x4e1b8058),
+                kb(0x6e56d387),
+                kb(0x40e1ad12),
+                kb(0x20745e9b),
+                kb(0x467f10c7),
+                kb(0x675d6591),
+                kb(0x58755628),
+                kb(0x7051ce17),
+                kb(0x2b5a384d),
+            ],
+            parse("0xe9d1a20d3c6fafdbfa8d58d5c211931091f298098287bcd7c38f3619508104a3"),
+        );
+    }
+
+    #[cfg(feature = "bluesky")]
+    #[test]
+    fn test_sponge_poseidon2_t3_bs() {
+        test_sponge_impl::<BS, BS, Poseidon2BlueSkyT3, 3, 2, 1, 4>(
+            94,
+            2,
+            [
+                parse("0x12f29346e161ced9e035d89992527158f50addde6bfb49b9f9cb8910ca5af618"),
+                parse("0x0d56c56ab54e77773ef8f7f19a99057d5782435bb32a34ca4934598569025701"),
+            ],
+            parse("0x9f2d2bd953763f78df14e0e119f960dfedc2bc0fd4a83c05166e11381eafca42"),
+        );
+    }
+
+    #[cfg(feature = "bluesky")]
+    #[test]
+    fn test_sponge_poseidon2_t4_bs() {
+        test_sponge_impl::<BS, BS, Poseidon2BlueSkyT4, 4, 3, 1, 5>(
+            108,
+            2,
+            [
+                parse("0x4a0f4b0ff78583837a67f960bcf4107507e2d0334260959a9f05ed046a19ab95"),
+                parse("0x175f55b671cc19b43c465849f7a4afc0d06daf28383d7ca9495ab09ab09f3097"),
+                parse("0x6fb73953a1eed14e87064341135048a1f5d78c4b89d971adedf1b8c23e9ed615"),
+            ],
+            parse("0xe2b887eb064998ebec1b6a1c010979182534642478f018eb63d595d8caaec4bf"),
+        );
+    }
+
+    #[cfg(feature = "schraderbrau")]
+    #[test]
+    fn test_sponge_poseidon2_t4_sb() {
+        test_sponge_impl::<SB, SB, Poseidon2SchraderbrauT4, 4, 3, 1, 4>(
+            136,
             1,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 1>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 1>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                1,
-            >(inputs, outputs)
-            .is_ok()
+            [
+                parse("0x29e01c5113c0232788d5a2c0874c074c2aef0f3067a0246867709bd613fd467a"),
+                parse("0x0e4c1a30cf610d310b4e5a76fb36106ce5e32db55004afdc79866acec608555a"),
+                parse("0x70e8bd2734854bbd91473c7c6901482b9bb70855d1a6527b041d510aefc70783"),
+            ],
+            parse("0xd41585866a26c1cc4d9cd9eee978e9c2538cd727c98103bfea73b28c562ade9c"),
         );
     }
 
+    #[cfg(feature = "goldilocks")]
     #[test]
-    fn test_hash_v2_t3_2() {
-        let inputs = [from_const(1), from_const(2)];
-        let outputs = [
-            parse_scalar("0x2a24882111b586a835203bdeb7a97d8489e410eadf12a495624f49b729528873"),
-            parse_scalar("0x69233d2461effb6b25dbec14086d466f3bf668ef2a38759fa5cb433bedf25778"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-            3,
-            2,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 2>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 2>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                2,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v2_t3_3() {
-        let inputs = [from_const(3), from_const(4), from_const(5)];
-        let outputs = [
-            parse_scalar("0x160be03feff499f1256ce2404ff9ee026fc378b6a91d434746bab98aafaecb63"),
-            parse_scalar("0x14a259b91d964d8263af60fc1325c4874c68e8fd9caef509cc07622fc17718fe"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-            3,
-            3,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 3>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 3>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                3,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v2_t3_4() {
-        let inputs = [from_const(6), from_const(7), from_const(8), from_const(9)];
-        let outputs = [
-            parse_scalar("0x63d491b523ae737f62f117ef5affb8353996b67034ddaeb8586b574678ab440a"),
-            parse_scalar("0x531109ee099551ccea55a61f6f7cab781bf0d3d0d0c4ba032476b65d1ebb9867"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-            3,
-            4,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 4>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 4>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                4,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v2_t3_5() {
-        let inputs = [
-            from_const(10),
-            from_const(11),
-            from_const(12),
-            from_const(13),
-            from_const(14),
-        ];
-        let outputs = [
-            parse_scalar("0x329255ad3db8a69a50a2a1f63fb4046d06d5bc6de30bf79bfe4138f4c93201df"),
-            parse_scalar("0x6968c301186d76def97ee0d7bcc1f426b34df8f2e04a3afdeaa1acd8f9070d76"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig3, 3>, 3>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-            3,
-            5,
-        >;
-        assert!(test_hash::<M1, 3, 2, 1, 5>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 3, 2, 1, 5>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig3, 3>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig3, 3>,
-                3,
-                2,
-                1,
-                5,
-            >(inputs, outputs)
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn test_hash_v2_t4_1() {
-        let inputs = [from_const(42)];
-        let outputs = [
-            parse_scalar("0x109a9fd885b0047b036489dad6d0ca97749f6a9b21d9fc2c1cb7d25952e453a0"),
-            parse_scalar("0x203e5346a31efe538f826a34e87c285ef6cfe0ce12a0316a25cbd4e2326abd29"),
-            parse_scalar("0x4c53083849aedf3e11959d1dad010d2f1d2951adfdcce95f6a480666e63c5834"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-            4,
+    fn test_sponge_poseidon2_t12_gl() {
+        test_sponge_impl::<GL, GL4, Poseidon2GoldilocksT12, 12, 8, 4, 5>(
+            177,
             1,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 1>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 1>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                1,
-            >(inputs, outputs)
-            .is_ok()
+            [
+                gl(0xb815d2807191c099),
+                gl(0x206b23ba36864cac),
+                gl(0x2f7589808ab18f0a),
+                gl(0xac18bd7a59939bf2),
+                gl(0x146461900fe58aed),
+                gl(0xc07463a4f3a8e90a),
+                gl(0xf475eceec2c0cd6d),
+                gl(0xd8aaf6a618e3f326),
+            ],
+            parse("0x3dcd5da359ac2ee5dd3788f5c24a7ef96e03011d73b5e89672964a86da8a24b6"),
         );
-    }
-
-    #[test]
-    fn test_hash_v2_t4_2() {
-        let inputs = [from_const(1), from_const(2)];
-        let outputs = [
-            parse_scalar("0x7c4e380d8a3935c0e8073420573f5b6aaf9ed2c727afc4da64f12401ab355faf"),
-            parse_scalar("0x14b0dda71f3fb062cc99121629f080541891b8be0e65ba858906cf0b648042ac"),
-            parse_scalar("0x5218f71044490008f3713824dfa6be57a708ad295ca8df9fb4176340d61fb681"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-            4,
+        test_sponge_impl::<GL, GL4, Poseidon2GoldilocksT12, 12, 8, 4, 13>(
+            177,
             2,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 2>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 2>(inputs, outputs).is_ok());
-        assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                2,
-            >(inputs, outputs)
-            .is_ok()
+            [
+                gl(0x63412adbb21758bf),
+                gl(0x90363f66fbf653b7),
+                gl(0x94a891ffc19484d0),
+                gl(0x6afcbe10527f96d6),
+                gl(0x3ba03caf6fda74ff),
+                gl(0x8e39404eca97d880),
+                gl(0x04b0432cf916bb60),
+                gl(0xcd9748d4dc482e4d),
+            ],
+            parse("0x77af805400a26e4445ffc0da0be16c6f790faf7da65c574e193a88b28c677479"),
         );
     }
 
+    #[cfg(feature = "bluesky")]
     #[test]
-    fn test_hash_v2_t4_3() {
-        let inputs = [from_const(3), from_const(4), from_const(5)];
-        let outputs = [
-            parse_scalar("0x2582eca7bed4bca9d4326a9e2ca601e0b3779582bb5173318a4e19ab005e7495"),
-            parse_scalar("0x0307db21c6063767f309fb09afcc4f250cbaed3f1d0870cd56d3276b18ced8d5"),
-            parse_scalar("0x3024913685a18187c7ae50f1dcabe3ea2acb407fc3abd5d107bd79f3dbd2e90c"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-            4,
-            3,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 3>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 3>(inputs, outputs).is_ok());
+    fn test_tampered_input() {
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(0).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(1).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(2).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(3).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(4).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT4, 4, 2, 2, 5>(0).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT4, 4, 2, 2, 5>(1).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT4, 4, 2, 2, 5>(2).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT4, 4, 2, 2, 5>(3).is_err());
+        assert!(test_tampered_input_impl::<BS, BS, Poseidon1BlueSkyT4, 4, 2, 2, 5>(4).is_err());
+    }
+
+    /// Changes only S, so that S = P + M doesn't hold.
+    #[cfg(feature = "bluesky")]
+    #[test]
+    fn test_forged_sum() {
+        let zero = BS::ZERO;
+        let one = BS::ONE;
         assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                3,
-            >(inputs, outputs)
-            .is_ok()
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 2>(&[1], zero)
+                .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 2>(&[1], one)
+                .is_err()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 4>(&[0], zero)
+                .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 4>(&[0], one)
+                .is_err()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(&[1], zero)
+                .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 5>(&[1], one)
+                .is_err()
         );
     }
 
+    /// Changes S and P consistently in a single-block sponge, so that only the zero constraint on
+    /// the initial P can catch it. With R = 2 the S cells are in columns 0 and 1, and the P cells
+    /// are in columns 2 and 3.
+    #[cfg(feature = "bluesky")]
     #[test]
-    fn test_hash_v2_t4_4() {
-        let inputs = [from_const(6), from_const(7), from_const(8), from_const(9)];
-        let outputs = [
-            parse_scalar("0x6b13720a0ebd34f13327023c0232a3a3421f88d50b627bacfd114491ae48bfaa"),
-            parse_scalar("0x235d36a318fbc8175bce6613d8b8812a1d8ab17c56a70565f8eb1253a248f5d0"),
-            parse_scalar("0x379747ade21215413ccf1e1d91c7f367e1d5d8cd3e52b24da10e080dc8b25c43"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-            4,
-            4,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 4>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 4>(inputs, outputs).is_ok());
+    fn test_forged_initial_state() {
+        let zero = BS::ZERO;
+        let one = BS::ONE;
         assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                4,
-            >(inputs, outputs)
-            .is_ok()
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 3>(&[0, 2], zero)
+                .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 3>(&[0, 2], one)
+                .is_err()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 3>(&[1, 3], zero)
+                .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 3>(&[1, 3], one)
+                .is_err()
         );
     }
 
+    /// Changes S and M consistently at a padding position of the last block, so that only the zero
+    /// padding constraint can catch it. With R = 2 the S cells are in columns 0 and 1, and the M
+    /// cells are in columns 4 and 5.
+    #[cfg(feature = "bluesky")]
     #[test]
-    fn test_hash_v2_t4_5() {
-        let inputs = [
-            from_const(10),
-            from_const(11),
-            from_const(12),
-            from_const(13),
-            from_const(14),
-        ];
-        let outputs = [
-            parse_scalar("0x4f07a42cf3cd73f35eeb9b42bff06b11e1c7ebe0fd8f65b7fab0dd5d551f1c6c"),
-            parse_scalar("0x2507a1f641f6bab3bb2cc40cb6d14df149aeede849a53a4590d73b0d29af2d71"),
-            parse_scalar("0x79f1da2d204aa97c4256d321055eac279959efeff119a32e106220ef69699d4f"),
-        ];
-        type M1 = PrpModeSelfContained<Poseidon2PermutationChipHW<poseidon2::BlueSkyConfig4, 4>, 4>;
-        type M2 = PrpModeInternalRom<
-            Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-            Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-            4,
-            5,
-        >;
-        assert!(test_hash::<M1, 4, 3, 1, 5>(inputs, outputs).is_ok());
-        assert!(test_hash::<M2, 4, 3, 1, 5>(inputs, outputs).is_ok());
+    fn test_forged_padding() {
+        let zero = BS::ZERO;
+        let one = BS::ONE;
         assert!(
-            test_hash_er::<
-                Poseidon2PermutationChipIR<poseidon2::BlueSkyConfig4, 4>,
-                Poseidon2PermutationChipER<poseidon2::BlueSkyConfig4, 4>,
-                4,
-                3,
-                1,
-                5,
-            >(inputs, outputs)
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 2>(&[1, 5], zero)
+                .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 2>(&[1, 5], one)
+                .is_err()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 4>(&[1, 5], zero)
+                .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<BS, BS, Poseidon1BlueSkyT3, 3, 2, 1, 4>(&[1, 5], one)
+                .is_err()
+        );
+    }
+
+    /// Same as `test_forged_padding` but with R = 8, so the last S cell is in column 7 and the last
+    /// M cell is in column 23.
+    #[cfg(feature = "goldilocks")]
+    #[test]
+    fn test_forged_padding_gl() {
+        let zero = GL::ZERO;
+        let one = GL::ONE;
+        assert!(
+            test_forged_last_block_impl::<GL, GL4, Poseidon2GoldilocksT12, 12, 8, 4, 5>(
+                &[7, 23],
+                zero
+            )
             .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<GL, GL4, Poseidon2GoldilocksT12, 12, 8, 4, 5>(
+                &[7, 23],
+                one
+            )
+            .is_err()
+        );
+        assert!(
+            test_forged_last_block_impl::<GL, GL4, Poseidon2GoldilocksT12, 12, 8, 4, 13>(
+                &[7, 23],
+                zero
+            )
+            .is_ok()
+        );
+        assert!(
+            test_forged_last_block_impl::<GL, GL4, Poseidon2GoldilocksT12, 12, 8, 4, 13>(
+                &[7, 23],
+                one
+            )
+            .is_err()
         );
     }
 }

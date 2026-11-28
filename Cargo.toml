@@ -1,22 +1,47 @@
 [package]
 name = "starkom-gadgets"
-version = "3.0.0"
+version = "4.0.0"
 description = "Reusable Starkom chips."
 license = "Apache-2.0"
 repository = "https://github.com/libernet-xyz/gadgets.git"
 readme = "README.md"
 edition = "2024"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lib]
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 primitive-types = "0.14.0"
 sha3 = "0.12.0"
-starkom-bluesky = "3.2.0"
-starkom-ff = "2.3.0"
-starkom-pcs = "4.2.2"
-starkom-plonk = "5.1.0"
-starkom-poseidon = "3.1.1"
-starkom-poseidon2 = "6.1.0"
+starkom-bluesky = { version = "4.0.1", optional = true }
+starkom-ff = "5.0.2"
+starkom-goldilocks = { version = "4.0.0", optional = true }
+starkom-koalabear = { version = "2.0.0", optional = true }
+starkom-pcs = "12.0.0"
+starkom-plonk = "12.1.0"
+starkom-poseidon = "5.1.4"
+starkom-poseidon2 = "7.1.3"
+starkom-schraderbrau = { version = "2.0.0", optional = true }
+
+[features]
+default = []
+bluesky = [
+  "starkom-bluesky",
+  "starkom-poseidon/bluesky",
+  "starkom-poseidon2/bluesky",
+]
+goldilocks = [
+  "starkom-goldilocks",
+  "starkom-poseidon/goldilocks",
+  "starkom-poseidon2/goldilocks",
+]
+schraderbrau = [
+  "starkom-schraderbrau",
+  "starkom-poseidon/schraderbrau",
+  "starkom-poseidon2/schraderbrau",
+]
+koalabear = ["starkom-koalabear", "starkom-poseidon/koalabear"]
