@@ -1611,7 +1611,7 @@ mod tests {
     #[ignore]
     fn test_taller_ternary_smt_with_large_blowup() {
         let tree = {
-            let mut tree = get_empty_ternary_tree::<BlueSkyConfigT5X7>(102);
+            let mut tree = get_empty_ternary_tree::<BlueSkyConfigT5X7>(101);
             tree = tree.put(from_const(12), from_const(34));
             tree = tree.put(from_const(34), from_const(56));
             tree = tree.put(from_const(56), from_const(78));
@@ -1621,7 +1621,7 @@ mod tests {
         };
         let key = from_const(56);
         let value = from_const(78);
-        let path: [[Scalar; 3]; 102] = tree
+        let path: [[Scalar; 3]; 101] = tree
             .get_merkle_path(key.into())
             .into_iter()
             .map(|entry| entry.try_into().unwrap())
@@ -1630,9 +1630,9 @@ mod tests {
             .unwrap();
         let expected_root_hash = tree.hash();
 
-        let chip = TernaryChip::<Scalar, 102, BlueSkyConfigT5X7>::new(*DST, path);
+        let chip = TernaryChip::<Scalar, 101, BlueSkyConfigT5X7>::new(*DST, path);
         assert_eq!(chip.width(), 105);
-        assert_eq!(chip.height(), 102);
+        assert_eq!(chip.height(), 101);
 
         let mut builder = CircuitBuilder::default();
         let inputs = [builder.cell(0, 0).into(), builder.cell(0, 1).into()];
